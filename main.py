@@ -190,6 +190,19 @@ class IconDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         """Custom paint method to center icons"""
         if index.column() == 0:  # Icon column
+            # Draw background if selected
+            from PyQt6.QtWidgets import QStyle
+            from PyQt6.QtGui import QPen
+
+            if option.state & QStyle.StateFlag.State_Selected:
+                painter.fillRect(option.rect, option.palette.highlight())
+            else:
+                # Draw alternating row colors if enabled
+                if index.row() % 2 == 1:
+                    painter.fillRect(option.rect, option.palette.alternateBase())
+                else:
+                    painter.fillRect(option.rect, option.palette.base())
+
             # Get the pixmap from the item's icon
             icon = index.data(Qt.ItemDataRole.DecorationRole)
             if isinstance(icon, QIcon) and not icon.isNull():
@@ -204,15 +217,25 @@ class IconDelegate(QStyledItemDelegate):
                     x = rect.x() + (rect.width() - pixmap_rect.width()) // 2
                     y = rect.y() + (rect.height() - pixmap_rect.height()) // 2
 
-                    # Draw background if selected
-                    from PyQt6.QtWidgets import QStyle
-
-                    if option.state & QStyle.StateFlag.State_Selected:
-                        painter.fillRect(option.rect, option.palette.highlight())
-
                     # Draw the pixmap
                     painter.drawPixmap(x, y, pixmap)
-                    return
+
+            # Draw bottom border to match other columns
+            pen = QPen(
+                option.palette.color(
+                    option.palette.ColorGroup.Active, option.palette.ColorRole.Mid
+                )
+            )
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawLine(
+                option.rect.bottomLeft().x(),
+                option.rect.bottomLeft().y(),
+                option.rect.bottomRight().x(),
+                option.rect.bottomRight().y(),
+            )
+
+            return
 
         # For non-icon columns, use default painting
         super().paint(painter, option, index)
