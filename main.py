@@ -885,7 +885,7 @@ class XboxBackupManager(QMainWindow):
         show_dlcs = self.current_platform in ["xbla"]
 
         # Create items with UserRole data to maintain sorting integrity
-        col_offset = 0
+        col_index = 0
 
         # Add icon column if showing icons
         if self.show_icons:
@@ -901,9 +901,10 @@ class XboxBackupManager(QMainWindow):
                 icon = QIcon(pixmap)
                 icon_item.setIcon(icon)
 
-            self.games_table.setItem(row, 0, icon_item)
-            col_offset = 1
+            self.games_table.setItem(row, col_index, icon_item)
+            col_index += 1
 
+        # Create all items with proper data
         title_id_item = QTableWidgetItem(game_info.title_id)
         title_id_item.setData(Qt.ItemDataRole.UserRole, game_info.title_id)
 
@@ -916,11 +917,19 @@ class XboxBackupManager(QMainWindow):
         path_item = QTableWidgetItem(game_info.folder_path)
         path_item.setData(Qt.ItemDataRole.UserRole, game_info.folder_path)
 
-        # Add data to table with column offset
-        self.games_table.setItem(row, 0 + col_offset, title_id_item)
-        self.games_table.setItem(row, 1 + col_offset, name_item)
-        self.games_table.setItem(row, 2 + col_offset, size_item)
+        # Add Title ID to current column
+        self.games_table.setItem(row, col_index, title_id_item)
+        col_index += 1
 
+        # Add Game Name to current column
+        self.games_table.setItem(row, col_index, name_item)
+        col_index += 1
+
+        # Add Size to current column
+        self.games_table.setItem(row, col_index, size_item)
+        col_index += 1
+
+        # Add DLCs column if needed for this platform
         if show_dlcs:
             # Calculate DLCs only for XBLA
             dlc_folder = Path(game_info.folder_path) / "00000002"
@@ -929,13 +938,13 @@ class XboxBackupManager(QMainWindow):
             else:
                 dlcs_count = 0
 
-            self.games_table.setItem(
-                row, 3 + col_offset, QTableWidgetItem(str(dlcs_count))
-            )
-            self.games_table.setItem(row, 4 + col_offset, path_item)
-        else:
-            # For Xbox 360 and Original Xbox, skip DLCs column
-            self.games_table.setItem(row, 3 + col_offset, path_item)
+            dlc_item = QTableWidgetItem(str(dlcs_count))
+            dlc_item.setData(Qt.ItemDataRole.UserRole, dlcs_count)
+            self.games_table.setItem(row, col_index, dlc_item)
+            col_index += 1
+
+        # Add Folder Path to current column (always last)
+        self.games_table.setItem(row, col_index, path_item)
 
         # Update status
         self.status_bar.showMessage(f"Found {len(self.games)} games...")
