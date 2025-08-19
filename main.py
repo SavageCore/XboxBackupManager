@@ -190,24 +190,22 @@ class IconDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         """Custom paint method to center icons"""
         if index.column() == 0:  # Icon column
-            # Draw background if selected
-            from PyQt6.QtWidgets import QStyle
-            from PyQt6.QtGui import QPen
+            # Store the original icon
+            original_icon = index.data(Qt.ItemDataRole.DecorationRole)
 
-            if option.state & QStyle.StateFlag.State_Selected:
-                painter.fillRect(option.rect, option.palette.highlight())
-            else:
-                # Draw alternating row colors if enabled
-                if index.row() % 2 == 1:
-                    painter.fillRect(option.rect, option.palette.alternateBase())
-                else:
-                    painter.fillRect(option.rect, option.palette.base())
+            # Temporarily remove the icon to prevent default painting
+            index.model().setData(index, QIcon(), Qt.ItemDataRole.DecorationRole)
 
-            # Get the pixmap from the item's icon
-            icon = index.data(Qt.ItemDataRole.DecorationRole)
-            if isinstance(icon, QIcon) and not icon.isNull():
+            # Let the default delegate handle background painting only
+            super().paint(painter, option, index)
+
+            # Restore the original icon
+            index.model().setData(index, original_icon, Qt.ItemDataRole.DecorationRole)
+
+            # Now draw our custom centered icon
+            if isinstance(original_icon, QIcon) and not original_icon.isNull():
                 # Get 64x64 pixmap for better quality
-                pixmap = icon.pixmap(64, 64)
+                pixmap = original_icon.pixmap(64, 64)
                 if not pixmap.isNull():
                     # Calculate centered position
                     rect = option.rect
@@ -219,21 +217,6 @@ class IconDelegate(QStyledItemDelegate):
 
                     # Draw the pixmap
                     painter.drawPixmap(x, y, pixmap)
-
-            # Draw bottom border to match other columns
-            pen = QPen(
-                option.palette.color(
-                    option.palette.ColorGroup.Active, option.palette.ColorRole.Mid
-                )
-            )
-            pen.setWidth(1)
-            painter.setPen(pen)
-            painter.drawLine(
-                option.rect.bottomLeft().x(),
-                option.rect.bottomLeft().y(),
-                option.rect.bottomRight().x(),
-                option.rect.bottomRight().y(),
-            )
 
             return
 
@@ -1126,7 +1109,13 @@ class XboxBackupManager(QMainWindow):
         # Use larger row height for icons
         self.games_table.verticalHeader().setDefaultSectionSize(72)
 
-        self.games_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        # Enable single selection and row selection for hover effects
+        self.games_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.games_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
 
         # Ensure header is visible with proper styling and stretches to full width
         header.setVisible(True)
