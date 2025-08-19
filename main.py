@@ -1169,6 +1169,12 @@ class XboxBackupManager(QMainWindow):
             lambda: self.open_folder_in_explorer(folder_path)
         )
 
+        # Add "Copy Folder Path" action
+        copy_path_action = menu.addAction("Copy Folder Path")
+        copy_path_action.triggered.connect(
+            lambda: self.copy_folder_path_to_clipboard(folder_path)
+        )
+
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
 
@@ -1222,6 +1228,11 @@ class XboxBackupManager(QMainWindow):
                 QMessageBox.warning(
                     self, "Unexpected Error", f"An unexpected error occurred:\n{e}"
                 )
+
+    def copy_folder_path_to_clipboard(self, folder_path: str):
+        """Copy the folder path to the clipboard"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(folder_path)
 
     def scan_error(self, error_msg: str):
         """Handle scan error"""
