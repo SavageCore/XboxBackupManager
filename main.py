@@ -532,6 +532,12 @@ class XboxBackupManager(QMainWindow):
             font-size: 14px !important;
             min-height: 20px !important;
         }
+        QProgressBar {
+            border: none;
+        }
+        QProgressBar::chunk {
+            border-radius: 0px !important;
+        }
         """
         self.setStyleSheet(stylesheet + button_styling)
 
