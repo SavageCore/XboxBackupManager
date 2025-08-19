@@ -295,8 +295,14 @@ class XboxBackupManager(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
+        # Remove all margins and spacing from main layout
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
         # Top section - Directory selection
         top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(10, 10, 10, 10)  # Add margins only to top section
+        top_layout.setSpacing(10)
 
         self.directory_label = QLabel("No directory selected")
         self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -320,16 +326,24 @@ class XboxBackupManager(QMainWindow):
         top_layout.addWidget(self.browse_button)
         top_layout.addWidget(self.scan_button)
 
-        main_layout.addLayout(top_layout)
+        # Create a widget to contain the top layout with margins
+        top_widget = QWidget()
+        top_widget.setLayout(top_layout)
 
-        # Games table (setup will be called after loading settings)
+        main_layout.addWidget(top_widget)
+
+        # Games table - no margins, should be full width
         self.games_table = QTableWidget()
+        self.games_table.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.games_table)
 
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setMaximumHeight(20)
+        self.progress_bar.setContentsMargins(
+            10, 0, 10, 10
+        )  # Add side margins to progress bar
         main_layout.addWidget(self.progress_bar)
 
         # Status bar - use the built-in status bar for full width
@@ -1124,12 +1138,22 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setFrameStyle(0)  # Remove outer frame/border
         self.games_table.setShowGrid(False)  # Remove grid lines
 
+        # Configure row headers - completely hide them to remove left padding
+        vertical_header = self.games_table.verticalHeader()
+        vertical_header.setVisible(False)  # Hide completely to remove left padding
+        vertical_header.setDefaultSectionSize(0)  # Set to 0 width
+
+        # Remove any viewport margins
+        self.games_table.setContentsMargins(0, 0, 0, 0)
+
         # Enable horizontal lines between rows only and fix header styling
         self.games_table.setStyleSheet(
             """
             QTableWidget {
                 gridline-color: transparent;
                 border: none;
+                margin: 0px;
+                padding: 0px;
             }
             QTableWidget::item {
                 border-bottom: 1px solid palette(mid);
@@ -1140,6 +1164,10 @@ class XboxBackupManager(QMainWindow):
                 height: 12px;
                 right: 4px;
             }
+            QHeaderView {
+                margin: 0px;
+                padding: 0px;
+            }
             """
         )
 
@@ -1149,15 +1177,6 @@ class XboxBackupManager(QMainWindow):
         else:
             self.games_table.verticalHeader().setDefaultSectionSize(32)
 
-        # Configure row headers with checkboxes
-        vertical_header = self.games_table.verticalHeader()
-        vertical_header.setVisible(True)
-        vertical_header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        vertical_header.setDefaultSectionSize(40)
-
-        # Hide row numbers and enable checkboxes
-        vertical_header.hide()  # Hide the numbered headers
-
         # Enable row selection via clicking anywhere on the row
         self.games_table.setSelectionMode(
             QAbstractItemView.SelectionMode.MultiSelection
@@ -1166,15 +1185,11 @@ class XboxBackupManager(QMainWindow):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        # Connect corner button click for select all/deselect all functionality
-        corner_button = self.games_table.findChild(QPushButton)
-        if corner_button:
-            corner_button.clicked.connect(self.toggle_select_all)
-
-        # Ensure header is visible with proper styling
+        # Ensure header is visible with proper styling and stretches to full width
         header.setVisible(True)
         header.setHighlightSections(False)
-        header.setStretchLastSection(False)
+        header.setStretchLastSection(True)  # This ensures the table fills full width
+        header.setContentsMargins(0, 0, 0, 0)  # Remove header margins
 
         # Enable context menu and connect to custom handler
         self.games_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
