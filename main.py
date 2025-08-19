@@ -260,7 +260,7 @@ class XboxBackupManager(QMainWindow):
             None  # None = auto, True = force dark, False = force light
         )
         self.current_platform = "xbox360"  # Default platform
-        self.show_icons = False  # Show game icons
+        self.show_icons = True  # Always show game icons
 
         # Platform directories
         self.platform_directories = {"xbox360": "", "xbla": ""}
@@ -394,15 +394,6 @@ class XboxBackupManager(QMainWindow):
 
         # View menu
         view_menu = menubar.addMenu("&View")
-
-        # Show Icons action
-        self.show_icons_action = QAction("Show &Icons", self)
-        self.show_icons_action.setCheckable(True)
-        self.show_icons_action.setChecked(False)
-        self.show_icons_action.triggered.connect(self.toggle_icons)
-        view_menu.addAction(self.show_icons_action)
-
-        view_menu.addSeparator()
 
         # Theme submenu
         theme_menu = view_menu.addMenu("&Theme")
@@ -576,10 +567,6 @@ class XboxBackupManager(QMainWindow):
         else:
             self.dark_mode_override = None
 
-        # Restore show icons preference
-        self.show_icons = self.settings.value("show_icons", False, type=bool)
-        self.show_icons_action.setChecked(self.show_icons)
-
         # Restore current platform
         self.current_platform = self.settings.value("current_platform", "xbox360")
 
@@ -615,24 +602,20 @@ class XboxBackupManager(QMainWindow):
         # Load cached icons after setting up the table
         self.load_cached_icons()
 
-        # Restore table column widths (adjusted for platform-specific column count and icons)
+        # Restore table column widths (always with icons now)
         header = self.games_table.horizontalHeader()
         show_dlcs = self.current_platform in ["xbla"]
-
-        if self.show_icons:
-            column_count = 6 if show_dlcs else 5
-        else:
-            column_count = 5 if show_dlcs else 4
+        column_count = 6 if show_dlcs else 5
 
         for i in range(column_count):
-            width = self.settings.value(
-                f"{self.current_platform}_icons_{self.show_icons}_column_{i}_width"
-            )
+            width = self.settings.value(f"{self.current_platform}_column_{i}_width")
             if width:
                 header.resizeSection(i, int(width))
 
         # Restore sort column and order
-        sort_column = self.settings.value("sort_column", 2 if self.show_icons else 1)
+        sort_column = self.settings.value(
+            "sort_column", 2
+        )  # Default to Game Name with icons
         sort_order = self.settings.value(
             "sort_order", Qt.SortOrder.AscendingOrder.value
         )
@@ -644,9 +627,6 @@ class XboxBackupManager(QMainWindow):
 
     def load_cached_icons(self):
         """Load any cached icons from disk"""
-        if not self.show_icons:
-            return
-
         cache_dir = Path("cache/icons")
         if not cache_dir.exists():
             return
@@ -667,9 +647,6 @@ class XboxBackupManager(QMainWindow):
         # Save current platform
         self.settings.setValue("current_platform", self.current_platform)
 
-        # Save show icons preference
-        self.settings.setValue("show_icons", self.show_icons)
-
         # Save current directory for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
@@ -687,18 +664,14 @@ class XboxBackupManager(QMainWindow):
                 "dark_mode_override", str(self.dark_mode_override).lower()
             )
 
-        # Save table column widths (platform-specific and icon-mode specific)
+        # Save table column widths (platform-specific, always with icons)
         header = self.games_table.horizontalHeader()
         show_dlcs = self.current_platform in ["xbla"]
-
-        if self.show_icons:
-            column_count = 6 if show_dlcs else 5
-        else:
-            column_count = 5 if show_dlcs else 4
+        column_count = 6 if show_dlcs else 5
 
         for i in range(column_count):
             self.settings.setValue(
-                f"{self.current_platform}_icons_{self.show_icons}_column_{i}_width",
+                f"{self.current_platform}_column_{i}_width",
                 header.sectionSize(i),
             )
 
@@ -875,11 +848,8 @@ class XboxBackupManager(QMainWindow):
         row = self.games_table.rowCount()
         self.games_table.insertRow(row)
 
-        # Set row height based on icon display
-        if self.show_icons:
-            self.games_table.setRowHeight(row, 72)
-        else:
-            self.games_table.setRowHeight(row, 32)
+        # Set row height for icons (always showing icons)
+        self.games_table.setRowHeight(row, 72)
 
         # Determine if we should show DLCs column based on platform
         show_dlcs = self.current_platform in ["xbla"]
@@ -887,35 +857,46 @@ class XboxBackupManager(QMainWindow):
         # Create items with UserRole data to maintain sorting integrity
         col_index = 0
 
-        # Add icon column if showing icons
-        if self.show_icons:
-            icon_item = QTableWidgetItem()
-            icon_item.setFlags(
-                icon_item.flags() & ~Qt.ItemFlag.ItemIsEditable
-            )  # Make non-editable
+        # Add icon column (always showing icons)
+        icon_item = QTableWidgetItem()
+        icon_item.setFlags(
+            icon_item.flags() & ~Qt.ItemFlag.ItemIsEditable
+        )  # Make non-editable
 
-            # Add icon if we have it cached
-            if game_info.title_id in self.icon_cache:
-                pixmap = self.icon_cache[game_info.title_id]
-                # Create a QIcon from the pixmap at full size (64x64)
-                icon = QIcon(pixmap)
-                icon_item.setIcon(icon)
+        # Add icon if we have it cached
+        if game_info.title_id in self.icon_cache:
+            pixmap = self.icon_cache[game_info.title_id]
+            # Create a QIcon from the pixmap at full size (64x64)
+            icon = QIcon(pixmap)
+            icon_item.setIcon(icon)
 
-            self.games_table.setItem(row, col_index, icon_item)
-            col_index += 1
+        self.games_table.setItem(row, col_index, icon_item)
+        col_index += 1
 
         # Create all items with proper data
         title_id_item = QTableWidgetItem(game_info.title_id)
         title_id_item.setData(Qt.ItemDataRole.UserRole, game_info.title_id)
+        title_id_item.setFlags(
+            title_id_item.flags() & ~Qt.ItemFlag.ItemIsEditable
+        )  # Make non-editable
 
         name_item = QTableWidgetItem(game_info.name)
         name_item.setData(Qt.ItemDataRole.UserRole, game_info.name)
+        name_item.setFlags(
+            name_item.flags() & ~Qt.ItemFlag.ItemIsEditable
+        )  # Make non-editable
 
         size_item = QTableWidgetItem(game_info.size_formatted)
         size_item.setData(Qt.ItemDataRole.UserRole, game_info.size_bytes)
+        size_item.setFlags(
+            size_item.flags() & ~Qt.ItemFlag.ItemIsEditable
+        )  # Make non-editable
 
         path_item = QTableWidgetItem(game_info.folder_path)
         path_item.setData(Qt.ItemDataRole.UserRole, game_info.folder_path)
+        path_item.setFlags(
+            path_item.flags() & ~Qt.ItemFlag.ItemIsEditable
+        )  # Make non-editable
 
         # Add Title ID to current column
         self.games_table.setItem(row, col_index, title_id_item)
@@ -974,15 +955,15 @@ class XboxBackupManager(QMainWindow):
                 self.current_sort_column, self.current_sort_order
             )
         else:
-            # Default sort for first scan
-            self.games_table.sortItems(1, Qt.SortOrder.AscendingOrder)
+            # Default sort for first scan (Game Name column is always column 2 with icons)
+            self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
 
         self.status_bar.showMessage(
             f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit}) - Watching for changes"
         )
 
-        # Download icons if showing icons
-        if self.show_icons and game_count > 0:
+        # Download icons for games that don't have them cached
+        if game_count > 0:
             self.download_missing_icons()
 
         if game_count == 0:
@@ -1018,19 +999,18 @@ class XboxBackupManager(QMainWindow):
         # Store in cache
         self.icon_cache[title_id] = pixmap
 
-        # Update the table row for this title ID if showing icons
-        if self.show_icons:
-            title_id_column = 1  # Title ID is in column 1 when icons are shown
+        # Update the table row for this title ID (icons are always shown)
+        title_id_column = 1  # Title ID is always in column 1 when icons are shown
 
-            for row in range(self.games_table.rowCount()):
-                title_item = self.games_table.item(row, title_id_column)
-                if title_item and title_item.text() == title_id:
-                    # Set icon in the icon column (column 0)
-                    icon_item = self.games_table.item(row, 0)
-                    if icon_item:
-                        icon = QIcon(pixmap)
-                        icon_item.setIcon(icon)
-                    break
+        for row in range(self.games_table.rowCount()):
+            title_item = self.games_table.item(row, title_id_column)
+            if title_item and title_item.text() == title_id:
+                # Set icon in the icon column (column 0)
+                icon_item = self.games_table.item(row, 0)
+                if icon_item:
+                    icon = QIcon(pixmap)
+                    icon_item.setIcon(icon)
+                break
 
     def on_icon_download_failed(self, title_id: str):
         """Handle failed icon download"""
@@ -1046,101 +1026,58 @@ class XboxBackupManager(QMainWindow):
         # Determine if we should show DLCs column based on platform
         show_dlcs = self.current_platform in ["xbla"]
 
-        if self.show_icons:
-            if show_dlcs:
-                self.games_table.setColumnCount(6)
-                headers = [
-                    "Icon",
-                    "Title ID",
-                    "Game Name",
-                    "Size",
-                    "DLCs",
-                    "Folder Path",
-                ]
-            else:
-                self.games_table.setColumnCount(5)
-                headers = ["Icon", "Title ID", "Game Name", "Size", "Folder Path"]
+        # Always show icons now
+        if show_dlcs:
+            self.games_table.setColumnCount(6)
+            headers = [
+                "Icon",
+                "Title ID",
+                "Game Name",
+                "Size",
+                "DLCs",
+                "Folder Path",
+            ]
         else:
-            if show_dlcs:
-                self.games_table.setColumnCount(5)
-                headers = ["Title ID", "Game Name", "Size", "DLCs", "Folder Path"]
-            else:
-                self.games_table.setColumnCount(4)
-                headers = ["Title ID", "Game Name", "Size", "Folder Path"]
+            self.games_table.setColumnCount(5)
+            headers = ["Icon", "Title ID", "Game Name", "Size", "Folder Path"]
 
         self.games_table.setHorizontalHeaderLabels(headers)
 
         # Set up custom icon delegate for proper icon rendering
-        if self.show_icons:
-            icon_delegate = IconDelegate()
-            self.games_table.setItemDelegateForColumn(0, icon_delegate)
+        icon_delegate = IconDelegate()
+        self.games_table.setItemDelegateForColumn(0, icon_delegate)
 
         # Set column widths
         header = self.games_table.horizontalHeader()
 
-        if self.show_icons:
-            # Icon column - fixed width
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-            header.resizeSection(0, 80)  # Fixed width for icons
+        # Icon column - fixed width
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(0, 80)  # Fixed width for icons
 
-            # Other columns
-            header.setSectionResizeMode(
-                1, QHeaderView.ResizeMode.Interactive
-            )  # Title ID
-            header.setSectionResizeMode(
-                2, QHeaderView.ResizeMode.Interactive
-            )  # Game Name
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Size
+        # Other columns
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # Title ID
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Game Name
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Size
 
-            if show_dlcs:
-                header.setSectionResizeMode(
-                    4, QHeaderView.ResizeMode.Interactive
-                )  # DLCs
-                header.setSectionResizeMode(
-                    5, QHeaderView.ResizeMode.Stretch
-                )  # Folder Path
-            else:
-                header.setSectionResizeMode(
-                    4, QHeaderView.ResizeMode.Stretch
-                )  # Folder Path
+        if show_dlcs:
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # DLCs
+            header.setSectionResizeMode(
+                5, QHeaderView.ResizeMode.Stretch
+            )  # Folder Path
         else:
-            # No icons - original layout
             header.setSectionResizeMode(
-                0, QHeaderView.ResizeMode.Interactive
-            )  # Title ID
-            header.setSectionResizeMode(
-                1, QHeaderView.ResizeMode.Interactive
-            )  # Game Name
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Size
-
-            if show_dlcs:
-                header.setSectionResizeMode(
-                    3, QHeaderView.ResizeMode.Interactive
-                )  # DLCs
-                header.setSectionResizeMode(
-                    4, QHeaderView.ResizeMode.Stretch
-                )  # Folder Path
-            else:
-                header.setSectionResizeMode(
-                    3, QHeaderView.ResizeMode.Stretch
-                )  # Folder Path
+                4, QHeaderView.ResizeMode.Stretch
+            )  # Folder Path
 
         # Set minimum column widths
         header.setMinimumSectionSize(80)
 
         # Set initial column widths
-        if self.show_icons:
-            header.resizeSection(1, 100)  # Title ID
-            header.resizeSection(2, 300)  # Game Name
-            header.resizeSection(3, 100)  # Size
-            if show_dlcs:
-                header.resizeSection(4, 60)  # DLCs
-        else:
-            header.resizeSection(0, 100)  # Title ID
-            header.resizeSection(1, 300)  # Game Name
-            header.resizeSection(2, 100)  # Size
-            if show_dlcs:
-                header.resizeSection(3, 60)  # DLCs
+        header.resizeSection(1, 100)  # Title ID
+        header.resizeSection(2, 300)  # Game Name
+        header.resizeSection(3, 100)  # Size
+        if show_dlcs:
+            header.resizeSection(4, 60)  # DLCs
 
         # Table settings
         self.games_table.setAlternatingRowColors(True)
@@ -1186,11 +1123,8 @@ class XboxBackupManager(QMainWindow):
             """
         )
 
-        # Use larger row height for icons, smaller for text-only
-        if self.show_icons:
-            self.games_table.verticalHeader().setDefaultSectionSize(72)
-        else:
-            self.games_table.verticalHeader().setDefaultSectionSize(32)
+        # Use larger row height for icons
+        self.games_table.verticalHeader().setDefaultSectionSize(72)
 
         # Enable row selection via clicking anywhere on the row
         self.games_table.setSelectionMode(
@@ -1210,45 +1144,8 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.games_table.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Set default sort to Game Name (column 1 or 2 depending on icons)
-        name_column = 2 if self.show_icons else 1
-        self.games_table.sortItems(name_column, Qt.SortOrder.AscendingOrder)
-
-    def toggle_select_all(self):
-        """Toggle select all/deselect all for checkboxes - placeholder for future checkbox functionality"""
-        # This will be implemented when checkboxes are added
-        pass
-
-    def toggle_icons(self):
-        """Toggle icon display in the table"""
-        self.show_icons = self.show_icons_action.isChecked()
-        self.settings.setValue("show_icons", self.show_icons)
-
-        # Refresh the table to show/hide icons
-        self.setup_table()
-
-        # Re-add all games to update the display
-        if self.games:
-            # Store current games list
-            current_games = self.games.copy()
-
-            # Clear table and games list
-            self.games.clear()
-            self.games_table.setRowCount(0)
-
-            # Disable sorting during bulk insertion
-            self.games_table.setSortingEnabled(False)
-
-            # Re-add all games
-            for game in current_games:
-                self.add_game(game)
-
-            # Re-enable sorting
-            self.games_table.setSortingEnabled(True)
-
-            # Download icons if showing icons and not already cached
-            if self.show_icons:
-                self.download_missing_icons()
+        # Set default sort to Game Name (column 2 with icons always shown)
+        self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
 
     def show_context_menu(self, position):
         """Show context menu when right-clicking on table"""
@@ -1258,14 +1155,9 @@ class XboxBackupManager(QMainWindow):
 
         row = item.row()
 
-        # Determine folder path column based on platform and icon display
+        # Determine folder path column based on platform (always with icons)
         show_dlcs = self.current_platform in ["xbla"]
-        col_offset = 1 if self.show_icons else 0
-
-        if show_dlcs:
-            folder_path_column = 4 + col_offset
-        else:
-            folder_path_column = 3 + col_offset
+        folder_path_column = 5 if show_dlcs else 4
 
         # Get the folder path from the appropriate column
         folder_item = self.games_table.item(row, folder_path_column)
