@@ -1113,13 +1113,9 @@ class XboxBackupManager(QMainWindow):
                 padding: 4px;
             }
             QHeaderView::section {
-                background-color: palette(button);
+                background-color: #455364;
                 border: 1px solid palette(mid);
                 padding: 4px;
-            }
-            QTableWidget QTableCornerButton::section {
-                background-color: palette(button);
-                border: 1px solid palette(mid);
             }
         """
         )
