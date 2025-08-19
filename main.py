@@ -1126,13 +1126,7 @@ class XboxBackupManager(QMainWindow):
         # Use larger row height for icons
         self.games_table.verticalHeader().setDefaultSectionSize(72)
 
-        # Enable row selection via clicking anywhere on the row
-        self.games_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.MultiSelection
-        )
-        self.games_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
+        self.games_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
 
         # Ensure header is visible with proper styling and stretches to full width
         header.setVisible(True)
