@@ -1113,11 +1113,26 @@ class XboxBackupManager(QMainWindow):
                 padding: 4px;
             }
             QHeaderView::section {
-                background-color: #455364;
+                background-color: palette(window);
+                color: palette(window-text);
                 border: 1px solid palette(mid);
-                padding: 4px;
+                padding: 4px 20px 4px 4px;
+                text-align: left;
             }
-        """
+            QHeaderView::section:horizontal {
+                border-right: 1px solid palette(mid);
+            }
+            QHeaderView::down-arrow, QHeaderView::up-arrow {
+                width: 12px;
+                height: 12px;
+                right: 4px;
+            }
+            QTableWidget QTableCornerButton::section {
+                background-color: palette(window);
+                color: palette(window-text);
+                border: 1px solid palette(mid);
+            }
+            """
         )
 
         # Use larger row height for icons, smaller for text-only
@@ -1160,6 +1175,11 @@ class XboxBackupManager(QMainWindow):
         # Set default sort to Game Name (column 1 or 2 depending on icons)
         name_column = 2 if self.show_icons else 1
         self.games_table.sortItems(name_column, Qt.SortOrder.AscendingOrder)
+
+    def toggle_select_all(self):
+        """Toggle select all/deselect all for checkboxes - placeholder for future checkbox functionality"""
+        # This will be implemented when checkboxes are added
+        pass
 
     def toggle_icons(self):
         """Toggle icon display in the table"""
