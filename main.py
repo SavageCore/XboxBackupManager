@@ -1112,25 +1112,10 @@ class XboxBackupManager(QMainWindow):
                 border-bottom: 1px solid palette(mid);
                 padding: 4px;
             }
-            QHeaderView::section {
-                background-color: palette(window);
-                color: palette(window-text);
-                border: 1px solid palette(mid);
-                padding: 4px 20px 4px 4px;
-                text-align: left;
-            }
-            QHeaderView::section:horizontal {
-                border-right: 1px solid palette(mid);
-            }
             QHeaderView::down-arrow, QHeaderView::up-arrow {
                 width: 12px;
                 height: 12px;
                 right: 4px;
-            }
-            QTableWidget QTableCornerButton::section {
-                background-color: palette(window);
-                color: palette(window-text);
-                border: 1px solid palette(mid);
             }
             """
         )
