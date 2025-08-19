@@ -27,9 +27,8 @@ from PyQt6.QtCore import (
     QFileSystemWatcher,
     QTimer,
     QSize,
-    QRect,
 )
-from PyQt6.QtGui import QAction, QIcon, QActionGroup, QPixmap, QPainter
+from PyQt6.QtGui import QAction, QIcon, QActionGroup, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -39,11 +38,9 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
-    QMenuBar,
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QStatusBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -646,9 +643,9 @@ class XboxBackupManager(QMainWindow):
             self.platform_directories[self.current_platform] = self.current_directory
 
         # Save all platform directories
-        for platform, directory in self.platform_directories.items():
+        for plat, directory in self.platform_directories.items():
             if directory:
-                self.settings.setValue(f"{platform}_directory", directory)
+                self.settings.setValue(f"{plat}_directory", directory)
 
         # Save theme override preference
         if self.dark_mode_override is None:
@@ -878,9 +875,6 @@ class XboxBackupManager(QMainWindow):
 
         title_id_item = QTableWidgetItem(game_info.title_id)
         title_id_item.setData(Qt.ItemDataRole.UserRole, game_info.title_id)
-        # Add checkbox to first data column for selection
-        title_id_item.setFlags(title_id_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        title_id_item.setCheckState(Qt.CheckState.Unchecked)
 
         name_item = QTableWidgetItem(game_info.name)
         name_item.setData(Qt.ItemDataRole.UserRole, game_info.name)
