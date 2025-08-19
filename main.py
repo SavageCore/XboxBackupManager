@@ -1064,9 +1064,6 @@ class XboxBackupManager(QMainWindow):
 
         # Table settings
         self.games_table.setAlternatingRowColors(True)
-        self.games_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
         self.games_table.setSortingEnabled(True)
 
         # Remove outer border but keep row separators
