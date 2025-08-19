@@ -50,7 +50,6 @@ from PyQt6.QtWidgets import (
 
 
 @dataclass
-@dataclass
 class GameInfo:
     """Data class to hold game information"""
 
@@ -241,7 +240,7 @@ class XboxBackupManager(QMainWindow):
         self.show_icons = False  # Show game icons
 
         # Platform directories
-        self.platform_directories = {"xbox360": "", "xbla": "", "og_xbox": ""}
+        self.platform_directories = {"xbox360": "", "xbla": ""}
 
         # Icon cache
         self.icon_cache: Dict[str, QPixmap] = {}
@@ -290,7 +289,7 @@ class XboxBackupManager(QMainWindow):
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
-        self.platform_label.setStyleSheet("QLabel { font-weight: bold; color: #666; }")
+        self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         top_layout.addWidget(QLabel("Directory:"))
         top_layout.addWidget(self.directory_label, 1)
@@ -355,13 +354,6 @@ class XboxBackupManager(QMainWindow):
         self.xbla_action.triggered.connect(lambda: self.switch_platform("xbla"))
         self.platform_action_group.addAction(self.xbla_action)
         platform_menu.addAction(self.xbla_action)
-
-        # OG Xbox action
-        self.og_xbox_action = QAction("&Original Xbox", self)
-        self.og_xbox_action.setCheckable(True)
-        self.og_xbox_action.triggered.connect(lambda: self.switch_platform("og_xbox"))
-        self.platform_action_group.addAction(self.og_xbox_action)
-        platform_menu.addAction(self.og_xbox_action)
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -432,7 +424,6 @@ class XboxBackupManager(QMainWindow):
         platform_names = {
             "xbox360": "Xbox 360",
             "xbla": "Xbox Live Arcade",
-            "og_xbox": "Original Xbox",
         }
         self.platform_label.setText(platform_names[platform])
 
@@ -469,10 +460,10 @@ class XboxBackupManager(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self,
-            "About Xbox Backup Manager",
-            "Xbox Backup Manager v1.0\n\n"
-            "A cross-platform GUI for managing Xbox game backups.\n"
-            "Similar to Wii Backup Manager but for Xbox 360/XBLA/Original Xbox games.\n\n"
+            "About Xbox 360 Backup Manager",
+            "Xbox 360 Backup Manager v0.0.0\n\n"
+            "A cross-platform GUI for managing Xbox 360 game backups.\n"
+            "Similar to Wii Backup Manager but for Xbox 360/XBLA.\n\n"
             "Supports automatic scanning, file system watching, and game organization.",
         )
 
@@ -553,13 +544,12 @@ class XboxBackupManager(QMainWindow):
         platform_actions = {
             "xbox360": self.xbox360_action,
             "xbla": self.xbla_action,
-            "og_xbox": self.og_xbox_action,
         }
         if self.current_platform in platform_actions:
             platform_actions[self.current_platform].setChecked(True)
 
         # Restore platform directories
-        for plat in ["xbox360", "xbla", "og_xbox"]:
+        for plat in ["xbox360", "xbla"]:
             directory = self.settings.value(f"{plat}_directory", "")
             if directory and os.path.exists(directory):
                 self.platform_directories[plat] = directory
@@ -573,7 +563,6 @@ class XboxBackupManager(QMainWindow):
         platform_names = {
             "xbox360": "Xbox 360",
             "xbla": "Xbox Live Arcade",
-            "og_xbox": "Original Xbox",
         }
         self.platform_label.setText(platform_names[self.current_platform])
 
@@ -688,7 +677,6 @@ class XboxBackupManager(QMainWindow):
         platform_names = {
             "xbox360": "Xbox 360",
             "xbla": "Xbox Live Arcade",
-            "og_xbox": "Original Xbox",
         }
 
         directory = QFileDialog.getExistingDirectory(
