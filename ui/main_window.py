@@ -136,6 +136,8 @@ class XboxBackupManager(QMainWindow):
         top_layout.addWidget(self.browse_button)
         top_layout.addWidget(self.scan_button)
 
+        self.make_directory_label_clickable()
+
         top_widget = QWidget()
         top_widget.setLayout(top_layout)
         main_layout.addWidget(top_widget)
@@ -243,6 +245,31 @@ class XboxBackupManager(QMainWindow):
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+    def make_directory_label_clickable(self):
+        """Make the directory label clickable to open the folder"""
+        self.directory_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.directory_label.mousePressEvent = self.open_current_directory
+
+        # Optional: Add visual styling to indicate it's clickable
+        self.directory_label.setStyleSheet(
+            """
+            QLabel {
+                font-weight: bold;
+            }
+            QLabel:hover {
+                color: palette(highlight);
+                text-decoration: underline;
+            }
+        """
+        )
+
+    def open_current_directory(self, event):
+        """Open the current directory in file explorer"""
+        if self.current_directory and os.path.exists(self.current_directory):
+            SystemUtils.open_folder_in_explorer(self.current_directory, self)
+        else:
+            self.status_bar.showMessage("No valid directory selected", 3000)
 
     def switch_platform(self, platform: str):
         """Switch to a different platform"""
@@ -418,11 +445,14 @@ class XboxBackupManager(QMainWindow):
             # Stop watching old directory
             self.stop_watching_directory()
 
-            self.current_directory = directory
-            self.platform_directories[self.current_platform] = directory
-            self.directory_label.setText(directory)
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            self.current_directory = normalized_directory
+            self.platform_directories[self.current_platform] = normalized_directory
+            self.directory_label.setText(normalized_directory)
             self.scan_button.setEnabled(True)
-            self.status_bar.showMessage(f"Selected directory: {directory}")
+            self.status_bar.showMessage(f"Selected directory: {normalized_directory}")
 
             # Start watching new directory
             self.start_watching_directory()
