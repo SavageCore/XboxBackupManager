@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -148,14 +149,60 @@ class XboxBackupManager(QMainWindow):
         target_layout.addWidget(self.target_directory_label, 1)
         target_layout.addWidget(self.platform_label)
 
+        # Search bar (initially hidden)
+        self.search_layout = QHBoxLayout()
+        self.search_layout.setSpacing(10)
+
+        # Make search label clickable
+        self.search_label = QLabel("Search:")
+        self.search_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.search_label.mousePressEvent = self._on_search_label_clicked
+        self.search_label.setStyleSheet(
+            """
+            QLabel {
+                font-weight: normal;
+            }
+            QLabel:hover {
+                color: palette(highlight);
+                text-decoration: underline;
+            }
+        """
+        )
+        self.search_label.setToolTip("Click to open search bar")
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search games by title or ID...")
+        self.search_input.textChanged.connect(self.filter_games)
+        self.search_input.setVisible(False)
+
+        self.search_clear_button = QPushButton("Clear")
+        self.search_clear_button.clicked.connect(self.clear_search)
+        self.search_clear_button.setVisible(False)
+
+        self.search_close_button = QPushButton("✕")
+        self.search_close_button.setMaximumWidth(30)
+        self.search_close_button.clicked.connect(self.hide_search_bar)
+        self.search_close_button.setVisible(False)
+
+        self.search_layout.addWidget(self.search_label)
+        self.search_layout.addWidget(self.search_input, 1)
+        self.search_layout.addWidget(self.search_clear_button)
+        self.search_layout.addWidget(self.search_close_button)
+
         top_layout.addLayout(source_layout)
         top_layout.addLayout(target_layout)
+        top_layout.addLayout(self.search_layout)
 
         self.make_directory_labels_clickable()
 
         top_widget = QWidget()
         top_widget.setLayout(top_layout)
         main_layout.addWidget(top_widget)
+
+    def _on_search_label_clicked(self, event):
+        """Handle click on search label"""
+        if not self.search_input.isVisible():
+            self.show_search_bar()
 
     def create_games_table(self, main_layout):
         """Create and setup the games table"""
@@ -208,6 +255,14 @@ class XboxBackupManager(QMainWindow):
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
+
+        file_menu.addSeparator()
+
+        # Search action
+        self.search_action = QAction("&Search Games...", self)
+        self.search_action.setShortcut("Ctrl+F")
+        self.search_action.triggered.connect(self.show_search_bar)
+        file_menu.addAction(self.search_action)
 
         file_menu.addSeparator()
 
@@ -933,9 +988,12 @@ class XboxBackupManager(QMainWindow):
             # Default sort (Game Name column is always column 2 with icons)
             self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
 
-        self.status_bar.showMessage(
-            f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
-        )
+        # Update status and apply any active search filter
+        self._update_search_status("")
+
+        # Re-apply search filter if search bar is visible
+        if self.search_input.isVisible() and self.search_input.text():
+            self.filter_games(self.search_input.text())
 
         # Download icons for games that don't have them cached
         if game_count > 0:
@@ -1211,6 +1269,91 @@ class XboxBackupManager(QMainWindow):
 
         self.save_settings()
         event.accept()
+
+    def show_search_bar(self):
+        """Show the search bar and focus on input"""
+        self.search_input.setVisible(True)
+        self.search_clear_button.setVisible(True)
+        self.search_close_button.setVisible(True)
+        self.search_input.setFocus()
+        self.search_input.selectAll()
+
+    def hide_search_bar(self):
+        """Hide the search bar and clear search"""
+        self.search_input.setVisible(False)
+        self.search_clear_button.setVisible(False)
+        self.search_close_button.setVisible(False)
+        self.clear_search()
+
+    def clear_search(self):
+        """Clear the search input and show all games"""
+        self.search_input.clear()
+        self.filter_games("")
+
+    def filter_games(self, search_text: str):
+        """Filter games based on search text"""
+        search_text = search_text.lower().strip()
+
+        # Show all rows if search is empty
+        if not search_text:
+            for row in range(self.games_table.rowCount()):
+                self.games_table.setRowHidden(row, False)
+            self._update_search_status("")
+            return
+
+        # Filter rows based on search text
+        visible_count = 0
+        for row in range(self.games_table.rowCount()):
+            # Get title ID (column 1) and game name (column 2)
+            title_id_item = self.games_table.item(row, 1)
+            name_item = self.games_table.item(row, 2)
+
+            title_id = title_id_item.text().lower() if title_id_item else ""
+            name = name_item.text().lower() if name_item else ""
+
+            # Check if search text matches title ID or name
+            matches = search_text in title_id or search_text in name
+
+            self.games_table.setRowHidden(row, not matches)
+            if matches:
+                visible_count += 1
+
+        self._update_search_status(f" - {visible_count} games match search")
+
+    def _update_search_status(self, suffix: str):
+        """Update status bar with search results"""
+        if hasattr(self, "games") and self.games:
+            game_count = len(self.games)
+            total_size = sum(game.size_bytes for game in self.games)
+
+            # Format total size
+            size_formatted = total_size
+            for unit in ["B", "KB", "MB", "GB", "TB"]:
+                if size_formatted < 1024.0:
+                    break
+                size_formatted /= 1024.0
+
+            base_message = f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
+            self.status_bar.showMessage(base_message + suffix)
+
+    def keyPressEvent(self, event):
+        """Handle global key press events"""
+        # Handle Ctrl+F for search
+        if (
+            event.key() == Qt.Key.Key_F
+            and event.modifiers() == Qt.KeyboardModifier.ControlModifier
+        ):
+            self.show_search_bar()
+            event.accept()
+            return
+
+        # Handle Escape to hide search bar
+        if event.key() == Qt.Key.Key_Escape and self.search_input.isVisible():
+            self.hide_search_bar()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
 
 
 class NonSortableHeaderView(QHeaderView):
