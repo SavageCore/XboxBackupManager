@@ -385,6 +385,7 @@ class XboxBackupManager(QMainWindow):
         start_dir = (
             self.current_target_directory
             if self.current_target_directory
+            and os.path.exists(self.current_target_directory)
             else os.path.expanduser("~")
         )
 
@@ -399,16 +400,31 @@ class XboxBackupManager(QMainWindow):
             # Normalize the path for consistent display and usage
             normalized_directory = os.path.normpath(directory)
 
-            self.current_target_directory = normalized_directory
-            self.usb_target_directories[self.current_platform] = normalized_directory
-            self.target_directory_label.setText(normalized_directory)
+            # Verify the selected directory is accessible
+            if self._check_target_directory_availability(normalized_directory):
+                self.current_target_directory = normalized_directory
+                self.usb_target_directories[self.current_platform] = (
+                    normalized_directory
+                )
+                self.target_directory_label.setText(normalized_directory)
 
-            # Enable transfer button if we have games and target directory
-            self._update_transfer_button_state()
+                # Enable transfer button if we have games and target directory
+                self._update_transfer_button_state()
 
-            self.status_bar.showMessage(
-                f"Selected target directory: {normalized_directory}"
-            )
+                self.status_bar.showMessage(
+                    f"Selected target directory: {normalized_directory}"
+                )
+            else:
+                # Selected directory is not accessible
+                QMessageBox.warning(
+                    self,
+                    "Directory Not Accessible",
+                    f"The selected directory is not accessible:\n{normalized_directory}\n\n"
+                    "Please ensure the device is properly connected and try again.",
+                )
+                self.status_bar.showMessage(
+                    "Selected directory is not accessible", 5000
+                )
 
     def _update_transfer_button_state(self):
         """Update transfer button enabled state based on conditions"""
@@ -982,13 +998,25 @@ class XboxBackupManager(QMainWindow):
             self.current_directory = self.platform_directories[self.current_platform]
             self.directory_label.setText(self.current_directory)
 
-        # Set current target directory based on mode
+        # Set current target directory based on mode and check availability
         if self.current_mode == "usb":
-            if self.usb_target_directories[self.current_platform]:
-                self.current_target_directory = self.usb_target_directories[
-                    self.current_platform
-                ]
-                self.target_directory_label.setText(self.current_target_directory)
+            target_dir = self.usb_target_directories[self.current_platform]
+            if target_dir:
+                # Check if target directory is available/mounted
+                is_available = self._check_target_directory_availability(target_dir)
+                if is_available:
+                    self.current_target_directory = target_dir
+                    self.target_directory_label.setText(target_dir)
+                    self.status_bar.showMessage(
+                        f"Target directory available: {target_dir}"
+                    )
+                else:
+                    # Target directory not available
+                    self.current_target_directory = ""
+                    self.target_directory_label.setText(
+                        "Target directory not available"
+                    )
+                    self._handle_unavailable_target_directory(target_dir)
             else:
                 self.target_directory_label.setText("No target directory selected")
         else:
@@ -1771,6 +1799,79 @@ class XboxBackupManager(QMainWindow):
 
             base_message = f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
             self.status_bar.showMessage(base_message + suffix)
+
+    def _check_target_directory_availability(self, target_path: str) -> bool:
+        """Check if target directory is available/mounted"""
+        try:
+            if not target_path:
+                return False
+
+            # Check if path exists and is accessible
+            if not os.path.exists(target_path):
+                return False
+
+            # Try to access the directory to ensure it's mounted and readable
+            try:
+                os.listdir(target_path)
+                return True
+            except (OSError, PermissionError):
+                return False
+
+        except Exception:
+            return False
+
+    def _handle_unavailable_target_directory(self, target_path: str):
+        """Handle when target directory is not available on startup"""
+        platform_name = self.platform_names[self.current_platform]
+
+        # Show warning message
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Target Directory Unavailable")
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setText(f"Target directory for {platform_name} is not available:")
+        msg_box.setInformativeText(
+            f"Path: {target_path}\n\n"
+            "This could mean:\n"
+            "• USB drive is not connected\n"
+            "• Network drive is not mounted\n"
+            "• Directory has been moved or deleted\n"
+            "• Insufficient permissions\n\n"
+            "Please connect your target device or select a new target directory."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Ignore
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Ok)
+
+        result = msg_box.exec()
+
+        if result == QMessageBox.StandardButton.Ok:
+            # Offer to select new target directory
+            self._prompt_for_new_target_directory()
+        else:
+            # User chose to ignore - show message in status bar
+            self.status_bar.showMessage(
+                f"Warning: Target directory not available - {target_path}", 10000
+            )
+
+    def _prompt_for_new_target_directory(self):
+        """Prompt user to select a new target directory"""
+        platform_name = self.platform_names[self.current_platform]
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Select New Target Directory")
+        msg_box.setText(
+            f"Would you like to select a new target directory for {platform_name}?"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self.browse_target_directory()
+        else:
+            self.status_bar.showMessage("No target directory selected", 5000)
 
 
 class NonSortableHeaderView(QHeaderView):
