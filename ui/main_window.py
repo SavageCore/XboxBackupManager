@@ -161,39 +161,19 @@ class XboxBackupManager(QMainWindow):
 
         # Make search label clickable
         self.search_label = QLabel("Search:")
-        self.search_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.search_label.mousePressEvent = self._on_search_label_clicked
-        self.search_label.setStyleSheet(
-            """
-            QLabel {
-                font-weight: normal;
-            }
-            QLabel:hover {
-                color: palette(highlight);
-                text-decoration: underline;
-            }
-        """
-        )
-        self.search_label.setToolTip("Click to open search bar")
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search games by title or ID...")
         self.search_input.textChanged.connect(self.filter_games)
-        self.search_input.setVisible(False)
+        self.search_input.setVisible(True)
 
         self.search_clear_button = QPushButton("Clear")
         self.search_clear_button.clicked.connect(self.clear_search)
         self.search_clear_button.setVisible(False)
 
-        self.search_close_button = QPushButton("✕")
-        self.search_close_button.setMaximumWidth(30)
-        self.search_close_button.clicked.connect(self.hide_search_bar)
-        self.search_close_button.setVisible(False)
-
         self.search_layout.addWidget(self.search_label)
         self.search_layout.addWidget(self.search_input, 1)
         self.search_layout.addWidget(self.search_clear_button)
-        self.search_layout.addWidget(self.search_close_button)
 
         top_layout.addLayout(source_layout)
         top_layout.addLayout(target_layout)
@@ -204,11 +184,6 @@ class XboxBackupManager(QMainWindow):
         top_widget = QWidget()
         top_widget.setLayout(top_layout)
         main_layout.addWidget(top_widget)
-
-    def _on_search_label_clicked(self, event):
-        """Handle click on search label"""
-        if not self.search_input.isVisible():
-            self.show_search_bar()
 
     def create_games_table(self, main_layout):
         """Create and setup the games table"""
@@ -261,14 +236,6 @@ class XboxBackupManager(QMainWindow):
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
-
-        file_menu.addSeparator()
-
-        # Search action
-        self.search_action = QAction("&Search Games...", self)
-        self.search_action.setShortcut("Ctrl+F")
-        self.search_action.triggered.connect(self.show_search_bar)
-        file_menu.addAction(self.search_action)
 
         file_menu.addSeparator()
 
@@ -534,7 +501,10 @@ class XboxBackupManager(QMainWindow):
         from workers.file_transfer import FileTransferWorker
 
         self.transfer_worker = FileTransferWorker(
-            games_to_transfer, self.current_target_directory
+            games_to_transfer,
+            self.current_target_directory,
+            max_workers=2,
+            buffer_size=2 * 1024 * 1024,
         )
         self.transfer_worker.progress.connect(self._update_transfer_progress)
         self.transfer_worker.game_transferred.connect(self._on_game_transferred)
@@ -1096,13 +1066,13 @@ class XboxBackupManager(QMainWindow):
         col_index = 0
 
         # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")  # Empty text
+        checkbox_item = QTableWidgetItem("")  # Empty text is important
         checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        # Center the checkbox properly
+        # Center the checkbox both horizontally and vertically
         checkbox_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
@@ -1338,9 +1308,9 @@ class XboxBackupManager(QMainWindow):
 
         header.installEventFilter(self)
 
-        # Select column - fixed width, much smaller
+        # Select column - fixed width, narrow for checkbox only
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 25)  # Much smaller for just checkbox
+        header.resizeSection(0, 30)  # More reasonable size for checkbox
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -1368,7 +1338,7 @@ class XboxBackupManager(QMainWindow):
             )  # Source Path
 
         # Set minimum column widths
-        header.setMinimumSectionSize(25)
+        header.setMinimumSectionSize(30)  # More reasonable minimum
 
         # Set initial column widths
         header.resizeSection(2, 100)  # Title ID
@@ -1549,21 +1519,6 @@ class XboxBackupManager(QMainWindow):
         self.save_settings()
         event.accept()
 
-    def show_search_bar(self):
-        """Show the search bar and focus on input"""
-        self.search_input.setVisible(True)
-        self.search_clear_button.setVisible(True)
-        self.search_close_button.setVisible(True)
-        self.search_input.setFocus()
-        self.search_input.selectAll()
-
-    def hide_search_bar(self):
-        """Hide the search bar and clear search"""
-        self.search_input.setVisible(False)
-        self.search_clear_button.setVisible(False)
-        self.search_close_button.setVisible(False)
-        self.clear_search()
-
     def clear_search(self):
         """Clear the search input and show all games"""
         self.search_input.clear()
@@ -1572,6 +1527,12 @@ class XboxBackupManager(QMainWindow):
     def filter_games(self, search_text: str):
         """Filter games based on search text"""
         search_text = search_text.lower().strip()
+
+        # If any text is entered, show the clear button
+        if search_text:
+            self.search_clear_button.setVisible(True)
+        else:
+            self.search_clear_button.setVisible(False)
 
         # Show all rows if search is empty
         if not search_text:
@@ -1614,25 +1575,6 @@ class XboxBackupManager(QMainWindow):
 
             base_message = f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
             self.status_bar.showMessage(base_message + suffix)
-
-    def keyPressEvent(self, event):
-        """Handle global key press events"""
-        # Handle Ctrl+F for search
-        if (
-            event.key() == Qt.Key.Key_F
-            and event.modifiers() == Qt.KeyboardModifier.ControlModifier
-        ):
-            self.show_search_bar()
-            event.accept()
-            return
-
-        # Handle Escape to hide search bar
-        if event.key() == Qt.Key.Key_Escape and self.search_input.isVisible():
-            self.hide_search_bar()
-            event.accept()
-            return
-
-        super().keyPressEvent(event)
 
 
 class NonSortableHeaderView(QHeaderView):
