@@ -4,7 +4,9 @@ Xbox 360 Backup Manager - Main Window
 Refactored main window class using modular components
 """
 
+import ctypes
 import os
+import platform
 import shutil
 from pathlib import Path
 from typing import Dict, List
@@ -141,6 +143,19 @@ class XboxBackupManager(QMainWindow):
 
         self.target_directory_label = QLabel("No target directory selected")
         self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
+        # Set size policy to only take minimum space needed
+        self.target_directory_label.setSizePolicy(
+            self.target_directory_label.sizePolicy().horizontalPolicy(),
+            self.target_directory_label.sizePolicy().verticalPolicy(),
+        )
+
+        # Add separate label for free space info
+        self.target_space_label = QLabel("")
+        # Set size policy to only take minimum space needed
+        self.target_space_label.setSizePolicy(
+            self.target_space_label.sizePolicy().horizontalPolicy(),
+            self.target_space_label.sizePolicy().verticalPolicy(),
+        )
 
         self.transfer_button = QPushButton("Transfer Selected")
         self.transfer_button.setObjectName("transfer_button")
@@ -157,8 +172,10 @@ class XboxBackupManager(QMainWindow):
         self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         target_layout.addWidget(QLabel("Target:"))
-        target_layout.addWidget(self.target_directory_label, 1)
-        target_layout.addWidget(self.platform_label)
+        target_layout.addWidget(self.target_directory_label, 0)  # No stretch factor
+        target_layout.addWidget(self.target_space_label, 0)  # No stretch factor
+        target_layout.addStretch(1)  # Add stretch to push buttons right
+        target_layout.addWidget(self.platform_label, 0)  # Platform next to buttons
         target_layout.addWidget(self.transfer_button)
         target_layout.addWidget(self.remove_button)
 
@@ -406,7 +423,9 @@ class XboxBackupManager(QMainWindow):
                 self.usb_target_directories[self.current_platform] = (
                     normalized_directory
                 )
-                self.target_directory_label.setText(normalized_directory)
+
+                self.target_directory_label.setText(f"{normalized_directory}")
+                self._update_target_space_label(normalized_directory)
 
                 # Enable transfer button if we have games and target directory
                 self._update_transfer_button_state()
@@ -580,18 +599,12 @@ class XboxBackupManager(QMainWindow):
     def _get_available_disk_space(self, path: str) -> int:
         """Get available disk space for the given path in bytes"""
         try:
-            import shutil
-
             # shutil.disk_usage returns (total, used, free) in bytes
-            total, used, free = shutil.disk_usage(path)
+            _, _, free = shutil.disk_usage(path)
             return free
         except (OSError, AttributeError):
             # Fallback for older Python versions or permission issues
             try:
-                import os
-                import ctypes
-                import platform
-
                 if platform.system() == "Windows":
                     # Windows-specific implementation
                     free_bytes = ctypes.c_ulonglong(0)
@@ -785,6 +798,7 @@ class XboxBackupManager(QMainWindow):
             if usb_target and os.path.exists(usb_target):
                 self.current_target_directory = usb_target
                 self.target_directory_label.setText(usb_target)
+                self._update_target_space_label(usb_target)
                 self.status_bar.showMessage(
                     "Switched to USB mode - target directory loaded"
                 )
@@ -852,7 +866,9 @@ class XboxBackupManager(QMainWindow):
         if self.current_mode == "usb":
             if self.usb_target_directories[platform]:
                 self.current_target_directory = self.usb_target_directories[platform]
-                self.target_directory_label.setText(self.current_target_directory)
+                # Show path and free space in label
+                self.target_directory_label.setText(f"{self.current_target_directory}")
+                self._update_target_space_label(self.current_target_directory)
             else:
                 self.current_target_directory = ""
                 self.target_directory_label.setText("No target directory selected")
@@ -886,6 +902,7 @@ class XboxBackupManager(QMainWindow):
             if platform == self.current_platform:
                 self.current_target_directory = normalized_directory
                 self.target_directory_label.setText(normalized_directory)
+                self._update_target_space_label(self.current_target_directory)
 
             self.status_bar.showMessage(
                 f"USB target directory set for {platform_name}: {normalized_directory}"
@@ -1007,6 +1024,7 @@ class XboxBackupManager(QMainWindow):
                 if is_available:
                     self.current_target_directory = target_dir
                     self.target_directory_label.setText(target_dir)
+                    self._update_target_space_label(target_dir)
                     self.status_bar.showMessage(
                         f"Target directory available: {target_dir}"
                     )
@@ -1872,6 +1890,15 @@ class XboxBackupManager(QMainWindow):
             self.browse_target_directory()
         else:
             self.status_bar.showMessage("No target directory selected", 5000)
+
+    def _update_target_space_label(self, directory_path: str):
+        """Update the target space label with free space information"""
+        free_space = self._get_available_disk_space(directory_path)
+        if free_space is not None:
+            free_gb = free_space // (2**30)
+            self.target_space_label.setText(f"({free_gb} GB Free)")
+        else:
+            self.target_space_label.setText("(Free space unknown)")
 
 
 class NonSortableHeaderView(QHeaderView):
