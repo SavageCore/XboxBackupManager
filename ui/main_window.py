@@ -618,9 +618,8 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setItem(row, col_index, name_item)
         col_index += 1
 
-        # Size column
-        size_item = QTableWidgetItem(game_info.size_formatted)
-        size_item.setData(Qt.ItemDataRole.UserRole, game_info.size_bytes)
+        # Size column - FIXED: Use custom item that sorts by byte values
+        size_item = SizeTableWidgetItem(game_info.size_formatted, game_info.size_bytes)
         size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.games_table.setItem(row, col_index, size_item)
         col_index += 1
@@ -966,3 +965,17 @@ class NonSortableHeaderView(QHeaderView):
             event.ignore()
             return
         super().mousePressEvent(event)
+
+
+class SizeTableWidgetItem(QTableWidgetItem):
+    """Custom table widget item that sorts by byte values instead of text"""
+
+    def __init__(self, formatted_text: str, size_bytes: int):
+        super().__init__(formatted_text)
+        self.size_bytes = size_bytes
+
+    def __lt__(self, other):
+        """Override less than operator for proper sorting"""
+        if isinstance(other, SizeTableWidgetItem):
+            return self.size_bytes < other.size_bytes
+        return super().__lt__(other)
