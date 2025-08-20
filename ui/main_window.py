@@ -1449,6 +1449,7 @@ class XboxBackupManager(QMainWindow):
             return
 
         folder_path = folder_item.text()
+        title_id = self.games_table.item(row, 2).text()
 
         # Create context menu
         menu = QMenu(self)
@@ -1464,6 +1465,15 @@ class XboxBackupManager(QMainWindow):
         copy_path_action.triggered.connect(
             lambda: SystemUtils.copy_to_clipboard(folder_path)
         )
+
+        # Add "Copy Title ID" action
+        copy_title_id_action = menu.addAction("Copy Title ID")
+        copy_title_id_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(title_id)
+        )
+
+        # Add separator
+        menu.addSeparator()
 
         # Add "Toggle Selection" action
         checkbox_item = self.games_table.item(row, 0)
