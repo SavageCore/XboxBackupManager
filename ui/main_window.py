@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Xbox Backup Manager - Main Window
+Xbox 360 Backup Manager - Main Window
 Refactored main window class using modular components
 """
 
@@ -82,7 +82,7 @@ class XboxBackupManager(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle("Xbox Backup Manager")
+        self.setWindowTitle("Xbox 360 Backup Manager")
         self.setGeometry(100, 100, 1000, 600)
 
         # Create menu bar

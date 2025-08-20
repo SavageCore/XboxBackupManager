@@ -9,7 +9,7 @@ from ui.main_window import XboxBackupManager  # type: ignore
 def main():
     """Main application entry point"""
     app = QApplication(sys.argv)
-    app.setApplicationName("Xbox Backup Manager")
+    app.setApplicationName("Xbox 360 Backup Manager")
     app.setApplicationVersion("1.0")
 
     # Set application icon if available
