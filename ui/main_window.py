@@ -147,6 +147,11 @@ class XboxBackupManager(QMainWindow):
         self.transfer_button.clicked.connect(self.transfer_selected_games)
         self.transfer_button.setEnabled(False)
 
+        self.remove_button = QPushButton("Remove Selected")
+        self.remove_button.setObjectName("remove_button")
+        self.remove_button.clicked.connect(self.remove_selected_games)
+        self.remove_button.setEnabled(False)
+
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
         self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -155,6 +160,7 @@ class XboxBackupManager(QMainWindow):
         target_layout.addWidget(self.target_directory_label, 1)
         target_layout.addWidget(self.platform_label)
         target_layout.addWidget(self.transfer_button)
+        target_layout.addWidget(self.remove_button)
 
         # Search bar (initially hidden)
         self.search_layout = QHBoxLayout()
@@ -416,6 +422,18 @@ class XboxBackupManager(QMainWindow):
         # Enable if we have games, target directory, and at least one game is selected
         self.transfer_button.setEnabled(has_games and has_target and has_selected)
 
+    def _update_remove_button_state(self):
+        """Update remove button enabled state based on conditions"""
+        has_games = len(self.games) > 0
+        has_target = bool(
+            self.current_target_directory
+            and os.path.exists(self.current_target_directory)
+        )
+        has_selected = self._get_selected_games_count() > 0
+
+        # Enable if we have games, target directory, and at least one game is selected
+        self.remove_button.setEnabled(has_games and has_target and has_selected)
+
     def _get_selected_games_count(self):
         """Get count of selected games (checked in checkbox column)"""
         count = 0
@@ -510,6 +528,38 @@ class XboxBackupManager(QMainWindow):
 
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
             self._start_transfer(selected_games)
+
+    def remove_selected_games(self):
+        """Remove selected games from the target directory"""
+        selected_rows = []
+        for row in range(self.games_table.rowCount()):
+            checkbox_item = self.games_table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                selected_rows.append(row)
+
+        if not selected_rows:
+            QMessageBox.information(
+                self,
+                "No Games Selected",
+                "Please select games to remove by checking the boxes.",
+            )
+            return
+
+        # Confirm removal
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Confirm Removal")
+        msg_box.setText(f"Remove {len(selected_rows)} selected games?")
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            # Remove selected rows
+            for row in reversed(selected_rows):
+                title_id = self.games_table.item(row, 2).text()
+                game_name = self.games_table.item(row, 3).text()
+                self._remove_game_from_target(title_id, game_name)
 
     def _get_available_disk_space(self, path: str) -> int:
         """Get available disk space for the given path in bytes"""
@@ -1147,6 +1197,7 @@ class XboxBackupManager(QMainWindow):
         """Handle checkbox state changes"""
         if item.column() == 0:  # Only handle checkbox column
             self._update_transfer_button_state()
+            self._update_remove_button_state()
 
     def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
         """Create and populate table items for a game row"""
@@ -1574,42 +1625,54 @@ class XboxBackupManager(QMainWindow):
 
         # Add "Remove from Target" action
         remove_action = menu.addAction("Remove from Target")
-        remove_action.triggered.connect(lambda: self._remove_from_target(row))
+        remove_action.triggered.connect(
+            lambda: self.remove_game_from_target(
+                title_id=self.games_table.item(row, 2).text(),
+                game_name=self.games_table.item(row, 3).text(),
+            )
+        )
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
 
-    def _remove_from_target(self, row: int):
-        """Remove game from target directory"""
-        title_id = self.games_table.item(row, 2).text()
-        game_name = self.games_table.item(row, 3).text()
+    def remove_game_from_target(self, title_id: str, game_name: str):
+        target_path = (
+            self.usb_target_directories.get(self.current_platform, "")
+            + os.sep
+            + title_id
+        )
 
-        if title_id:
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Confirm Removal")
+        msg_box.setText(
+            f"Are you sure you want to remove {game_name}?\n\n{target_path}"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._remove_game_from_target(title_id, game_name)
+
+    def _remove_game_from_target(self, title_id: str, game_name: str):
+        """Remove game from target directory"""
+        if title_id and game_name:
             target_path = (
                 self.usb_target_directories.get(self.current_platform, "")
-                + "\\"
+                + os.sep
                 + title_id
             )
 
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Confirm Removal")
-            msg_box.setText(
-                f"Are you sure you want to remove {game_name}?\n\n{target_path}"
-            )
-            msg_box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
-            )
-            msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-
-            if msg_box.exec() == QMessageBox.StandardButton.Yes:
-                shutil.rmtree(target_path, ignore_errors=True)
-                self.status_bar.showMessage(
-                    f"Removed {game_name} from target directory"
-                )
-                # Update transferred status
-                status_item = self.games_table.item(row, 5)  # Transferred column
-                if status_item:
-                    status_item.setText("❌")
+            shutil.rmtree(target_path, ignore_errors=True)
+            self.status_bar.showMessage(f"Removed {game_name} from target directory")
+            # Update transferred status
+            for row in range(self.games_table.rowCount()):
+                title_item = self.games_table.item(row, 2)
+                if title_item and title_item.text() == title_id:
+                    status_item = self.games_table.item(row, 5)
+                    if status_item:
+                        status_item.setText("❌")
 
     def _toggle_row_selection(self, row: int):
         """Toggle the selection state of a row"""
