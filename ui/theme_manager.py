@@ -29,7 +29,7 @@ class ThemeManager(QObject):
 
         # Add custom styling
         button_styling = """
-        QPushButton#browse_button, QPushButton#scan_button {
+        QPushButton#scan_button {
             padding: 8px 16px !important;
             font-size: 14px !important;
             min-height: 20px !important;

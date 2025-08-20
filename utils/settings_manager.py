@@ -102,3 +102,13 @@ class SettingsManager:
     def load_usb_directories(self) -> Dict[str, str]:
         """Load USB directories for all platforms"""
         return self.settings.value("usb_directories", {"xbox360": "", "xbla": ""})
+
+    def save_usb_target_directories(self, usb_target_directories: Dict[str, str]):
+        """Save USB target directories for all platforms"""
+        self.settings.setValue("usb_target_directories", usb_target_directories)
+
+    def load_usb_target_directories(self) -> Dict[str, str]:
+        """Load USB target directories for all platforms"""
+        return self.settings.value(
+            "usb_target_directories", {"xbox360": "", "xbla": ""}
+        )
