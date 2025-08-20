@@ -21,8 +21,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QStyle,
-    QStyleOptionHeader,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -57,6 +55,7 @@ class XboxBackupManager(QMainWindow):
         self.current_directory = ""
         self.current_platform = "xbox360"  # Default platform
         self.platform_directories = {"xbox360": "", "xbla": ""}
+        self.platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
         self.icon_cache: Dict[str, QPixmap] = {}
 
         # File system monitoring
@@ -278,6 +277,11 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
 
+        # Update window title
+        self.setWindowTitle(
+            f"Xbox 360 Backup Manager - {self.platform_names[platform]}"
+        )
+
         # Stop watching current directory
         self.stop_watching_directory()
 
@@ -285,8 +289,7 @@ class XboxBackupManager(QMainWindow):
         self.current_platform = platform
 
         # Update platform label
-        platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
-        self.platform_label.setText(platform_names[platform])
+        self.platform_label.setText(self.platform_names[platform])
 
         # Recreate table with appropriate columns for new platform
         self.setup_table()
@@ -307,7 +310,7 @@ class XboxBackupManager(QMainWindow):
 
         # Save platform selection
         self.settings_manager.save_current_platform(platform)
-        self.status_bar.showMessage(f"Switched to {platform_names[platform]}")
+        self.status_bar.showMessage(f"Switched to {self.platform_names[platform]}")
 
     def set_theme_override(self, override_value):
         """Set theme override and apply theme"""
@@ -361,6 +364,11 @@ class XboxBackupManager(QMainWindow):
         if self.current_platform in platform_actions:
             platform_actions[self.current_platform].setChecked(True)
 
+        # Update window title
+        self.setWindowTitle(
+            f"Xbox 360 Backup Manager - {self.platform_names[self.current_platform]}"
+        )
+
         # Restore platform directories
         self.platform_directories = self.settings_manager.load_platform_directories()
 
@@ -370,8 +378,7 @@ class XboxBackupManager(QMainWindow):
             self.directory_label.setText(self.current_directory)
 
         # Update platform label
-        platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
-        self.platform_label.setText(platform_names[self.current_platform])
+        self.platform_label.setText(self.platform_names[self.current_platform])
 
         # Setup the table with the correct platform
         self.setup_table()
@@ -431,11 +438,10 @@ class XboxBackupManager(QMainWindow):
             if self.current_directory
             else os.path.expanduser("~")
         )
-        platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
 
         directory = QFileDialog.getExistingDirectory(
             self,
-            f"Select {platform_names[self.current_platform]} Games Directory",
+            f"Select {self.platform_names[self.current_platform]} Games Directory",
             start_dir,
         )
 
