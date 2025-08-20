@@ -537,7 +537,7 @@ class XboxBackupManager(QMainWindow):
                 status_column = 6 if show_dlcs else 5  # Transferred column
                 status_item = self.games_table.item(row, status_column)
                 if status_item:
-                    status_item.setText("✓ Yes")
+                    status_item.setText("✔️")
                     status_item.setData(Qt.ItemDataRole.UserRole, True)
                 break
 
@@ -1134,7 +1134,7 @@ class XboxBackupManager(QMainWindow):
 
         # Transferred status column - centered
         is_transferred = self._check_if_transferred(game_info)
-        status_text = "✓ Yes" if is_transferred else "✗ No"
+        status_text = "✔️" if is_transferred else "❌"
         status_item = QTableWidgetItem(status_text)
         status_item.setData(Qt.ItemDataRole.UserRole, is_transferred)
         status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
