@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from constants import APP_NAME, VERSION
 from database.title_database import TitleDatabaseLoader
 
 # Import our modular components
@@ -79,7 +80,9 @@ class XboxBackupManager(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle("Xbox 360 Backup Manager")
+        self.setWindowTitle(
+            f"{APP_NAME} - {self.platform_names[self.current_platform]} - v{VERSION}"
+        )
         self.setGeometry(100, 100, 1000, 600)
 
         # Create menu bar
@@ -279,7 +282,7 @@ class XboxBackupManager(QMainWindow):
 
         # Update window title
         self.setWindowTitle(
-            f"Xbox 360 Backup Manager - {self.platform_names[platform]}"
+            f"{APP_NAME} - {self.platform_names[platform]} - v{VERSION}"
         )
 
         # Stop watching current directory
@@ -322,8 +325,8 @@ class XboxBackupManager(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self,
-            "About Xbox 360 Backup Manager",
-            "Xbox 360 Backup Manager v1.0.0\n\n"
+            f"About {APP_NAME}",
+            f"{APP_NAME} v{VERSION}\n\n"
             "A cross-platform GUI for managing Xbox 360 game backups.\n"
             "Similar to Wii Backup Manager but for Xbox 360/XBLA.\n\n"
             "Supports automatic scanning, file system watching, and game organization.",
@@ -366,7 +369,7 @@ class XboxBackupManager(QMainWindow):
 
         # Update window title
         self.setWindowTitle(
-            f"Xbox 360 Backup Manager - {self.platform_names[self.current_platform]}"
+            f"{APP_NAME} - {self.platform_names[self.current_platform]} - v{VERSION}"
         )
 
         # Restore platform directories

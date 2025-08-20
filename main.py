@@ -3,14 +3,15 @@ import sys
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
+from constants import APP_NAME, VERSION
 from ui.main_window import XboxBackupManager  # type: ignore
 
 
 def main():
     """Main application entry point"""
     app = QApplication(sys.argv)
-    app.setApplicationName("Xbox 360 Backup Manager")
-    app.setApplicationVersion("1.0")
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(VERSION)
 
     # Set application icon if available
     try:
