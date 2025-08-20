@@ -5,6 +5,7 @@ Refactored main window class using modular components
 """
 
 import os
+import shutil
 from pathlib import Path
 from typing import Dict, List
 
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -54,8 +56,11 @@ class XboxBackupManager(QMainWindow):
         # Application state
         self.games: List[GameInfo] = []
         self.current_directory = ""
+        self.current_target_directory = ""
+        self.current_mode = "usb"
         self.current_platform = "xbox360"  # Default platform
         self.platform_directories = {"xbox360": "", "xbla": ""}
+        self.usb_target_directories = {"xbox360": "", "xbla": ""}
         self.platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
         self.icon_cache: Dict[str, QPixmap] = {}
 
@@ -110,33 +115,78 @@ class XboxBackupManager(QMainWindow):
 
     def create_top_section(self, main_layout):
         """Create the top section with directory controls"""
-        top_layout = QHBoxLayout()
+        top_layout = QVBoxLayout()
         top_layout.setContentsMargins(10, 10, 10, 10)
         top_layout.setSpacing(10)
 
+        # Source directory row
+        source_layout = QHBoxLayout()
+        source_layout.setSpacing(10)
+
         self.directory_label = QLabel("No directory selected")
         self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
-
-        self.browse_button = QPushButton("Browse Directory")
-        self.browse_button.setObjectName("browse_button")
-        self.browse_button.clicked.connect(self.browse_directory)
 
         self.scan_button = QPushButton("Scan Directory")
         self.scan_button.setObjectName("scan_button")
         self.scan_button.clicked.connect(self.scan_directory)
         self.scan_button.setEnabled(False)
 
+        source_layout.addWidget(QLabel("Source:"))
+        source_layout.addWidget(self.directory_label, 1)
+        source_layout.addWidget(self.scan_button)
+
+        # Target directory row
+        target_layout = QHBoxLayout()
+        target_layout.setSpacing(10)
+
+        self.target_directory_label = QLabel("No target directory selected")
+        self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
+
+        self.transfer_button = QPushButton("Transfer Selected")
+        self.transfer_button.setObjectName("transfer_button")
+        self.transfer_button.clicked.connect(self.transfer_selected_games)
+        self.transfer_button.setEnabled(False)
+
+        self.remove_button = QPushButton("Remove Selected")
+        self.remove_button.setObjectName("remove_button")
+        self.remove_button.clicked.connect(self.remove_selected_games)
+        self.remove_button.setEnabled(False)
+
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
         self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
 
-        top_layout.addWidget(QLabel("Directory:"))
-        top_layout.addWidget(self.directory_label, 1)
-        top_layout.addWidget(self.platform_label)
-        top_layout.addWidget(self.browse_button)
-        top_layout.addWidget(self.scan_button)
+        target_layout.addWidget(QLabel("Target:"))
+        target_layout.addWidget(self.target_directory_label, 1)
+        target_layout.addWidget(self.platform_label)
+        target_layout.addWidget(self.transfer_button)
+        target_layout.addWidget(self.remove_button)
 
-        self.make_directory_label_clickable()
+        # Search bar (initially hidden)
+        self.search_layout = QHBoxLayout()
+        self.search_layout.setSpacing(10)
+
+        # Make search label clickable
+        self.search_label = QLabel("Search:")
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search games by title or ID...")
+        self.search_input.textChanged.connect(self.filter_games)
+        self.search_input.setVisible(True)
+
+        self.search_clear_button = QPushButton("Clear")
+        self.search_clear_button.clicked.connect(self.clear_search)
+        self.search_clear_button.setVisible(False)
+
+        self.search_layout.addWidget(self.search_label)
+        self.search_layout.addWidget(self.search_input, 1)
+        self.search_layout.addWidget(self.search_clear_button)
+
+        top_layout.addLayout(source_layout)
+        top_layout.addLayout(target_layout)
+        top_layout.addLayout(self.search_layout)
+
+        self.make_directory_labels_clickable()
 
         top_widget = QWidget()
         top_widget.setLayout(top_layout)
@@ -168,6 +218,9 @@ class XboxBackupManager(QMainWindow):
         # File menu
         self.create_file_menu(menubar)
 
+        # Mode menu (FTP/USB)
+        self.create_mode_menu(menubar)
+
         # Platform menu
         self.create_platform_menu(menubar)
 
@@ -181,10 +234,15 @@ class XboxBackupManager(QMainWindow):
         """Create the File menu"""
         file_menu = menubar.addMenu("&File")
 
-        browse_action = QAction("&Browse Directory...", self)
-        browse_action.setShortcut("Ctrl+O")
-        browse_action.triggered.connect(self.browse_directory)
-        file_menu.addAction(browse_action)
+        self.browse_action = QAction("&Set Source Directory...", self)
+        self.browse_action.setShortcut("Ctrl+O")
+        self.browse_action.triggered.connect(self.browse_directory)
+        file_menu.addAction(self.browse_action)
+
+        self.browse_target_action = QAction("&Set Target Directory...", self)
+        self.browse_target_action.setShortcut("Ctrl+T")
+        self.browse_target_action.triggered.connect(self.browse_target_directory)
+        file_menu.addAction(self.browse_target_action)
 
         file_menu.addSeparator()
 
@@ -192,6 +250,32 @@ class XboxBackupManager(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+
+    # Menu to select between FTP or USB mode
+    def create_mode_menu(self, menubar):
+        """Create the Mode menu"""
+        mode_menu = menubar.addMenu("&Mode")
+        self.mode_action_group = QActionGroup(self)
+
+        self.ftp_mode_action = QAction("&FTP", self)
+        self.ftp_mode_action.setCheckable(True)
+        self.ftp_mode_action.triggered.connect(lambda: self.switch_mode("ftp"))
+        self.mode_action_group.addAction(self.ftp_mode_action)
+        mode_menu.addAction(self.ftp_mode_action)
+        # DEBUG: Disable button for now
+        self.ftp_mode_action.setEnabled(False)
+
+        self.usb_mode_action = QAction("&USB", self)
+        self.usb_mode_action.setCheckable(True)
+        self.usb_mode_action.triggered.connect(lambda: self.switch_mode("usb"))
+        self.mode_action_group.addAction(self.usb_mode_action)
+        mode_menu.addAction(self.usb_mode_action)
+
+        # Set state of menu
+        if self.current_mode == "ftp":
+            self.ftp_mode_action.setChecked(True)
+        else:
+            self.usb_mode_action.setChecked(True)
 
     def create_platform_menu(self, menubar):
         """Create the Platform menu"""
@@ -246,13 +330,29 @@ class XboxBackupManager(QMainWindow):
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
 
-    def make_directory_label_clickable(self):
-        """Make the directory label clickable to open the folder"""
+    def make_directory_labels_clickable(self):
+        """Make the directory labels clickable to open the folder"""
         self.directory_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.directory_label.mousePressEvent = self.open_current_directory
 
+        # Add target directory label click handling
+        self.target_directory_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.target_directory_label.mousePressEvent = self.open_target_directory
+
         # Optional: Add visual styling to indicate it's clickable
         self.directory_label.setStyleSheet(
+            """
+            QLabel {
+                font-weight: bold;
+            }
+            QLabel:hover {
+                color: palette(highlight);
+                text-decoration: underline;
+            }
+        """
+        )
+
+        self.target_directory_label.setStyleSheet(
             """
             QLabel {
                 font-weight: bold;
@@ -271,14 +371,451 @@ class XboxBackupManager(QMainWindow):
         else:
             self.status_bar.showMessage("No valid directory selected", 3000)
 
+    def open_target_directory(self, event):
+        """Open the target directory in file explorer"""
+        if self.current_target_directory and os.path.exists(
+            self.current_target_directory
+        ):
+            SystemUtils.open_folder_in_explorer(self.current_target_directory, self)
+        else:
+            self.status_bar.showMessage("No valid target directory selected", 3000)
+
+    def browse_target_directory(self):
+        """Open target directory selection dialog"""
+        start_dir = (
+            self.current_target_directory
+            if self.current_target_directory
+            and os.path.exists(self.current_target_directory)
+            else os.path.expanduser("~")
+        )
+
+        platform_name = self.platform_names[self.current_platform]
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            f"Select Target Directory for {platform_name} Games",
+            start_dir,
+        )
+
+        if directory:
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            # Verify the selected directory is accessible
+            if self._check_target_directory_availability(normalized_directory):
+                self.current_target_directory = normalized_directory
+                self.usb_target_directories[self.current_platform] = (
+                    normalized_directory
+                )
+                self.target_directory_label.setText(normalized_directory)
+
+                # Enable transfer button if we have games and target directory
+                self._update_transfer_button_state()
+
+                self.status_bar.showMessage(
+                    f"Selected target directory: {normalized_directory}"
+                )
+            else:
+                # Selected directory is not accessible
+                QMessageBox.warning(
+                    self,
+                    "Directory Not Accessible",
+                    f"The selected directory is not accessible:\n{normalized_directory}\n\n"
+                    "Please ensure the device is properly connected and try again.",
+                )
+                self.status_bar.showMessage(
+                    "Selected directory is not accessible", 5000
+                )
+
+    def _update_transfer_button_state(self):
+        """Update transfer button enabled state based on conditions"""
+        has_games = len(self.games) > 0
+        has_target = bool(
+            self.current_target_directory
+            and os.path.exists(self.current_target_directory)
+        )
+        has_selected = self._get_selected_games_count() > 0
+
+        # Enable if we have games, target directory, and at least one game is selected
+        self.transfer_button.setEnabled(has_games and has_target and has_selected)
+
+    def _update_remove_button_state(self):
+        """Update remove button enabled state based on conditions"""
+        has_games = len(self.games) > 0
+        has_target = bool(
+            self.current_target_directory
+            and os.path.exists(self.current_target_directory)
+        )
+        has_selected = self._get_selected_games_count() > 0
+
+        # Enable if we have games, target directory, and at least one game is selected
+        self.remove_button.setEnabled(has_games and has_target and has_selected)
+
+    def _get_selected_games_count(self):
+        """Get count of selected games (checked in checkbox column)"""
+        count = 0
+        for row in range(self.games_table.rowCount()):
+            checkbox_item = self.games_table.item(
+                row, 0
+            )  # Checkbox is in first column now
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                count += 1
+        return count
+
+    def transfer_selected_games(self):
+        """Transfer selected games to target directory"""
+        if not self.current_target_directory:
+            QMessageBox.warning(
+                self, "No Target Directory", "Please select a target directory first."
+            )
+            return
+
+        selected_games = []
+        for row in range(self.games_table.rowCount()):
+            checkbox_item = self.games_table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                # Get game info for this row
+                title_id_item = self.games_table.item(
+                    row, 2
+                )  # Title ID is now column 2
+                if title_id_item:
+                    title_id = title_id_item.text()
+                    # Find the game in our games list
+                    for game in self.games:
+                        if game.title_id == title_id:
+                            selected_games.append(game)
+                            break
+
+        if not selected_games:
+            QMessageBox.information(
+                self,
+                "No Games Selected",
+                "Please select games to transfer by checking the boxes.",
+            )
+            return
+
+        # Calculate total size and check disk space
+        total_size = sum(game.size_bytes for game in selected_games)
+        size_formatted = self._format_size(total_size)
+
+        # Check available disk space
+        available_space = self._get_available_disk_space(self.current_target_directory)
+        if available_space is None:
+            QMessageBox.warning(
+                self,
+                "Disk Space Check Failed",
+                "Could not determine available disk space on target device.\n"
+                "The transfer may fail if there is insufficient space.",
+            )
+        elif total_size > available_space:
+            available_formatted = self._format_size(available_space)
+            QMessageBox.critical(
+                self,
+                "Insufficient Disk Space",
+                f"Not enough space on target device!\n\n"
+                f"Required: {size_formatted}\n"
+                f"Available: {available_formatted}\n"
+                f"Additional space needed: {self._format_size(total_size - available_space)}",
+            )
+            return
+
+        # Show confirmation with disk space info
+        if available_space is not None:
+            available_formatted = self._format_size(available_space)
+            remaining_after = available_space - total_size
+            remaining_formatted = self._format_size(remaining_after)
+
+            space_info = (
+                f"Available space: {available_formatted}\n"
+                f"Space after transfer: {remaining_formatted}"
+            )
+        else:
+            space_info = "Disk space: Could not determine"
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Confirm Transfer")
+        msg_box.setText(f"Transfer {len(selected_games)} games ({size_formatted})?")
+        msg_box.setInformativeText(
+            f"Target: {self.current_target_directory}\n\n{space_info}"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._start_transfer(selected_games)
+
+    def remove_selected_games(self):
+        """Remove selected games from the target directory"""
+        selected_rows = []
+        for row in range(self.games_table.rowCount()):
+            checkbox_item = self.games_table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                selected_rows.append(row)
+
+        if not selected_rows:
+            QMessageBox.information(
+                self,
+                "No Games Selected",
+                "Please select games to remove by checking the boxes.",
+            )
+            return
+
+        # Confirm removal
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Confirm Removal")
+        msg_box.setText(f"Remove {len(selected_rows)} selected games?")
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            # Remove selected rows
+            for row in reversed(selected_rows):
+                title_id = self.games_table.item(row, 2).text()
+                game_name = self.games_table.item(row, 3).text()
+                self._remove_game_from_target(title_id, game_name)
+
+    def _get_available_disk_space(self, path: str) -> int:
+        """Get available disk space for the given path in bytes"""
+        try:
+            import shutil
+
+            # shutil.disk_usage returns (total, used, free) in bytes
+            total, used, free = shutil.disk_usage(path)
+            return free
+        except (OSError, AttributeError):
+            # Fallback for older Python versions or permission issues
+            try:
+                import os
+                import ctypes
+                import platform
+
+                if platform.system() == "Windows":
+                    # Windows-specific implementation
+                    free_bytes = ctypes.c_ulonglong(0)
+                    ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                        ctypes.c_wchar_p(path), ctypes.pointer(free_bytes), None, None
+                    )
+                    return free_bytes.value
+                else:
+                    # Unix-like systems
+                    statvfs = os.statvfs(path)
+                    return statvfs.f_frsize * statvfs.f_bavail
+            except Exception:
+                return None
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Format size in bytes to human readable format"""
+        size_formatted = float(size_bytes)
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if size_formatted < 1024.0:
+                break
+            size_formatted /= 1024.0
+        return f"{size_formatted:.1f} {unit}"
+
+    def _start_transfer(self, games_to_transfer: List[GameInfo]):
+        """Start the transfer process"""
+        # Disable UI elements during transfer
+        self.transfer_button.setEnabled(False)
+        self.scan_button.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        # Start transfer worker
+        from workers.file_transfer import FileTransferWorker
+
+        self.transfer_worker = FileTransferWorker(
+            games_to_transfer,
+            self.current_target_directory,
+            max_workers=2,
+            buffer_size=2 * 1024 * 1024,
+        )
+        self.transfer_worker.progress.connect(self._update_transfer_progress)
+        self.transfer_worker.file_progress.connect(
+            self._update_file_progress
+        )  # New signal
+        self.transfer_worker.game_transferred.connect(self._on_game_transferred)
+        self.transfer_worker.transfer_complete.connect(self._on_transfer_complete)
+        self.transfer_worker.transfer_error.connect(self._on_transfer_error)
+        self.transfer_worker.start()
+
+        self.status_bar.showMessage(f"Transferring {len(games_to_transfer)} games...")
+
+    def _update_transfer_progress(self, current: int, total: int, current_game: str):
+        """Update transfer progress"""
+        if total > 0:
+            percentage = int((current / total) * 100)
+            self.progress_bar.setValue(percentage)
+            current_transfer = (
+                current + 1
+            )  # Current is zero-based, so add 1 for display
+            self.status_bar.showMessage(
+                f"Transferring: {current_game} ({current_transfer}/{total})"
+            )
+
+    def _update_file_progress(self, game_name: str, file_progress: int):
+        """Update progress for individual file within current game"""
+        if hasattr(self, "transfer_worker") and self.transfer_worker:
+            total_games = (
+                len(self.transfer_worker.games_to_transfer)
+                if hasattr(self.transfer_worker, "games_to_transfer")
+                else 1
+            )
+            current_game_index = getattr(self.transfer_worker, "current_game_index", 0)
+
+            # Calculate overall progress: completed games + current game progress
+            overall_progress = (
+                (current_game_index * 100) + file_progress
+            ) / total_games
+            self.progress_bar.setValue(int(overall_progress))
+
+            self.status_bar.showMessage(
+                f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games})"
+            )
+
+    def _on_game_transferred(self, title_id: str):
+        """Handle successful game transfer"""
+        # Update the transferred status in the table
+        for row in range(self.games_table.rowCount()):
+            title_id_item = self.games_table.item(row, 2)  # Title ID column
+            if title_id_item and title_id_item.text() == title_id:
+                # Update transferred status column
+                show_dlcs = self.current_platform in ["xbla"]
+                status_column = 6 if show_dlcs else 5  # Transferred column
+                status_item = self.games_table.item(row, status_column)
+                if status_item:
+                    status_item.setText("✔️")
+                    status_item.setData(Qt.ItemDataRole.UserRole, True)
+                break
+
+    def _on_transfer_complete(self):
+        """Handle transfer completion"""
+        self.progress_bar.setVisible(False)
+        self.transfer_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.status_bar.showMessage("Transfer completed successfully")
+
+        # Update transfer button state
+        self._update_transfer_button_state()
+
+    def _on_transfer_error(self, error_message: str):
+        """Handle transfer error"""
+        self.progress_bar.setVisible(False)
+        self.transfer_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        QMessageBox.critical(
+            self, "Transfer Error", f"Transfer failed:\n{error_message}"
+        )
+        self.status_bar.showMessage("Transfer failed")
+
+    def _check_if_transferred(self, game: GameInfo) -> bool:
+        """Check if a game has already been transferred to target directory"""
+        if not self.current_target_directory:
+            return False
+
+        target_path = Path(self.current_target_directory) / Path(game.folder_path).name
+        return target_path.exists() and target_path.is_dir()
+
+    def browse_directory(self):
+        """Open directory selection dialog"""
+        start_dir = (
+            self.current_directory
+            if self.current_directory
+            else os.path.expanduser("~")
+        )
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            f"Select {self.platform_names[self.current_platform]} Games Directory",
+            start_dir,
+        )
+
+        if directory:
+            # Stop watching old directory
+            self.stop_watching_directory()
+
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            self.current_directory = normalized_directory
+            self.platform_directories[self.current_platform] = normalized_directory
+            self.directory_label.setText(normalized_directory)
+            self.scan_button.setEnabled(True)
+            self.status_bar.showMessage(f"Selected directory: {normalized_directory}")
+
+            # Start watching new directory
+            self.start_watching_directory()
+
+            # Start scanning the directory
+            self.scan_directory()
+
+    def switch_mode(self, mode: str):
+        """Switch between FTP and USB modes"""
+        if mode == self.current_mode:
+            return
+
+        # Update mode first
+        self.current_mode
+        self.current_mode = mode
+
+        if mode == "ftp":
+            self.ftp_mode_action.setChecked(True)
+            self.usb_mode_action.setChecked(False)
+        elif mode == "usb":
+            self.ftp_mode_action.setChecked(False)
+            self.usb_mode_action.setChecked(True)
+
+        # Handle target directory display based on mode
+        if mode == "usb":
+            # Show target directory controls and load saved target
+            usb_target = self.usb_target_directories[self.current_platform]
+
+            if usb_target and os.path.exists(usb_target):
+                self.current_target_directory = usb_target
+                self.target_directory_label.setText(usb_target)
+                self.status_bar.showMessage(
+                    "Switched to USB mode - target directory loaded"
+                )
+            else:
+                # Prompt for USB target directory
+                self._prompt_for_usb_target_directory()
+        else:  # ftp mode
+            # Hide target directory controls for FTP mode
+            self.current_target_directory = ""
+            self.target_directory_label.setText("Not used in FTP mode")
+            self.status_bar.showMessage("Switched to FTP mode")
+
+        # Source directory remains the same regardless of mode
+        platform_dir = self.platform_directories[self.current_platform]
+        if platform_dir:
+            self.current_directory = platform_dir
+            self.directory_label.setText(self.current_directory)
+            self.scan_button.setEnabled(True)
+
     def switch_platform(self, platform: str):
         """Switch to a different platform"""
         if platform == self.current_platform:
             return
 
-        # Save current directory for current platform
+        # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
+        if self.current_target_directory:
+            self.usb_target_directories[self.current_platform] = (
+                self.current_target_directory
+            )
 
         # Update window title
         self.setWindowTitle(
@@ -297,7 +834,7 @@ class XboxBackupManager(QMainWindow):
         # Recreate table with appropriate columns for new platform
         self.setup_table()
 
-        # Load directory for new platform
+        # Load source directory for new platform
         if self.platform_directories[platform]:
             self.current_directory = self.platform_directories[platform]
             self.directory_label.setText(self.current_directory)
@@ -311,9 +848,85 @@ class XboxBackupManager(QMainWindow):
             self.games.clear()
             self.games_table.setRowCount(0)
 
+        # Load target directory for new platform (USB mode only)
+        if self.current_mode == "usb":
+            if self.usb_target_directories[platform]:
+                self.current_target_directory = self.usb_target_directories[platform]
+                self.target_directory_label.setText(self.current_target_directory)
+            else:
+                self.current_target_directory = ""
+                self.target_directory_label.setText("No target directory selected")
+        else:
+            self.current_target_directory = ""
+            self.target_directory_label.setText("Not used in FTP mode")
+
         # Save platform selection
         self.settings_manager.save_current_platform(platform)
         self.status_bar.showMessage(f"Switched to {self.platform_names[platform]}")
+
+    def _select_usb_target_directory(self, platform: str):
+        """Select USB target directory for specified platform"""
+        platform_name = self.platform_names[platform]
+        start_dir = os.path.expanduser("~")
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            f"Select USB Target Directory for {platform_name} Games",
+            start_dir,
+        )
+
+        if directory:
+            # Normalize the path
+            normalized_directory = os.path.normpath(directory)
+
+            # Save the target directory
+            self.usb_target_directories[platform] = normalized_directory
+
+            # If this is for the current platform, update current target directory
+            if platform == self.current_platform:
+                self.current_target_directory = normalized_directory
+                self.target_directory_label.setText(normalized_directory)
+
+            self.status_bar.showMessage(
+                f"USB target directory set for {platform_name}: {normalized_directory}"
+            )
+        else:
+            # User cancelled directory selection
+            if platform == self.current_platform:
+                self._handle_cancelled_usb_directory_selection()
+
+    def _handle_cancelled_usb_directory_selection(self):
+        """Handle when user cancels USB target directory selection"""
+        self.current_target_directory = ""
+        self.target_directory_label.setText("No target directory selected")
+        self.status_bar.showMessage(
+            "USB mode requires a target directory - use Browse Target or File menu to set one"
+        )
+
+    def _prompt_for_usb_target_directory(self):
+        """Prompt user to select USB target directory for current platform"""
+        platform_name = self.platform_names[self.current_platform]
+
+        # Show informational message about USB target directory selection
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("USB Target Directory Required")
+        msg_box.setText(
+            f"USB mode requires a target directory for {platform_name} games."
+        )
+        msg_box.setInformativeText(
+            f"Please select the target directory where your {platform_name} games "
+            "will be copied to on your USB drive or storage device."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Ok)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Ok:
+            self._select_usb_target_directory(self.current_platform)
+        else:
+            # User cancelled - handle appropriately
+            self._handle_cancelled_usb_directory_selection()
 
     def set_theme_override(self, override_value):
         """Set theme override and apply theme"""
@@ -375,10 +988,39 @@ class XboxBackupManager(QMainWindow):
         # Restore platform directories
         self.platform_directories = self.settings_manager.load_platform_directories()
 
-        # Set current directory based on current platform
+        # Load USB target directories
+        self.usb_target_directories = (
+            self.settings_manager.load_usb_target_directories()
+        )
+
+        # Set current source directory
         if self.platform_directories[self.current_platform]:
             self.current_directory = self.platform_directories[self.current_platform]
             self.directory_label.setText(self.current_directory)
+
+        # Set current target directory based on mode and check availability
+        if self.current_mode == "usb":
+            target_dir = self.usb_target_directories[self.current_platform]
+            if target_dir:
+                # Check if target directory is available/mounted
+                is_available = self._check_target_directory_availability(target_dir)
+                if is_available:
+                    self.current_target_directory = target_dir
+                    self.target_directory_label.setText(target_dir)
+                    self.status_bar.showMessage(
+                        f"Target directory available: {target_dir}"
+                    )
+                else:
+                    # Target directory not available
+                    self.current_target_directory = ""
+                    self.target_directory_label.setText(
+                        "Target directory not available"
+                    )
+                    self._handle_unavailable_target_directory(target_dir)
+            else:
+                self.target_directory_label.setText("No target directory selected")
+        else:
+            self.target_directory_label.setText("Not used in FTP mode")
 
         # Update platform label
         self.platform_label.setText(self.platform_names[self.current_platform])
@@ -413,12 +1055,19 @@ class XboxBackupManager(QMainWindow):
         # Save current platform
         self.settings_manager.save_current_platform(self.current_platform)
 
-        # Save current directory for current platform
+        # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
+        if self.current_target_directory:
+            self.usb_target_directories[self.current_platform] = (
+                self.current_target_directory
+            )
 
         # Save all platform directories
         self.settings_manager.save_platform_directories(self.platform_directories)
+
+        # Save USB target directories
+        self.settings_manager.save_usb_target_directories(self.usb_target_directories)
 
         # Save theme preference
         self.settings_manager.save_theme_preference(
@@ -434,39 +1083,6 @@ class XboxBackupManager(QMainWindow):
                 self.current_platform, header, sort_column, sort_order
             )
 
-    def browse_directory(self):
-        """Open directory selection dialog"""
-        start_dir = (
-            self.current_directory
-            if self.current_directory
-            else os.path.expanduser("~")
-        )
-
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            f"Select {self.platform_names[self.current_platform]} Games Directory",
-            start_dir,
-        )
-
-        if directory:
-            # Stop watching old directory
-            self.stop_watching_directory()
-
-            # Normalize the path for consistent display and usage
-            normalized_directory = os.path.normpath(directory)
-
-            self.current_directory = normalized_directory
-            self.platform_directories[self.current_platform] = normalized_directory
-            self.directory_label.setText(normalized_directory)
-            self.scan_button.setEnabled(True)
-            self.status_bar.showMessage(f"Selected directory: {normalized_directory}")
-
-            # Start watching new directory
-            self.start_watching_directory()
-
-            # Start scanning the directory
-            self.scan_directory()
-
     def load_title_database(self):
         """Load the Xbox title database"""
         self.status_bar.showMessage("Loading title database...")
@@ -480,7 +1096,8 @@ class XboxBackupManager(QMainWindow):
         )
 
         # Enable UI elements
-        self.browse_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
         if self.current_directory:
             self.scan_button.setEnabled(True)
             self.start_watching_directory()
@@ -494,7 +1111,8 @@ class XboxBackupManager(QMainWindow):
         )
 
         # Enable UI elements even without database
-        self.browse_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
         if self.current_directory:
             self.scan_button.setEnabled(True)
 
@@ -556,7 +1174,8 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.scan_button.setEnabled(False)
-        self.browse_button.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
 
         # Start scanning thread
         self.scanner = DirectoryScanner(
@@ -593,21 +1212,52 @@ class XboxBackupManager(QMainWindow):
         # Create table items
         self._create_table_items(row, game_info, show_dlcs)
 
+        # Connect checkbox state change to update transfer button
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            # We need to connect the itemChanged signal to handle checkbox changes
+            self.games_table.itemChanged.connect(self._on_checkbox_changed)
+
         # Update status
         self.status_bar.showMessage(f"Found {len(self.games)} games...")
+
+    def _on_checkbox_changed(self, item):
+        """Handle checkbox state changes"""
+        if item.column() == 0:  # Only handle checkbox column
+            self._update_transfer_button_state()
+            self._update_remove_button_state()
 
     def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
         """Create and populate table items for a game row"""
         col_index = 0
 
+        # Select checkbox column - properly centered
+        checkbox_item = QTableWidgetItem("")  # Empty text is important
+        checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+        checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        # Center the checkbox both horizontally and vertically
+        checkbox_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.games_table.setItem(row, col_index, checkbox_item)
+        col_index += 1
+
         # Icon column
-        icon_item = QTableWidgetItem()
+        icon_item = QTableWidgetItem("")  # Empty text
         icon_item.setFlags(icon_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
         # Add icon if we have it cached
         if game_info.title_id in self.icon_cache:
             pixmap = self.icon_cache[game_info.title_id]
-            icon = QIcon(pixmap)
+            # Scale pixmap to proper size
+            scaled_pixmap = pixmap.scaled(
+                48,
+                48,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            icon = QIcon(scaled_pixmap)
             icon_item.setIcon(icon)
 
         self.games_table.setItem(row, col_index, icon_item)
@@ -627,7 +1277,7 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setItem(row, col_index, name_item)
         col_index += 1
 
-        # Size column - FIXED: Use custom item that sorts by byte values
+        # Size column
         size_item = SizeTableWidgetItem(game_info.size_formatted, game_info.size_bytes)
         size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.games_table.setItem(row, col_index, size_item)
@@ -644,10 +1294,21 @@ class XboxBackupManager(QMainWindow):
             dlc_item = QTableWidgetItem(str(dlcs_count))
             dlc_item.setData(Qt.ItemDataRole.UserRole, dlcs_count)
             dlc_item.setFlags(dlc_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            dlc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.games_table.setItem(row, col_index, dlc_item)
             col_index += 1
 
-        # Folder Path column (always last)
+        # Transferred status column - centered
+        is_transferred = self._check_if_transferred(game_info)
+        status_text = "✔️" if is_transferred else "❌"
+        status_item = QTableWidgetItem(status_text)
+        status_item.setData(Qt.ItemDataRole.UserRole, is_transferred)
+        status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.games_table.setItem(row, col_index, status_item)
+        col_index += 1
+
+        # Source Path column (always last)
         path_item = QTableWidgetItem(game_info.folder_path)
         path_item.setData(Qt.ItemDataRole.UserRole, game_info.folder_path)
         path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -657,7 +1318,8 @@ class XboxBackupManager(QMainWindow):
         """Handle scan completion"""
         self.progress_bar.setVisible(False)
         self.scan_button.setEnabled(True)
-        self.browse_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
 
         game_count = len(self.games)
         total_size = sum(game.size_bytes for game in self.games)
@@ -674,16 +1336,25 @@ class XboxBackupManager(QMainWindow):
 
         # Apply the previous sort order, or default to Game Name
         if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
+            # Adjust sort column if needed (because we added checkbox column)
+            if self.current_sort_column >= 1:
+                self.current_sort_column += 1  # Shift right due to checkbox column
             self.games_table.sortItems(
                 self.current_sort_column, self.current_sort_order
             )
         else:
-            # Default sort (Game Name column is always column 2 with icons)
-            self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
+            # Default sort (Game Name column is now column 3)
+            self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
 
-        self.status_bar.showMessage(
-            f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
-        )
+        # Update status and apply any active search filter
+        self._update_search_status("")
+
+        # Re-apply search filter if search bar is visible
+        if self.search_input.isVisible() and self.search_input.text():
+            self.filter_games(self.search_input.text())
+
+        # Update transfer button state
+        self._update_transfer_button_state()
 
         # Download icons for games that don't have them cached
         if game_count > 0:
@@ -751,15 +1422,32 @@ class XboxBackupManager(QMainWindow):
 
         # Set columns and headers
         if show_dlcs:
-            self.games_table.setColumnCount(6)
-            headers = ["Icon", "Title ID", "Game Name", "Size", "DLCs", "Folder Path"]
+            self.games_table.setColumnCount(8)
+            headers = [
+                "Select",
+                "Icon",
+                "Title ID",
+                "Game Name",
+                "Size",
+                "DLCs",
+                "Transferred",
+                "Source Path",
+            ]
         else:
-            self.games_table.setColumnCount(5)
-            headers = ["Icon", "Title ID", "Game Name", "Size", "Folder Path"]
+            self.games_table.setColumnCount(7)
+            headers = [
+                "Select",
+                "Icon",
+                "Title ID",
+                "Game Name",
+                "Size",
+                "Transferred",
+                "Source Path",
+            ]
 
         self.games_table.setHorizontalHeaderLabels(headers)
 
-        # Set custom header to disable sorting on column 0
+        # Set custom header to disable sorting on columns 0 and 1 (Select and Icon)
         custom_header = NonSortableHeaderView(
             Qt.Orientation.Horizontal, self.games_table
         )
@@ -767,7 +1455,9 @@ class XboxBackupManager(QMainWindow):
 
         # Set up custom icon delegate for proper icon rendering
         icon_delegate = IconDelegate()
-        self.games_table.setItemDelegateForColumn(0, icon_delegate)
+        self.games_table.setItemDelegateForColumn(
+            1, icon_delegate
+        )  # Icon column is now 1
 
         # Configure column widths and resize modes
         self._setup_table_columns(show_dlcs)
@@ -784,34 +1474,47 @@ class XboxBackupManager(QMainWindow):
 
         header.installEventFilter(self)
 
-        # Icon column - fixed width
+        # Select column - fixed width, narrow for checkbox only
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 80)
+        header.resizeSection(0, 30)  # More reasonable size for checkbox
+
+        # Icon column - fixed width
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(1, 64)
 
         # Other columns
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # Title ID
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Game Name
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Size
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Title ID
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Game Name
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # Size
 
         if show_dlcs:
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # DLCs
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)  # DLCs
             header.setSectionResizeMode(
-                5, QHeaderView.ResizeMode.Stretch
-            )  # Folder Path
+                6, QHeaderView.ResizeMode.Interactive
+            )  # Transferred
+            header.setSectionResizeMode(
+                7, QHeaderView.ResizeMode.Stretch
+            )  # Source Path
         else:
             header.setSectionResizeMode(
-                4, QHeaderView.ResizeMode.Stretch
-            )  # Folder Path
+                5, QHeaderView.ResizeMode.Interactive
+            )  # Transferred
+            header.setSectionResizeMode(
+                6, QHeaderView.ResizeMode.Stretch
+            )  # Source Path
 
         # Set minimum column widths
-        header.setMinimumSectionSize(80)
+        header.setMinimumSectionSize(30)  # More reasonable minimum
 
         # Set initial column widths
-        header.resizeSection(1, 100)  # Title ID
-        header.resizeSection(2, 300)  # Game Name
-        header.resizeSection(3, 100)  # Size
+        header.resizeSection(2, 100)  # Title ID
+        header.resizeSection(3, 300)  # Game Name
+        header.resizeSection(4, 100)  # Size
         if show_dlcs:
-            header.resizeSection(4, 60)  # DLCs
+            header.resizeSection(5, 60)  # DLCs
+            header.resizeSection(6, 100)  # Transferred
+        else:
+            header.resizeSection(5, 100)  # Transferred
 
     def _configure_table_appearance(self):
         """Configure table appearance and styling"""
@@ -904,14 +1607,15 @@ class XboxBackupManager(QMainWindow):
 
         row = item.row()
         show_dlcs = self.current_platform in ["xbla"]
-        folder_path_column = 5 if show_dlcs else 4
+        folder_path_column = 7 if show_dlcs else 6  # Adjusted for new columns
 
-        # Get the folder path from the appropriate column
+        # Get the Source Path from the appropriate column
         folder_item = self.games_table.item(row, folder_path_column)
         if folder_item is None:
             return
 
         folder_path = folder_item.text()
+        title_id = self.games_table.item(row, 2).text()
 
         # Create context menu
         menu = QMenu(self)
@@ -922,20 +1626,98 @@ class XboxBackupManager(QMainWindow):
             lambda: SystemUtils.open_folder_in_explorer(folder_path, self)
         )
 
-        # Add "Copy Folder Path" action
-        copy_path_action = menu.addAction("Copy Folder Path")
+        # Add "Copy Source Path" action
+        copy_path_action = menu.addAction("Copy Source Path")
         copy_path_action.triggered.connect(
             lambda: SystemUtils.copy_to_clipboard(folder_path)
+        )
+
+        # Add "Copy Title ID" action
+        copy_title_id_action = menu.addAction("Copy Title ID")
+        copy_title_id_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(title_id)
+        )
+
+        # Add separator
+        menu.addSeparator()
+
+        # Add "Toggle Selection" action
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            current_state = checkbox_item.checkState()
+            toggle_text = (
+                "Unselect" if current_state == Qt.CheckState.Checked else "Select"
+            )
+            toggle_action = menu.addAction(f"{toggle_text} for Transfer")
+            toggle_action.triggered.connect(lambda: self._toggle_row_selection(row))
+
+        # Add "Remove from Target" action
+        remove_action = menu.addAction("Remove from Target")
+        remove_action.triggered.connect(
+            lambda: self.remove_game_from_target(
+                title_id=self.games_table.item(row, 2).text(),
+                game_name=self.games_table.item(row, 3).text(),
+            )
         )
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
 
+    def remove_game_from_target(self, title_id: str, game_name: str):
+        target_path = (
+            self.usb_target_directories.get(self.current_platform, "")
+            + os.sep
+            + title_id
+        )
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Confirm Removal")
+        msg_box.setText(
+            f"Are you sure you want to remove {game_name}?\n\n{target_path}"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._remove_game_from_target(title_id, game_name)
+
+    def _remove_game_from_target(self, title_id: str, game_name: str):
+        """Remove game from target directory"""
+        if title_id and game_name:
+            target_path = (
+                self.usb_target_directories.get(self.current_platform, "")
+                + os.sep
+                + title_id
+            )
+
+            shutil.rmtree(target_path, ignore_errors=True)
+            self.status_bar.showMessage(f"Removed {game_name} from target directory")
+            # Update transferred status
+            for row in range(self.games_table.rowCount()):
+                title_item = self.games_table.item(row, 2)
+                if title_item and title_item.text() == title_id:
+                    status_item = self.games_table.item(row, 5)
+                    if status_item:
+                        status_item.setText("❌")
+
+    def _toggle_row_selection(self, row: int):
+        """Toggle the selection state of a row"""
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            current_state = checkbox_item.checkState()
+            new_state = (
+                Qt.CheckState.Unchecked
+                if current_state == Qt.CheckState.Checked
+                else Qt.CheckState.Checked
+            )
+            checkbox_item.setCheckState(new_state)
+
     def scan_error(self, error_msg: str):
         """Handle scan error"""
         self.progress_bar.setVisible(False)
         self.scan_button.setEnabled(True)
-        self.browse_button.setEnabled(True)
 
         QMessageBox.critical(
             self, "Scan Error", f"An error occurred while scanning:\n{error_msg}"
@@ -961,6 +1743,136 @@ class XboxBackupManager(QMainWindow):
         self.save_settings()
         event.accept()
 
+    def clear_search(self):
+        """Clear the search input and show all games"""
+        self.search_input.clear()
+        self.filter_games("")
+
+    def filter_games(self, search_text: str):
+        """Filter games based on search text"""
+        search_text = search_text.lower().strip()
+
+        # If any text is entered, show the clear button
+        if search_text:
+            self.search_clear_button.setVisible(True)
+        else:
+            self.search_clear_button.setVisible(False)
+
+        # Show all rows if search is empty
+        if not search_text:
+            for row in range(self.games_table.rowCount()):
+                self.games_table.setRowHidden(row, False)
+            self._update_search_status("")
+            return
+
+        # Filter rows based on search text
+        visible_count = 0
+        for row in range(self.games_table.rowCount()):
+            # Get title ID (column 2) and game name (column 3) - adjusted for checkbox column
+            title_id_item = self.games_table.item(row, 2)
+            name_item = self.games_table.item(row, 3)
+
+            title_id = title_id_item.text().lower() if title_id_item else ""
+            name = name_item.text().lower() if name_item else ""
+
+            # Check if search text matches title ID or name
+            matches = search_text in title_id or search_text in name
+
+            self.games_table.setRowHidden(row, not matches)
+            if matches:
+                visible_count += 1
+
+        self._update_search_status(f" - {visible_count} games match search")
+
+    def _update_search_status(self, suffix: str):
+        """Update status bar with search results"""
+        if hasattr(self, "games") and self.games:
+            game_count = len(self.games)
+            total_size = sum(game.size_bytes for game in self.games)
+
+            # Format total size
+            size_formatted = total_size
+            for unit in ["B", "KB", "MB", "GB", "TB"]:
+                if size_formatted < 1024.0:
+                    break
+                size_formatted /= 1024.0
+
+            base_message = f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
+            self.status_bar.showMessage(base_message + suffix)
+
+    def _check_target_directory_availability(self, target_path: str) -> bool:
+        """Check if target directory is available/mounted"""
+        try:
+            if not target_path:
+                return False
+
+            # Check if path exists and is accessible
+            if not os.path.exists(target_path):
+                return False
+
+            # Try to access the directory to ensure it's mounted and readable
+            try:
+                os.listdir(target_path)
+                return True
+            except (OSError, PermissionError):
+                return False
+
+        except Exception:
+            return False
+
+    def _handle_unavailable_target_directory(self, target_path: str):
+        """Handle when target directory is not available on startup"""
+        platform_name = self.platform_names[self.current_platform]
+
+        # Show warning message
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Target Directory Unavailable")
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setText(f"Target directory for {platform_name} is not available:")
+        msg_box.setInformativeText(
+            f"Path: {target_path}\n\n"
+            "This could mean:\n"
+            "• USB drive is not connected\n"
+            "• Network drive is not mounted\n"
+            "• Directory has been moved or deleted\n"
+            "• Insufficient permissions\n\n"
+            "Please connect your target device or select a new target directory."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Ignore
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Ok)
+
+        result = msg_box.exec()
+
+        if result == QMessageBox.StandardButton.Ok:
+            # Offer to select new target directory
+            self._prompt_for_new_target_directory()
+        else:
+            # User chose to ignore - show message in status bar
+            self.status_bar.showMessage(
+                f"Warning: Target directory not available - {target_path}", 10000
+            )
+
+    def _prompt_for_new_target_directory(self):
+        """Prompt user to select a new target directory"""
+        platform_name = self.platform_names[self.current_platform]
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Select New Target Directory")
+        msg_box.setText(
+            f"Would you like to select a new target directory for {platform_name}?"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self.browse_target_directory()
+        else:
+            self.status_bar.showMessage("No target directory selected", 5000)
+
 
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
@@ -970,7 +1882,7 @@ class NonSortableHeaderView(QHeaderView):
 
     def mousePressEvent(self, event):
         section = self.logicalIndexAt(event.pos())
-        if section == 0:  # Disable for icon column (section 0)
+        if section in [0, 1]:  # Disable for checkbox (0) and icon (1) columns
             event.ignore()
             return
         super().mousePressEvent(event)
