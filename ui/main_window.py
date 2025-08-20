@@ -459,16 +459,50 @@ class XboxBackupManager(QMainWindow):
             )
             return
 
-        # Confirm transfer
+        # Calculate total size and check disk space
         total_size = sum(game.size_bytes for game in selected_games)
         size_formatted = self._format_size(total_size)
 
+        # Check available disk space
+        available_space = self._get_available_disk_space(self.current_target_directory)
+        if available_space is None:
+            QMessageBox.warning(
+                self,
+                "Disk Space Check Failed",
+                "Could not determine available disk space on target device.\n"
+                "The transfer may fail if there is insufficient space.",
+            )
+        elif total_size > available_space:
+            available_formatted = self._format_size(available_space)
+            QMessageBox.critical(
+                self,
+                "Insufficient Disk Space",
+                f"Not enough space on target device!\n\n"
+                f"Required: {size_formatted}\n"
+                f"Available: {available_formatted}\n"
+                f"Additional space needed: {self._format_size(total_size - available_space)}",
+            )
+            return
+
+        # Show confirmation with disk space info
+        if available_space is not None:
+            available_formatted = self._format_size(available_space)
+            remaining_after = available_space - total_size
+            remaining_formatted = self._format_size(remaining_after)
+
+            space_info = (
+                f"Available space: {available_formatted}\n"
+                f"Space after transfer: {remaining_formatted}"
+            )
+        else:
+            space_info = "Disk space: Could not determine"
+
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Confirm Transfer")
-        msg_box.setText(
-            f"Transfer {len(selected_games)} games ({size_formatted}) to target directory?"
+        msg_box.setText(f"Transfer {len(selected_games)} games ({size_formatted})?")
+        msg_box.setInformativeText(
+            f"Target: {self.current_target_directory}\n\n{space_info}"
         )
-        msg_box.setInformativeText(f"Target: {self.current_target_directory}")
         msg_box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -476,6 +510,35 @@ class XboxBackupManager(QMainWindow):
 
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
             self._start_transfer(selected_games)
+
+    def _get_available_disk_space(self, path: str) -> int:
+        """Get available disk space for the given path in bytes"""
+        try:
+            import shutil
+
+            # shutil.disk_usage returns (total, used, free) in bytes
+            total, used, free = shutil.disk_usage(path)
+            return free
+        except (OSError, AttributeError):
+            # Fallback for older Python versions or permission issues
+            try:
+                import os
+                import ctypes
+                import platform
+
+                if platform.system() == "Windows":
+                    # Windows-specific implementation
+                    free_bytes = ctypes.c_ulonglong(0)
+                    ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                        ctypes.c_wchar_p(path), ctypes.pointer(free_bytes), None, None
+                    )
+                    return free_bytes.value
+                else:
+                    # Unix-like systems
+                    statvfs = os.statvfs(path)
+                    return statvfs.f_frsize * statvfs.f_bavail
+            except Exception:
+                return None
 
     def _format_size(self, size_bytes: int) -> str:
         """Format size in bytes to human readable format"""
