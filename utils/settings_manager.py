@@ -1,3 +1,5 @@
+from typing import Dict
+
 from PyQt6.QtCore import QSettings
 
 
@@ -92,3 +94,11 @@ class SettingsManager:
     def load_current_platform(self):
         """Load current platform selection"""
         return self.settings.value("current_platform", "xbox360")
+
+    def save_usb_directories(self, usb_directories: Dict[str, str]):
+        """Save USB directories for all platforms"""
+        self.settings.setValue("usb_directories", usb_directories)
+
+    def load_usb_directories(self) -> Dict[str, str]:
+        """Load USB directories for all platforms"""
+        return self.settings.value("usb_directories", {"xbox360": "", "xbla": ""})

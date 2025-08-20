@@ -54,6 +54,7 @@ class XboxBackupManager(QMainWindow):
         # Application state
         self.games: List[GameInfo] = []
         self.current_directory = ""
+        self.current_mode = "usb"
         self.current_platform = "xbox360"  # Default platform
         self.platform_directories = {"xbox360": "", "xbla": ""}
         self.platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
@@ -168,6 +169,9 @@ class XboxBackupManager(QMainWindow):
         # File menu
         self.create_file_menu(menubar)
 
+        # Mode menu (FTP/USB)
+        self.create_mode_menu(menubar)
+
         # Platform menu
         self.create_platform_menu(menubar)
 
@@ -192,6 +196,30 @@ class XboxBackupManager(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+
+    # Menu to select between FTP or USB mode
+    def create_mode_menu(self, menubar):
+        """Create the Mode menu"""
+        mode_menu = menubar.addMenu("&Mode")
+        self.mode_action_group = QActionGroup(self)
+
+        self.ftp_mode_action = QAction("&FTP", self)
+        self.ftp_mode_action.setCheckable(True)
+        self.ftp_mode_action.triggered.connect(lambda: self.switch_mode("ftp"))
+        self.mode_action_group.addAction(self.ftp_mode_action)
+        mode_menu.addAction(self.ftp_mode_action)
+
+        self.usb_mode_action = QAction("&USB", self)
+        self.usb_mode_action.setCheckable(True)
+        self.usb_mode_action.triggered.connect(lambda: self.switch_mode("usb"))
+        self.mode_action_group.addAction(self.usb_mode_action)
+        mode_menu.addAction(self.usb_mode_action)
+
+        # Set state of menu
+        if self.current_mode == "ftp":
+            self.ftp_mode_action.setChecked(True)
+        else:
+            self.usb_mode_action.setChecked(True)
 
     def create_platform_menu(self, menubar):
         """Create the Platform menu"""
@@ -270,6 +298,21 @@ class XboxBackupManager(QMainWindow):
             SystemUtils.open_folder_in_explorer(self.current_directory, self)
         else:
             self.status_bar.showMessage("No valid directory selected", 3000)
+
+    def switch_mode(self, mode: str):
+        """Switch between FTP and USB modes"""
+        if mode == "ftp":
+            self.ftp_mode_action.setChecked(True)
+            self.usb_mode_action.setChecked(False)
+            self.status_bar.showMessage("Switched to FTP mode")
+            self.current_mode = "ftp"
+        elif mode == "usb":
+            self.ftp_mode_action.setChecked(False)
+            self.usb_mode_action.setChecked(True)
+            self.status_bar.showMessage("Switched to USB mode")
+            self.current_mode = "usb"
+        else:
+            return
 
     def switch_platform(self, platform: str):
         """Switch to a different platform"""
