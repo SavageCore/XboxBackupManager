@@ -141,6 +141,11 @@ class XboxBackupManager(QMainWindow):
         self.target_directory_label = QLabel("No target directory selected")
         self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
 
+        self.transfer_button = QPushButton("Transfer Selected")
+        self.transfer_button.setObjectName("transfer_button")
+        self.transfer_button.clicked.connect(self.transfer_selected_games)
+        self.transfer_button.setEnabled(False)
+
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
         self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -148,6 +153,7 @@ class XboxBackupManager(QMainWindow):
         target_layout.addWidget(QLabel("Target:"))
         target_layout.addWidget(self.target_directory_label, 1)
         target_layout.addWidget(self.platform_label)
+        target_layout.addWidget(self.transfer_button)
 
         # Search bar (initially hidden)
         self.search_layout = QHBoxLayout()
@@ -423,9 +429,181 @@ class XboxBackupManager(QMainWindow):
             self.usb_target_directories[self.current_platform] = normalized_directory
             self.target_directory_label.setText(normalized_directory)
 
+            # Enable transfer button if we have games and target directory
+            self._update_transfer_button_state()
+
             self.status_bar.showMessage(
                 f"Selected target directory: {normalized_directory}"
             )
+
+    def _update_transfer_button_state(self):
+        """Update transfer button enabled state based on conditions"""
+        has_games = len(self.games) > 0
+        has_target = bool(
+            self.current_target_directory
+            and os.path.exists(self.current_target_directory)
+        )
+        has_selected = self._get_selected_games_count() > 0
+
+        # Enable if we have games, target directory, and at least one game is selected
+        self.transfer_button.setEnabled(has_games and has_target and has_selected)
+
+    def _get_selected_games_count(self):
+        """Get count of selected games (checked in checkbox column)"""
+        count = 0
+        for row in range(self.games_table.rowCount()):
+            checkbox_item = self.games_table.item(
+                row, 0
+            )  # Checkbox is in first column now
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                count += 1
+        return count
+
+    def transfer_selected_games(self):
+        """Transfer selected games to target directory"""
+        if not self.current_target_directory:
+            QMessageBox.warning(
+                self, "No Target Directory", "Please select a target directory first."
+            )
+            return
+
+        selected_games = []
+        for row in range(self.games_table.rowCount()):
+            checkbox_item = self.games_table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
+                # Get game info for this row
+                title_id_item = self.games_table.item(
+                    row, 2
+                )  # Title ID is now column 2
+                if title_id_item:
+                    title_id = title_id_item.text()
+                    # Find the game in our games list
+                    for game in self.games:
+                        if game.title_id == title_id:
+                            selected_games.append(game)
+                            break
+
+        if not selected_games:
+            QMessageBox.information(
+                self,
+                "No Games Selected",
+                "Please select games to transfer by checking the boxes.",
+            )
+            return
+
+        # Confirm transfer
+        total_size = sum(game.size_bytes for game in selected_games)
+        size_formatted = self._format_size(total_size)
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Confirm Transfer")
+        msg_box.setText(
+            f"Transfer {len(selected_games)} games ({size_formatted}) to target directory?"
+        )
+        msg_box.setInformativeText(f"Target: {self.current_target_directory}")
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._start_transfer(selected_games)
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Format size in bytes to human readable format"""
+        size_formatted = float(size_bytes)
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if size_formatted < 1024.0:
+                break
+            size_formatted /= 1024.0
+        return f"{size_formatted:.1f} {unit}"
+
+    def _start_transfer(self, games_to_transfer: List[GameInfo]):
+        """Start the transfer process"""
+        # Disable UI elements during transfer
+        self.transfer_button.setEnabled(False)
+        self.scan_button.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        # Start transfer worker
+        from workers.file_transfer import FileTransferWorker
+
+        self.transfer_worker = FileTransferWorker(
+            games_to_transfer, self.current_target_directory
+        )
+        self.transfer_worker.progress.connect(self._update_transfer_progress)
+        self.transfer_worker.game_transferred.connect(self._on_game_transferred)
+        self.transfer_worker.transfer_complete.connect(self._on_transfer_complete)
+        self.transfer_worker.transfer_error.connect(self._on_transfer_error)
+        self.transfer_worker.start()
+
+        self.status_bar.showMessage(f"Transferring {len(games_to_transfer)} games...")
+
+    def _update_transfer_progress(self, current: int, total: int, current_game: str):
+        """Update transfer progress"""
+        if total > 0:
+            percentage = int((current / total) * 100)
+            self.progress_bar.setValue(percentage)
+            current_transfer = (
+                current + 1
+            )  # Current is zero-based, so add 1 for display
+            self.status_bar.showMessage(
+                f"Transferring: {current_game} ({current_transfer}/{total})"
+            )
+
+    def _on_game_transferred(self, title_id: str):
+        """Handle successful game transfer"""
+        # Update the transferred status in the table
+        for row in range(self.games_table.rowCount()):
+            title_id_item = self.games_table.item(row, 2)  # Title ID column
+            if title_id_item and title_id_item.text() == title_id:
+                # Update transferred status column
+                show_dlcs = self.current_platform in ["xbla"]
+                status_column = 6 if show_dlcs else 5  # Transferred column
+                status_item = self.games_table.item(row, status_column)
+                if status_item:
+                    status_item.setText("✓ Yes")
+                    status_item.setData(Qt.ItemDataRole.UserRole, True)
+                break
+
+    def _on_transfer_complete(self):
+        """Handle transfer completion"""
+        self.progress_bar.setVisible(False)
+        self.transfer_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.status_bar.showMessage("Transfer completed successfully")
+
+        # Update transfer button state
+        self._update_transfer_button_state()
+
+    def _on_transfer_error(self, error_message: str):
+        """Handle transfer error"""
+        self.progress_bar.setVisible(False)
+        self.transfer_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        QMessageBox.critical(
+            self, "Transfer Error", f"Transfer failed:\n{error_message}"
+        )
+        self.status_bar.showMessage("Transfer failed")
+
+    def _check_if_transferred(self, game: GameInfo) -> bool:
+        """Check if a game has already been transferred to target directory"""
+        if not self.current_target_directory:
+            return False
+
+        target_path = Path(self.current_target_directory) / Path(game.folder_path).name
+        return target_path.exists() and target_path.is_dir()
 
     def browse_directory(self):
         """Open directory selection dialog"""
@@ -899,21 +1077,51 @@ class XboxBackupManager(QMainWindow):
         # Create table items
         self._create_table_items(row, game_info, show_dlcs)
 
+        # Connect checkbox state change to update transfer button
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            # We need to connect the itemChanged signal to handle checkbox changes
+            self.games_table.itemChanged.connect(self._on_checkbox_changed)
+
         # Update status
         self.status_bar.showMessage(f"Found {len(self.games)} games...")
+
+    def _on_checkbox_changed(self, item):
+        """Handle checkbox state changes"""
+        if item.column() == 0:  # Only handle checkbox column
+            self._update_transfer_button_state()
 
     def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
         """Create and populate table items for a game row"""
         col_index = 0
 
+        # Select checkbox column - properly centered
+        checkbox_item = QTableWidgetItem("")  # Empty text
+        checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+        checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        # Center the checkbox properly
+        checkbox_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.games_table.setItem(row, col_index, checkbox_item)
+        col_index += 1
+
         # Icon column
-        icon_item = QTableWidgetItem()
+        icon_item = QTableWidgetItem("")  # Empty text
         icon_item.setFlags(icon_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
         # Add icon if we have it cached
         if game_info.title_id in self.icon_cache:
             pixmap = self.icon_cache[game_info.title_id]
-            icon = QIcon(pixmap)
+            # Scale pixmap to proper size
+            scaled_pixmap = pixmap.scaled(
+                48,
+                48,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            icon = QIcon(scaled_pixmap)
             icon_item.setIcon(icon)
 
         self.games_table.setItem(row, col_index, icon_item)
@@ -933,7 +1141,7 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setItem(row, col_index, name_item)
         col_index += 1
 
-        # Size column - FIXED: Use custom item that sorts by byte values
+        # Size column
         size_item = SizeTableWidgetItem(game_info.size_formatted, game_info.size_bytes)
         size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.games_table.setItem(row, col_index, size_item)
@@ -950,8 +1158,19 @@ class XboxBackupManager(QMainWindow):
             dlc_item = QTableWidgetItem(str(dlcs_count))
             dlc_item.setData(Qt.ItemDataRole.UserRole, dlcs_count)
             dlc_item.setFlags(dlc_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            dlc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.games_table.setItem(row, col_index, dlc_item)
             col_index += 1
+
+        # Transferred status column - centered
+        is_transferred = self._check_if_transferred(game_info)
+        status_text = "✓ Yes" if is_transferred else "✗ No"
+        status_item = QTableWidgetItem(status_text)
+        status_item.setData(Qt.ItemDataRole.UserRole, is_transferred)
+        status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.games_table.setItem(row, col_index, status_item)
+        col_index += 1
 
         # Source Path column (always last)
         path_item = QTableWidgetItem(game_info.folder_path)
@@ -981,12 +1200,15 @@ class XboxBackupManager(QMainWindow):
 
         # Apply the previous sort order, or default to Game Name
         if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
+            # Adjust sort column if needed (because we added checkbox column)
+            if self.current_sort_column >= 1:
+                self.current_sort_column += 1  # Shift right due to checkbox column
             self.games_table.sortItems(
                 self.current_sort_column, self.current_sort_order
             )
         else:
-            # Default sort (Game Name column is always column 2 with icons)
-            self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
+            # Default sort (Game Name column is now column 3)
+            self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
 
         # Update status and apply any active search filter
         self._update_search_status("")
@@ -994,6 +1216,9 @@ class XboxBackupManager(QMainWindow):
         # Re-apply search filter if search bar is visible
         if self.search_input.isVisible() and self.search_input.text():
             self.filter_games(self.search_input.text())
+
+        # Update transfer button state
+        self._update_transfer_button_state()
 
         # Download icons for games that don't have them cached
         if game_count > 0:
@@ -1061,15 +1286,32 @@ class XboxBackupManager(QMainWindow):
 
         # Set columns and headers
         if show_dlcs:
-            self.games_table.setColumnCount(6)
-            headers = ["Icon", "Title ID", "Game Name", "Size", "DLCs", "Source Path"]
+            self.games_table.setColumnCount(8)
+            headers = [
+                "Select",
+                "Icon",
+                "Title ID",
+                "Game Name",
+                "Size",
+                "DLCs",
+                "Transferred",
+                "Source Path",
+            ]
         else:
-            self.games_table.setColumnCount(5)
-            headers = ["Icon", "Title ID", "Game Name", "Size", "Source Path"]
+            self.games_table.setColumnCount(7)
+            headers = [
+                "Select",
+                "Icon",
+                "Title ID",
+                "Game Name",
+                "Size",
+                "Transferred",
+                "Source Path",
+            ]
 
         self.games_table.setHorizontalHeaderLabels(headers)
 
-        # Set custom header to disable sorting on column 0
+        # Set custom header to disable sorting on columns 0 and 1 (Select and Icon)
         custom_header = NonSortableHeaderView(
             Qt.Orientation.Horizontal, self.games_table
         )
@@ -1077,7 +1319,9 @@ class XboxBackupManager(QMainWindow):
 
         # Set up custom icon delegate for proper icon rendering
         icon_delegate = IconDelegate()
-        self.games_table.setItemDelegateForColumn(0, icon_delegate)
+        self.games_table.setItemDelegateForColumn(
+            1, icon_delegate
+        )  # Icon column is now 1
 
         # Configure column widths and resize modes
         self._setup_table_columns(show_dlcs)
@@ -1094,34 +1338,47 @@ class XboxBackupManager(QMainWindow):
 
         header.installEventFilter(self)
 
-        # Icon column - fixed width
+        # Select column - fixed width, much smaller
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 80)
+        header.resizeSection(0, 25)  # Much smaller for just checkbox
+
+        # Icon column - fixed width
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(1, 64)
 
         # Other columns
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # Title ID
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Game Name
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Size
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Title ID
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Game Name
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # Size
 
         if show_dlcs:
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # DLCs
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)  # DLCs
             header.setSectionResizeMode(
-                5, QHeaderView.ResizeMode.Stretch
+                6, QHeaderView.ResizeMode.Interactive
+            )  # Transferred
+            header.setSectionResizeMode(
+                7, QHeaderView.ResizeMode.Stretch
             )  # Source Path
         else:
             header.setSectionResizeMode(
-                4, QHeaderView.ResizeMode.Stretch
+                5, QHeaderView.ResizeMode.Interactive
+            )  # Transferred
+            header.setSectionResizeMode(
+                6, QHeaderView.ResizeMode.Stretch
             )  # Source Path
 
         # Set minimum column widths
-        header.setMinimumSectionSize(80)
+        header.setMinimumSectionSize(25)
 
         # Set initial column widths
-        header.resizeSection(1, 100)  # Title ID
-        header.resizeSection(2, 300)  # Game Name
-        header.resizeSection(3, 100)  # Size
+        header.resizeSection(2, 100)  # Title ID
+        header.resizeSection(3, 300)  # Game Name
+        header.resizeSection(4, 100)  # Size
         if show_dlcs:
-            header.resizeSection(4, 60)  # DLCs
+            header.resizeSection(5, 60)  # DLCs
+            header.resizeSection(6, 100)  # Transferred
+        else:
+            header.resizeSection(5, 100)  # Transferred
 
     def _configure_table_appearance(self):
         """Configure table appearance and styling"""
@@ -1214,7 +1471,7 @@ class XboxBackupManager(QMainWindow):
 
         row = item.row()
         show_dlcs = self.current_platform in ["xbla"]
-        folder_path_column = 5 if show_dlcs else 4
+        folder_path_column = 7 if show_dlcs else 6  # Adjusted for new columns
 
         # Get the Source Path from the appropriate column
         folder_item = self.games_table.item(row, folder_path_column)
@@ -1238,8 +1495,30 @@ class XboxBackupManager(QMainWindow):
             lambda: SystemUtils.copy_to_clipboard(folder_path)
         )
 
+        # Add "Toggle Selection" action
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            current_state = checkbox_item.checkState()
+            toggle_text = (
+                "Unselect" if current_state == Qt.CheckState.Checked else "Select"
+            )
+            toggle_action = menu.addAction(f"{toggle_text} for Transfer")
+            toggle_action.triggered.connect(lambda: self._toggle_row_selection(row))
+
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
+
+    def _toggle_row_selection(self, row: int):
+        """Toggle the selection state of a row"""
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            current_state = checkbox_item.checkState()
+            new_state = (
+                Qt.CheckState.Unchecked
+                if current_state == Qt.CheckState.Checked
+                else Qt.CheckState.Checked
+            )
+            checkbox_item.setCheckState(new_state)
 
     def scan_error(self, error_msg: str):
         """Handle scan error"""
@@ -1304,9 +1583,9 @@ class XboxBackupManager(QMainWindow):
         # Filter rows based on search text
         visible_count = 0
         for row in range(self.games_table.rowCount()):
-            # Get title ID (column 1) and game name (column 2)
-            title_id_item = self.games_table.item(row, 1)
-            name_item = self.games_table.item(row, 2)
+            # Get title ID (column 2) and game name (column 3) - adjusted for checkbox column
+            title_id_item = self.games_table.item(row, 2)
+            name_item = self.games_table.item(row, 3)
 
             title_id = title_id_item.text().lower() if title_id_item else ""
             name = name_item.text().lower() if name_item else ""
@@ -1364,7 +1643,7 @@ class NonSortableHeaderView(QHeaderView):
 
     def mousePressEvent(self, event):
         section = self.logicalIndexAt(event.pos())
-        if section == 0:  # Disable for icon column (section 0)
+        if section in [0, 1]:  # Disable for checkbox (0) and icon (1) columns
             event.ignore()
             return
         super().mousePressEvent(event)
