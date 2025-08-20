@@ -5,6 +5,7 @@ Refactored main window class using modular components
 """
 
 import os
+import shutil
 from pathlib import Path
 from typing import Dict, List
 
@@ -1485,8 +1486,44 @@ class XboxBackupManager(QMainWindow):
             toggle_action = menu.addAction(f"{toggle_text} for Transfer")
             toggle_action.triggered.connect(lambda: self._toggle_row_selection(row))
 
+        # Add "Remove from Target" action
+        remove_action = menu.addAction("Remove from Target")
+        remove_action.triggered.connect(lambda: self._remove_from_target(row))
+
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
+
+    def _remove_from_target(self, row: int):
+        """Remove game from target directory"""
+        title_id = self.games_table.item(row, 2).text()
+        game_name = self.games_table.item(row, 3).text()
+
+        if title_id:
+            target_path = (
+                self.usb_target_directories.get(self.current_platform, "")
+                + "\\"
+                + title_id
+            )
+
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Confirm Removal")
+            msg_box.setText(
+                f"Are you sure you want to remove {game_name}?\n\n{target_path}"
+            )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+            )
+            msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+            if msg_box.exec() == QMessageBox.StandardButton.Yes:
+                shutil.rmtree(target_path, ignore_errors=True)
+                self.status_bar.showMessage(
+                    f"Removed {game_name} from target directory"
+                )
+                # Update transferred status
+                status_item = self.games_table.item(row, 5)  # Transferred column
+                if status_item:
+                    status_item.setText("❌")
 
     def _toggle_row_selection(self, row: int):
         """Toggle the selection state of a row"""
