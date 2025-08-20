@@ -508,6 +508,9 @@ class XboxBackupManager(QMainWindow):
             buffer_size=2 * 1024 * 1024,
         )
         self.transfer_worker.progress.connect(self._update_transfer_progress)
+        self.transfer_worker.file_progress.connect(
+            self._update_file_progress
+        )  # New signal
         self.transfer_worker.game_transferred.connect(self._on_game_transferred)
         self.transfer_worker.transfer_complete.connect(self._on_transfer_complete)
         self.transfer_worker.transfer_error.connect(self._on_transfer_error)
@@ -525,6 +528,26 @@ class XboxBackupManager(QMainWindow):
             )  # Current is zero-based, so add 1 for display
             self.status_bar.showMessage(
                 f"Transferring: {current_game} ({current_transfer}/{total})"
+            )
+
+    def _update_file_progress(self, game_name: str, file_progress: int):
+        """Update progress for individual file within current game"""
+        if hasattr(self, "transfer_worker") and self.transfer_worker:
+            total_games = (
+                len(self.transfer_worker.games_to_transfer)
+                if hasattr(self.transfer_worker, "games_to_transfer")
+                else 1
+            )
+            current_game_index = getattr(self.transfer_worker, "current_game_index", 0)
+
+            # Calculate overall progress: completed games + current game progress
+            overall_progress = (
+                (current_game_index * 100) + file_progress
+            ) / total_games
+            self.progress_bar.setValue(int(overall_progress))
+
+            self.status_bar.showMessage(
+                f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games})"
             )
 
     def _on_game_transferred(self, title_id: str):
