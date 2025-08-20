@@ -8,11 +8,7 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-from PyQt6.QtCore import (
-    QFileSystemWatcher,
-    Qt,
-    QTimer,
-)
+from PyQt6.QtCore import QFileSystemWatcher, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -25,6 +21,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QStyle,
+    QStyleOptionHeader,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -753,6 +751,12 @@ class XboxBackupManager(QMainWindow):
 
         self.games_table.setHorizontalHeaderLabels(headers)
 
+        # Set custom header to disable sorting on column 0
+        custom_header = NonSortableHeaderView(
+            Qt.Orientation.Horizontal, self.games_table
+        )
+        self.games_table.setHorizontalHeader(custom_header)
+
         # Set up custom icon delegate for proper icon rendering
         icon_delegate = IconDelegate()
         self.games_table.setItemDelegateForColumn(0, icon_delegate)
@@ -769,6 +773,8 @@ class XboxBackupManager(QMainWindow):
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""
         header = self.games_table.horizontalHeader()
+
+        header.installEventFilter(self)
 
         # Icon column - fixed width
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -826,6 +832,10 @@ class XboxBackupManager(QMainWindow):
         header.setStretchLastSection(True)
         header.setContentsMargins(0, 0, 0, 0)
 
+        # Enable sorting and indicators
+        header.setSortIndicatorShown(True)
+        header.setSectionsClickable(True)
+
         # Apply custom styling
         self.games_table.setStyleSheet(
             """
@@ -860,6 +870,11 @@ class XboxBackupManager(QMainWindow):
             column_widths, sort_column, sort_order = (
                 self.settings_manager.load_table_settings(self.current_platform)
             )
+
+            # New: Prevent sorting by column 0 (Icon)
+            if sort_column == 0:
+                sort_column = 2  # Fallback to Game Name column
+                sort_order = Qt.SortOrder.AscendingOrder
 
             # Restore column widths
             header = self.games_table.horizontalHeader()
@@ -937,3 +952,17 @@ class XboxBackupManager(QMainWindow):
 
         self.save_settings()
         event.accept()
+
+
+class NonSortableHeaderView(QHeaderView):
+    """Custom header view to disable sorting and indicators on specific sections"""
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+
+    def mousePressEvent(self, event):
+        section = self.logicalIndexAt(event.pos())
+        if section == 0:  # Disable for icon column (section 0)
+            event.ignore()
+            return
+        super().mousePressEvent(event)
