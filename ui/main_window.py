@@ -638,7 +638,7 @@ class XboxBackupManager(QMainWindow):
             return
 
         # Update mode first
-        old_mode = self.current_mode
+        self.current_mode
         self.current_mode = mode
 
         if mode == "ftp":
