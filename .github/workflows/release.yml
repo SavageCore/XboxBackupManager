@@ -14,7 +14,7 @@ jobs:
         include:
           - os: windows-latest
             TARGET: windows
-            CMD_BUILD_MAIN: pyinstaller -F -n XboxBackupManager-win64 -i icon.ico main.py --add-data "database/xbox360.json;database" --add-data "database/MobCatsOGXboxTitleIDs.db;database" --noconsole
+            CMD_BUILD_MAIN: pyinstaller -F -n XboxBackupManager-win64 -i icon.ico main.py --add-data "database/xbox360.json;database" --add-data "database/MobCatsOGXboxTitleIDs.db;database" --noconsole --version-file version_info.txt
             CMD_BUILD_UPDATER: pyinstaller -F -n updater -i icon.ico updater.py --noconsole
             OUT_FILE_NAME_MAIN: XboxBackupManager-win64.exe
             OUT_FILE_NAME_UPDATER: updater.exe
