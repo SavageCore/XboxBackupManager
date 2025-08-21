@@ -1630,7 +1630,7 @@ class XboxBackupManager(QMainWindow):
         if show_dlcs:
             self.games_table.setColumnCount(8)
             headers = [
-                "Select",
+                "",
                 "Icon",
                 "Title ID",
                 "Game Name",
@@ -1642,7 +1642,7 @@ class XboxBackupManager(QMainWindow):
         else:
             self.games_table.setColumnCount(7)
             headers = [
-                "Select",
+                "",
                 "Icon",
                 "Title ID",
                 "Game Name",
@@ -1682,7 +1682,7 @@ class XboxBackupManager(QMainWindow):
 
         # Select column - fixed width, narrow for checkbox only
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 30)  # More reasonable size for checkbox
+        header.resizeSection(0, 25)  # More reasonable size for checkbox
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
