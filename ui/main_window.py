@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Dict, List
-from database.xbox_title_database import XboxTitleDatabaseLoader
+
 import qtawesome as qta
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPixmap
@@ -36,8 +36,10 @@ from PyQt6.QtWidgets import (
 
 from constants import APP_NAME, VERSION
 from database.xbox360_title_database import TitleDatabaseLoader
+from database.xbox_title_database import XboxTitleDatabaseLoader
 
 # Import our modular components
+from models import game_info
 from models.game_info import GameInfo
 from ui.theme_manager import ThemeManager
 from utils.settings_manager import SettingsManager
@@ -140,7 +142,7 @@ class XboxBackupManager(QMainWindow):
         source_layout = QHBoxLayout()
         source_layout.setSpacing(10)
 
-        self.directory_label = QLabel("No directory selected")
+        self.directory_label = QLabel("No directory selected - click to select")
         self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         self.scan_button = QPushButton("Scan Directory")
@@ -406,14 +408,75 @@ class XboxBackupManager(QMainWindow):
         licenses_action.triggered.connect(self.show_licenses)
         help_menu.addAction(licenses_action)
 
+    def _source_directory_clicked(self, event):
+        """Handle source directory label click to open folder"""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+
+        if self.current_directory and os.path.exists(self.current_directory):
+            SystemUtils.open_folder_in_explorer(self.current_directory, self)
+        else:
+            self.status_bar.showMessage(
+                "No source directory set - opening browse dialog..."
+            )
+            self.browse_directory()
+
+    def _target_directory_clicked(self, event):
+        """Handle target directory label click to open folder"""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+
+        if self.current_target_directory and os.path.exists(
+            self.current_target_directory
+        ):
+            SystemUtils.open_folder_in_explorer(self.current_target_directory, self)
+        else:
+            self.status_bar.showMessage(
+                "No target directory set - opening browse dialog..."
+            )
+            self.browse_target_directory()
+
+    def _find_game_row(self, title_id: str) -> int:
+        """Find the row index for a game by its title ID"""
+        for row in range(self.games_table.rowCount()):
+            item = self.games_table.item(row, 2)
+            if item and item.text() == title_id:
+                return row
+        return None
+
+    def _rescan_transferred_state(self):
+        """Rescan transferred state of games after directory change"""
+        if not self.current_directory or not os.path.exists(self.current_directory):
+            return
+
+        # Clear existing transferred state
+        for game in self.games:
+            game.transferred = False
+
+            is_transferred = self._check_if_transferred(game)
+            game.transferred = is_transferred
+
+            # Update the table item state
+            row = self._find_game_row(game.title_id)
+            if row is not None:
+                transferred_column = 5
+
+                show_dlcs = self.current_platform in ["xbla"]
+                if show_dlcs:
+                    transferred_column = 6
+
+                transferred_item = self.games_table.item(row, transferred_column)
+                if transferred_item:
+                    transferred_item.setText("✔️" if game.transferred else "❌")
+
     def make_directory_labels_clickable(self):
         """Make the directory labels clickable to open the folder"""
         self.directory_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.directory_label.mousePressEvent = self.open_current_directory
+        self.directory_label.mousePressEvent = self._source_directory_clicked
 
         # Add target directory label click handling
         self.target_directory_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.target_directory_label.mousePressEvent = self.open_target_directory
+        self.target_directory_label.mousePressEvent = self._target_directory_clicked
 
         # Optional: Add visual styling to indicate it's clickable
         self.directory_label.setStyleSheet(
@@ -492,6 +555,9 @@ class XboxBackupManager(QMainWindow):
                 self.status_bar.showMessage(
                     f"Selected target directory: {normalized_directory}"
                 )
+
+                # Now rescan to update transferred state
+                self._rescan_transferred_state()
             else:
                 # Selected directory is not accessible
                 QMessageBox.warning(
@@ -921,7 +987,7 @@ class XboxBackupManager(QMainWindow):
             self.scan_directory()
         else:
             self.current_directory = ""
-            self.directory_label.setText("No directory selected")
+            self.directory_label.setText("No directory selected - click to select")
             self.scan_button.setEnabled(False)
             self.games.clear()
             self.games_table.setRowCount(0)
@@ -934,7 +1000,9 @@ class XboxBackupManager(QMainWindow):
                 self._update_target_space_label(self.current_target_directory)
             else:
                 self.current_target_directory = ""
-                self.target_directory_label.setText("No target directory selected")
+                self.target_directory_label.setText(
+                    "No target directory selected - click to select"
+                )
                 self.target_space_label.setText("")
         else:
             self.current_target_directory = ""
