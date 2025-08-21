@@ -1,6 +1,5 @@
 import darkdetect  # type: ignore
 import qdarkstyle  # type: ignore
-import qtawesome as qta
 from PyQt6.QtCore import QObject
 from qdarkstyle.dark.palette import DarkPalette  # type: ignore
 from qdarkstyle.light.palette import LightPalette  # type: ignore

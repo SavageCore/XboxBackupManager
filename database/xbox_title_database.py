@@ -5,7 +5,6 @@ Handles loading and querying Xbox title information from MobCatsOGXboxTitleIDs.d
 """
 
 import hashlib
-import os
 import sqlite3
 from pathlib import Path
 from typing import Dict, Optional, Tuple
