@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Xbox 360 Backup Manager - Main Window
+Xbox and Xbox 360 Backup Manager - Main Window
 Refactored main window class using modular components
 """
 
@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Dict, List
-
+from database.xbox_title_database import XboxTitleDatabaseLoader
 import qtawesome as qta
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPixmap
@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import APP_NAME, VERSION
-from database.title_database import TitleDatabaseLoader
+from database.xbox360_title_database import TitleDatabaseLoader
 
 # Import our modular components
 from models.game_info import GameInfo
@@ -62,15 +62,23 @@ class XboxBackupManager(QMainWindow):
         self.theme_manager = ThemeManager()
         self.database_loader = TitleDatabaseLoader()
 
+        self.xbox_database_loader = XboxTitleDatabaseLoader()
+        self.xbox_database_loader.database_loaded.connect(self.on_xbox_database_loaded)
+        self.xbox_database_loader.database_error.connect(self.on_xbox_database_error)
+
         # Application state
         self.games: List[GameInfo] = []
         self.current_directory = ""
         self.current_target_directory = ""
         self.current_mode = "usb"
         self.current_platform = "xbox360"  # Default platform
-        self.platform_directories = {"xbox360": "", "xbla": ""}
-        self.usb_target_directories = {"xbox360": "", "xbla": ""}
-        self.platform_names = {"xbox360": "Xbox 360", "xbla": "Xbox Live Arcade"}
+        self.platform_directories = {"xbox": "", "xbox360": "", "xbla": ""}
+        self.usb_target_directories = {"xbox": "", "xbox360": "", "xbla": ""}
+        self.platform_names = {
+            "xbox": "Xbox",
+            "xbox360": "Xbox 360",
+            "xbla": "Xbox Live Arcade",
+        }
         self.icon_cache: Dict[str, QPixmap] = {}
 
         # File system monitoring
@@ -340,6 +348,12 @@ class XboxBackupManager(QMainWindow):
         platform_menu = menubar.addMenu("&Platform")
         self.platform_action_group = QActionGroup(self)
 
+        self.xbox_action = QAction("&Xbox", self)
+        self.xbox_action.setCheckable(True)
+        self.xbox_action.triggered.connect(lambda: self.switch_platform("xbox"))
+        self.platform_action_group.addAction(self.xbox_action)
+        platform_menu.addAction(self.xbox_action)
+
         self.xbox360_action = QAction("&Xbox 360", self)
         self.xbox360_action.setCheckable(True)
         self.xbox360_action.setChecked(True)
@@ -387,6 +401,10 @@ class XboxBackupManager(QMainWindow):
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+        licenses_action = QAction("&Licenses", self)
+        licenses_action.triggered.connect(self.show_licenses)
+        help_menu.addAction(licenses_action)
 
     def make_directory_labels_clickable(self):
         """Make the directory labels clickable to open the folder"""
@@ -864,6 +882,9 @@ class XboxBackupManager(QMainWindow):
         if platform == self.current_platform:
             return
 
+        # Stop any running scanner first
+        self._stop_current_scan()
+
         # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
@@ -889,7 +910,9 @@ class XboxBackupManager(QMainWindow):
         # Recreate table with appropriate columns for new platform
         self.setup_table()
 
-        # Load source directory for new platform
+        self.load_title_database()
+
+        # Load source directory for new platform - FIX: Update self.current_directory immediately
         if self.platform_directories[platform]:
             self.current_directory = self.platform_directories[platform]
             self.directory_label.setText(self.current_directory)
@@ -907,15 +930,16 @@ class XboxBackupManager(QMainWindow):
         if self.current_mode == "usb":
             if self.usb_target_directories[platform]:
                 self.current_target_directory = self.usb_target_directories[platform]
-                # Show path and free space in label
-                self.target_directory_label.setText(f"{self.current_target_directory}")
+                self.target_directory_label.setText(self.current_target_directory)
                 self._update_target_space_label(self.current_target_directory)
             else:
                 self.current_target_directory = ""
                 self.target_directory_label.setText("No target directory selected")
+                self.target_space_label.setText("")
         else:
             self.current_target_directory = ""
             self.target_directory_label.setText("Not used in FTP mode")
+            self.target_space_label.setText("")
 
         # Save platform selection
         self.settings_manager.save_current_platform(platform)
@@ -1035,10 +1059,40 @@ class XboxBackupManager(QMainWindow):
             self,
             f"About {APP_NAME}",
             f"{APP_NAME} v{VERSION}\n\n"
-            "A cross-platform GUI for managing Xbox 360 game backups.\n"
-            "Similar to Wii Backup Manager but for Xbox 360/XBLA.\n\n"
-            "Supports automatic scanning, file system watching, and game organization.",
+            "A cross-platform GUI for managing Xbox/Xbox 360 game backups.\n"
+            "Similar to Wii Backup Manager but for Xbox/Xbox 360/XBLA.\n\n"
+            "Supports automatic scanning, file system watching, and game organization.\n\n"
+            "Developed by SavageCore.",
         )
+
+    def show_licenses(self):
+        """Show licenses dialog"""
+        # Create a message box with rich text support
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Licenses")
+        msg_box.setTextFormat(Qt.TextFormat.RichText)  # Enable HTML/rich text
+
+        # Set the text with HTML links
+        msg_box.setText(
+            "This application uses the following libraries:<br><br>"
+            "• <a href='https://pypi.org/project/black/'>black</a> (MIT)<br>"
+            "• <a href='https://pypi.org/project/darkdetect/'>darkdetect</a> (BSD License (BSD-3-Clause))<br>"
+            "• <a href='https://pypi.org/project/PyQt6/'>PyQt6</a> (GPL-3.0-only)<br>"
+            "• <a href='https://pypi.org/project/qdarkstyle/'>qdarkstyle</a> (MIT)<br>"
+            "• <a href='https://pypi.org/project/QtAwesome/'>QtAwesome</a> (MIT)<br>"
+            "• <a href='https://pypi.org/project/requests/'>requests</a> (Apache Software License (Apache-2.0))<br>"
+            "<br>"
+            "Xbox Database / Icons are from <a href='https://github.com/MobCat/MobCats-original-xbox-game-list'>MobCats</a><br>"
+            "Xbox 360 Icons are from <a href='https://github.com/XboxUnity'>XboxUnity</a>"
+            "<br>"
+            "<br>"
+            "For more information, please visit the respective project pages."
+        )
+
+        # Make sure links open in browser
+        msg_box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+
+        msg_box.exec()
 
     def apply_theme(self):
         """Apply the current theme"""
@@ -1070,6 +1124,7 @@ class XboxBackupManager(QMainWindow):
 
         # Update platform menu state
         platform_actions = {
+            "xbox": self.xbox_action,
             "xbox360": self.xbox360_action,
             "xbla": self.xbla_action,
         }
@@ -1181,9 +1236,13 @@ class XboxBackupManager(QMainWindow):
             )
 
     def load_title_database(self):
-        """Load the Xbox title database"""
-        self.status_bar.showMessage("Loading title database...")
-        self.database_loader.load_database()
+        """Load the appropriate title database based on platform"""
+        if self.current_platform == "xbox":
+            self.status_bar.showMessage("Loading Xbox title database...")
+            self.xbox_database_loader.load_database()
+        else:
+            self.status_bar.showMessage("Loading Xbox 360 title database...")
+            self.database_loader.load_database()
 
     def on_database_loaded(self, database: Dict[str, str]):
         """Handle successful database loading"""
@@ -1205,6 +1264,36 @@ class XboxBackupManager(QMainWindow):
         self.status_bar.showMessage("Failed to load title database")
         QMessageBox.critical(
             self, "Database Error", f"Failed to load title database:\n{error_msg}"
+        )
+
+        # Enable UI elements even without database
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        if self.current_directory:
+            self.scan_button.setEnabled(True)
+
+    def on_xbox_database_loaded(self, database: Dict[str, Dict[str, str]]):
+        """Handle successful Xbox database loading"""
+        count = len(database)
+        self.status_bar.showMessage(
+            f"Xbox title database loaded - {count:,} titles available"
+        )
+
+        # Enable UI elements
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        if self.current_directory:
+            self.scan_button.setEnabled(True)
+            self.start_watching_directory()
+            self.scan_directory()
+
+    def on_xbox_database_error(self, error_msg: str):
+        """Handle Xbox database loading error"""
+        self.status_bar.showMessage("Failed to load Xbox title database")
+        QMessageBox.warning(
+            self,
+            "Database Error",
+            f"Failed to load Xbox title database:\n{error_msg}\n\nGames will use folder names instead.",
         )
 
         # Enable UI elements even without database
@@ -1248,14 +1337,26 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory and os.path.exists(self.current_directory):
             self.scan_directory()
 
+    def _stop_current_scan(self):
+        """Stop any currently running scan"""
+        if hasattr(self, "scanner") and self.scanner and self.scanner.isRunning():
+            self.scanner.should_stop = True
+            self.scanner.terminate()
+            self.scanner.wait(1000)  # Wait up to 1 second for clean shutdown
+
+            # Reset UI state
+            self.progress_bar.setVisible(False)
+            self.scan_button.setEnabled(True)
+            self.browse_action.setEnabled(True)
+            self.browse_target_action.setEnabled(True)
+
     def scan_directory(self):
         """Start scanning the selected directory"""
         if not self.current_directory:
             return
 
-        # Don't scan if already scanning
-        if hasattr(self, "scanner") and self.scanner.isRunning():
-            return
+        # Stop any existing scan first
+        self._stop_current_scan()
 
         # Store current sort settings before clearing table
         if hasattr(self.games_table, "horizontalHeader"):
@@ -1274,9 +1375,14 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
-        # Start scanning thread
+        # Start scanning thread with appropriate database
+        xbox_db = self.xbox_database_loader if self.current_platform == "xbox" else None
+
         self.scanner = DirectoryScanner(
-            self.current_directory, self.database_loader.title_database
+            self.current_directory,
+            self.database_loader.title_database,
+            platform=self.current_platform,
+            xbox_database=xbox_db,
         )
         self.scanner.progress.connect(self.update_progress)
         self.scanner.game_found.connect(self.add_game)
@@ -1418,6 +1524,10 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
+        # Clean up scanner reference
+        if hasattr(self, "scanner"):
+            self.scanner = None
+
         game_count = len(self.games)
         total_size = sum(game.size_bytes for game in self.games)
 
@@ -1461,8 +1571,8 @@ class XboxBackupManager(QMainWindow):
             QMessageBox.information(
                 self,
                 "No Games Found",
-                "No Xbox game folders were found in the selected directory.\n\n"
-                "Make sure the directory contains subdirectories named with Title IDs.",
+                f"No {self.platform_names[self.current_platform]} game folders were found in the selected directory.\n\n"
+                "Make sure the directory contains the appropriate game folder structure.",
             )
 
     def download_missing_icons(self):
@@ -1479,7 +1589,9 @@ class XboxBackupManager(QMainWindow):
             )
 
             # Start icon downloader thread
-            self.icon_downloader = IconDownloader(missing_title_ids)
+            self.icon_downloader = IconDownloader(
+                missing_title_ids, self.current_platform
+            )
             self.icon_downloader.icon_downloaded.connect(self.on_icon_downloaded)
             self.icon_downloader.download_failed.connect(self.on_icon_download_failed)
             self.icon_downloader.finished.connect(self.on_icon_download_finished)
@@ -1490,14 +1602,11 @@ class XboxBackupManager(QMainWindow):
         # Store in cache
         self.icon_cache[title_id] = pixmap
 
-        # Update the table row for this title ID
-        title_id_column = 1  # Title ID is always in column 1 when icons are shown
-
         for row in range(self.games_table.rowCount()):
-            title_item = self.games_table.item(row, title_id_column)
+            title_item = self.games_table.item(row, 2)
             if title_item and title_item.text() == title_id:
-                # Set icon in the icon column (column 0)
-                icon_item = self.games_table.item(row, 0)
+                # Set icon in the icon column (column 1)
+                icon_item = self.games_table.item(row, 1)
                 if icon_item:
                     icon = QIcon(pixmap)
                     icon_item.setIcon(icon)
@@ -1815,6 +1924,12 @@ class XboxBackupManager(QMainWindow):
         """Handle scan error"""
         self.progress_bar.setVisible(False)
         self.scan_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        # Clean up scanner reference
+        if hasattr(self, "scanner"):
+            self.scanner = None
 
         QMessageBox.critical(
             self, "Scan Error", f"An error occurred while scanning:\n{error_msg}"
@@ -1828,9 +1943,7 @@ class XboxBackupManager(QMainWindow):
         self.stop_watching_directory()
 
         # Stop any running scans
-        if hasattr(self, "scanner") and self.scanner.isRunning():
-            self.scanner.terminate()
-            self.scanner.wait()
+        self._stop_current_scan()
 
         # Stop any running icon downloads
         if hasattr(self, "icon_downloader") and self.icon_downloader.isRunning():
