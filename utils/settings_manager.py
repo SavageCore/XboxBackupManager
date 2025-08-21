@@ -7,7 +7,8 @@ class SettingsManager:
     """Manages application settings persistence"""
 
     def __init__(self):
-        self.settings = QSettings("XboxBackupManager", "XboxBackupManager")
+        settings_file = "XboxBackupManager.ini"
+        self.settings = QSettings(settings_file, QSettings.Format.IniFormat)
 
     def save_window_state(self, window):
         """Save window geometry and state"""
