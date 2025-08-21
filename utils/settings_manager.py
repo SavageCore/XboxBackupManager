@@ -113,17 +113,14 @@ class SettingsManager:
         return default_directories
 
     def save_usb_target_directories(self, usb_target_directories: Dict[str, str]):
-        """Save USB target directories for all platforms"""
-        self.settings.setValue("usb_target_directories", usb_target_directories)
+        """Save USB target directories for all platforms as individual keys"""
+        for platform, directory in usb_target_directories.items():
+            self.settings.setValue(f"usb_target_{platform}_directory", directory)
 
     def load_usb_target_directories(self) -> Dict[str, str]:
-        """Load USB target directories for all platforms"""
-        default_directories = {"xbox": "", "xbox360": "", "xbla": ""}
-        saved_directories = self.settings.value("usb_target_directories", {})
-
-        # Ensure all platforms are present, merging saved with defaults
-        if isinstance(saved_directories, dict):
-            # Update defaults with saved values, keeping any missing keys
-            default_directories.update(saved_directories)
-
-        return default_directories
+        """Load USB target directories for all platforms from individual keys"""
+        directories = {}
+        for platform in ["xbox", "xbox360", "xbla"]:
+            directory = self.settings.value(f"usb_target_{platform}_directory", "")
+            directories[platform] = directory
+        return directories
