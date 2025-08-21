@@ -270,6 +270,9 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.games_table.customContextMenuRequested.connect(self.show_context_menu)
 
+        # Override mouseMoveEvent for custom cursor handling
+        self.games_table.mouseMoveEvent = self._table_mouse_move_event
+
         main_layout.addWidget(self.games_table)
 
     def create_progress_bar(self, main_layout):
@@ -2166,6 +2169,15 @@ class XboxBackupManager(QMainWindow):
         if item.column() == 0:
             self.games_table.horizontalHeader().updateSection(0)
 
+    def _table_mouse_move_event(self, event):
+        """Custom mouse move event for the games table"""
+        index = self.games_table.indexAt(event.pos())
+        if index.isValid() and index.column() == 0:  # Check if over checkbox column
+            self.games_table.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.games_table.setCursor(Qt.CursorShape.ArrowCursor)
+        super(QTableWidget, self.games_table).mouseMoveEvent(event)
+
 
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
@@ -2239,6 +2251,17 @@ class NonSortableHeaderView(QHeaderView):
             return
 
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        section = self.logicalIndexAt(event.pos())
+        if section >= 0 and section != 1:  # Valid section, not the icon column
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            return
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().leaveEvent(event)
 
 
 class SizeTableWidgetItem(QTableWidgetItem):
