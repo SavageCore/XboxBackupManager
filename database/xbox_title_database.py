@@ -12,6 +12,8 @@ from typing import Dict, Optional, Tuple
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from utils.resource_path import ResourcePath
+
 
 class XboxTitleDatabaseLoader(QObject):
     """Loads and manages Xbox title database from SQLite"""
@@ -21,7 +23,9 @@ class XboxTitleDatabaseLoader(QObject):
 
     def __init__(self):
         super().__init__()
-        self.database_path = "database" + os.sep + "MobCatsOGXboxTitleIDs.db"
+        self.database_path = ResourcePath.get_resource_path(
+            "database/MobCatsOGXboxTitleIDs.db"
+        )
         self.title_database: Dict[str, Dict[str, str]] = {}
         self.md5_cache: Dict[str, str] = {}  # Cache MD5s to avoid recalculating
 
