@@ -8,13 +8,16 @@ import ctypes
 import os
 import platform
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict, List
 
+import qtawesome as qta
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -49,6 +52,10 @@ class XboxBackupManager(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
 
         # Initialize managers
         self.settings_manager = SettingsManager()
@@ -132,14 +139,32 @@ class XboxBackupManager(QMainWindow):
         self.scan_button.setObjectName("scan_button")
         self.scan_button.clicked.connect(self.scan_directory)
         self.scan_button.setEnabled(False)
+        self.scan_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Get the current palette from your theme manager
+        palette = self.theme_manager.get_palette()
+
+        # Extract colors from the palette for different states
+        self.normal_color = palette.COLOR_TEXT_1  # Primary text color
+        self.active_color = palette.COLOR_ACCENT_3  # Accent color for hover/active
+        self.disabled_color = palette.COLOR_TEXT_4  # Disabled/muted text color
+
+        self.scan_button.setIcon(
+            qta.icon(
+                "fa6s.magnifying-glass",
+                color=self.normal_color,
+                color_active=self.active_color,  # For active/hover states
+                color_disabled=self.disabled_color,  # For disabled state
+            )
+        )
 
         source_layout.addWidget(QLabel("Source:"))
-        source_layout.addWidget(self.directory_label, 1)
+        source_layout.addWidget(self.directory_label, 0)
+        source_layout.addStretch(1)  # Add stretch to push buttons right
         source_layout.addWidget(self.scan_button)
 
         # Target directory row
         target_layout = QHBoxLayout()
-        target_layout.setSpacing(10)
+        target_layout.setSpacing(1)
 
         self.target_directory_label = QLabel("No target directory selected")
         self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -161,11 +186,27 @@ class XboxBackupManager(QMainWindow):
         self.transfer_button.setObjectName("transfer_button")
         self.transfer_button.clicked.connect(self.transfer_selected_games)
         self.transfer_button.setEnabled(False)
+        self.transfer_button.setIcon(
+            qta.icon(
+                "fa6s.download",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
 
         self.remove_button = QPushButton("Remove Selected")
         self.remove_button.setObjectName("remove_button")
         self.remove_button.clicked.connect(self.remove_selected_games)
         self.remove_button.setEnabled(False)
+        self.remove_button.setIcon(
+            qta.icon(
+                "fa6s.trash",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
@@ -945,9 +986,46 @@ class XboxBackupManager(QMainWindow):
             # User cancelled - handle appropriately
             self._handle_cancelled_usb_directory_selection()
 
+    def update_icon_colors(self):
+        """Update icon colors based on current theme"""
+        palette = self.theme_manager.get_palette()
+
+        self.normal_color = palette.COLOR_TEXT_1
+        self.active_color = palette.COLOR_ACCENT_3
+        self.disabled_color = palette.COLOR_TEXT_4
+
+        # Re-apply icons with new colors
+        self.scan_button.setIcon(
+            qta.icon(
+                "fa6s.magnifying-glass",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
+
+        self.transfer_button.setIcon(
+            qta.icon(
+                "fa6s.download",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
+
+        self.remove_button.setIcon(
+            qta.icon(
+                "fa6s.trash",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
+
     def set_theme_override(self, override_value):
         """Set theme override and apply theme"""
         self.theme_manager.set_override(override_value)
+        self.update_icon_colors()
         self.apply_theme()
         self.settings_manager.save_theme_preference(override_value)
 
@@ -985,6 +1063,7 @@ class XboxBackupManager(QMainWindow):
         # Restore theme preference
         theme_override = self.settings_manager.load_theme_preference()
         self.theme_manager.set_override(theme_override)
+        self.update_icon_colors()
 
         # Restore current platform
         self.current_platform = self.settings_manager.load_current_platform()

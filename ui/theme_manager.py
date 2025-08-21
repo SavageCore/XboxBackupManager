@@ -1,5 +1,6 @@
 import darkdetect  # type: ignore
 import qdarkstyle  # type: ignore
+import qtawesome as qta
 from PyQt6.QtCore import QObject
 from qdarkstyle.dark.palette import DarkPalette  # type: ignore
 from qdarkstyle.light.palette import LightPalette  # type: ignore
@@ -34,6 +35,17 @@ class ThemeManager(QObject):
             font-size: 14px !important;
             min-height: 20px !important;
         }
+        QPushButton#transfer_button {
+            margin-right: 8px;
+        }
+        QPushButton#transfer_button, QPushButton#remove_button {
+            padding: 4px 8px;
+        }
+        # QPushButton#remove_button {
+        #     background-color: darkred;
+        #     color: white;
+        # }
+
         QProgressBar {
             border: none;
         }
@@ -42,6 +54,13 @@ class ThemeManager(QObject):
         }
         """
         return stylesheet + button_styling
+
+    def get_palette(self):
+        """Get the current color palette"""
+        if self.should_use_dark_mode():
+            return DarkPalette
+        else:
+            return LightPalette
 
     def set_override(self, override_value):
         """Set theme override"""
