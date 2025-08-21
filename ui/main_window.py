@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Dict, List
 
 import qtawesome as qta
-from PyQt6.QtCore import QFileSystemWatcher, Qt, QTimer
-from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPixmap
+from PyQt6.QtCore import QFileSystemWatcher, QRect, Qt, QTimer
+from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QStyle,
+    QStyleOptionButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -39,7 +41,6 @@ from database.xbox360_title_database import TitleDatabaseLoader
 from database.xbox_title_database import XboxTitleDatabaseLoader
 
 # Import our modular components
-from models import game_info
 from models.game_info import GameInfo
 from ui.theme_manager import ThemeManager
 from utils.settings_manager import SettingsManager
@@ -1726,6 +1727,7 @@ class XboxBackupManager(QMainWindow):
             Qt.Orientation.Horizontal, self.games_table
         )
         self.games_table.setHorizontalHeader(custom_header)
+        self.games_table.itemChanged.connect(self._on_item_changed)
 
         # Set up custom icon delegate for proper icon rendering
         icon_delegate = IconDelegate()
@@ -2160,6 +2162,10 @@ class XboxBackupManager(QMainWindow):
         else:
             self.target_space_label.setText("(Free space unknown)")
 
+    def _on_item_changed(self, item):
+        if item.column() == 0:
+            self.games_table.horizontalHeader().updateSection(0)
+
 
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
@@ -2167,11 +2173,71 @@ class NonSortableHeaderView(QHeaderView):
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
 
+    def _get_header_check_state(self):
+        table = self.parent()
+        row_count = table.rowCount()
+        if row_count == 0:
+            return Qt.CheckState.Unchecked
+        checked_count = sum(
+            1
+            for r in range(row_count)
+            if table.item(r, 0).checkState() == Qt.CheckState.Checked
+        )
+        if checked_count == 0:
+            return Qt.CheckState.Unchecked
+        elif checked_count == row_count:
+            return Qt.CheckState.Checked
+        else:
+            return Qt.CheckState.PartiallyChecked
+
+    def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
+        if logicalIndex != 0:
+            super().paintSection(painter, rect, logicalIndex)
+            return
+
+        painter.save()
+        opt = QStyleOptionButton()
+        indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
+        indicator_height = self.style().pixelMetric(
+            QStyle.PixelMetric.PM_IndicatorHeight
+        )
+        x = rect.x() + (rect.width() - indicator_width) // 2
+        y = rect.y() + (rect.height() - indicator_height) // 2
+        opt.rect = QRect(x, y, indicator_width, indicator_height)
+        opt.state = QStyle.StateFlag.State_Enabled
+
+        check_state = self._get_header_check_state()
+        if check_state == Qt.CheckState.Checked:
+            opt.state |= QStyle.StateFlag.State_On
+        elif check_state == Qt.CheckState.PartiallyChecked:
+            opt.state |= QStyle.StateFlag.State_NoChange
+        # else State_Off by default
+
+        self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
+        painter.restore()
+
     def mousePressEvent(self, event):
         section = self.logicalIndexAt(event.pos())
-        if section in [0, 1]:  # Disable for checkbox (0) and icon (1) columns
+        if section == 1:  # Disable for icon (1) column
             event.ignore()
             return
+
+        if section == 0:
+            table = self.parent()
+            row_count = self.model().rowCount()
+            current_state = self._get_header_check_state()
+            new_state = (
+                Qt.CheckState.Unchecked
+                if current_state == Qt.CheckState.Checked
+                else Qt.CheckState.Checked
+            )
+            for row in range(row_count):
+                item = table.item(row, 0)
+                if item:
+                    item.setCheckState(new_state)
+            event.ignore()
+            return
+
         super().mousePressEvent(event)
 
 
