@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Xbox and Xbox 360 Backup Manager - Main Window
+Xbox Backup Manager - Main Window
 Refactored main window class using modular components
 """
 
