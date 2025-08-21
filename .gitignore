@@ -1,3 +1,6 @@
 cache/
 __pycache__/
 XboxBackupManager.ini
+build/
+dist/
+*.spec

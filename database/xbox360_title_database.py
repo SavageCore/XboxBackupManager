@@ -1,8 +1,9 @@
 import json
-import os
 from typing import Dict
 
 from PyQt6.QtCore import QObject, pyqtSignal
+
+from utils.resource_path import ResourcePath
 
 
 class TitleDatabaseLoader(QObject):
@@ -15,8 +16,9 @@ class TitleDatabaseLoader(QObject):
         super().__init__()
         self.title_database: Dict[str, str] = {}
 
-    def load_database(self, file_path: str = "database" + os.sep + "xbox360.json"):
+    def load_database(self):
         """Load the Xbox title database from file"""
+        file_path = ResourcePath.get_resource_path("database/xbox360.json")
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 database_list = json.load(f)

@@ -5,10 +5,12 @@ from PyQt6.QtWidgets import QApplication
 
 from constants import APP_NAME, VERSION
 from ui.main_window import XboxBackupManager  # type: ignore
+from utils.github import auto_update  # type: ignore
 
 
 def main():
     """Main application entry point"""
+    # Initialize the application
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(VERSION)
@@ -18,6 +20,9 @@ def main():
         app.setWindowIcon(QIcon("icon.ico"))
     except Exception:
         pass
+
+    # Check for updates
+    auto_update()
 
     window = XboxBackupManager()
     window.show()
