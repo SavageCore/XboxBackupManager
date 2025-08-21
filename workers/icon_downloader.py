@@ -13,9 +13,10 @@ class IconDownloader(QThread):
     icon_downloaded = pyqtSignal(str, QPixmap)  # title_id, pixmap
     download_failed = pyqtSignal(str)  # title_id
 
-    def __init__(self, title_ids: List[str]):
+    def __init__(self, title_ids: List[str], platform: str = "xbox360"):
         super().__init__()
         self.title_ids = title_ids
+        self.platform = platform
         self.cache_dir = Path("cache/icons")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -40,11 +41,12 @@ class IconDownloader(QThread):
             if not pixmap.isNull():
                 return pixmap
 
-        # Download from Xbox Unity
+        # Download from Xbox Unity or MobCat
         try:
-            url = (
-                f"https://xboxunity.net/Resources/Lib/Icon.php?tid={title_id}&custom=1"
-            )
+            if self.platform == "xbox360":
+                url = f"https://xboxunity.net/Resources/Lib/Icon.php?tid={title_id}&custom=1"
+            else:
+                url = f"https://raw.githubusercontent.com/MobCat/MobCats-original-xbox-game-list/main/icon/{title_id[:4]}/{title_id}.png"
             urllib.request.urlretrieve(url, str(cache_file))
 
             pixmap = QPixmap(str(cache_file))
