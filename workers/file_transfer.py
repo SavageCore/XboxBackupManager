@@ -98,12 +98,20 @@ class FileTransferWorker(QThread):
     ):
         """Copy a single file with progress updates"""
         try:
+            # Check if file already exists and has the same size
+            if target_file.exists():
+                existing_size = target_file.stat().st_size
+
+                if existing_size == file_size:
+                    return
+
             with open(source_file, "rb") as src, open(target_file, "wb") as dst:
                 copied = 0
                 while True:
                     chunk = src.read(self.buffer_size)
                     if not chunk:
                         break
+
                     dst.write(chunk)
                     copied += len(chunk)
 
