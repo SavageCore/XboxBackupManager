@@ -1680,12 +1680,7 @@ class XboxBackupManager(QMainWindow):
             self.download_missing_icons()
 
         if game_count == 0:
-            QMessageBox.information(
-                self,
-                "No Games Found",
-                f"No {self.platform_names[self.current_platform]} game folders were found in the selected directory.\n\n"
-                "Make sure the directory contains the appropriate game folder structure.",
-            )
+            self.status_bar.showMessage("Scan complete - no games found")
 
     def download_missing_icons(self):
         """Download icons for games that don't have them cached"""
