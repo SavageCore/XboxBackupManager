@@ -83,6 +83,13 @@ class XboxBackupManager(QMainWindow):
             "xbla": "Xbox Live Arcade",
         }
         self.icon_cache: Dict[str, QPixmap] = {}
+        # Get the current palette from your theme manager
+        palette = self.theme_manager.get_palette()
+
+        # Extract colors from the palette for different states
+        self.normal_color = palette.COLOR_TEXT_1  # Primary text color
+        self.active_color = palette.COLOR_TEXT_1  # Accent color for hover/active
+        self.disabled_color = palette.COLOR_TEXT_4  # Disabled/muted text color
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -151,20 +158,13 @@ class XboxBackupManager(QMainWindow):
         self.scan_button.clicked.connect(self.scan_directory)
         self.scan_button.setEnabled(False)
         self.scan_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Get the current palette from your theme manager
-        palette = self.theme_manager.get_palette()
-
-        # Extract colors from the palette for different states
-        self.normal_color = palette.COLOR_TEXT_1  # Primary text color
-        self.active_color = palette.COLOR_ACCENT_3  # Accent color for hover/active
-        self.disabled_color = palette.COLOR_TEXT_4  # Disabled/muted text color
 
         self.scan_button.setIcon(
             qta.icon(
                 "fa6s.magnifying-glass",
                 color=self.normal_color,
-                color_active=self.active_color,  # For active/hover states
-                color_disabled=self.disabled_color,  # For disabled state
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
             )
         )
 
@@ -311,11 +311,27 @@ class XboxBackupManager(QMainWindow):
 
         self.browse_action = QAction("&Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
+        self.browse_action.setIcon(
+            qta.icon(
+                "fa6s.folder-open",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
 
         self.browse_target_action = QAction("&Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
+        self.browse_target_action.setIcon(
+            qta.icon(
+                "fa6s.bullseye",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
 
@@ -323,6 +339,14 @@ class XboxBackupManager(QMainWindow):
 
         exit_action = QAction("E&xit", self)
         exit_action.setShortcut("Ctrl+Q")
+        exit_action.setIcon(
+            qta.icon(
+                "fa6s.xmark",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
@@ -334,6 +358,14 @@ class XboxBackupManager(QMainWindow):
 
         self.ftp_mode_action = QAction("&FTP", self)
         self.ftp_mode_action.setCheckable(True)
+        self.ftp_mode_action.setIcon(
+            qta.icon(
+                "fa6s.network-wired",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.ftp_mode_action.triggered.connect(lambda: self.switch_mode("ftp"))
         self.mode_action_group.addAction(self.ftp_mode_action)
         mode_menu.addAction(self.ftp_mode_action)
@@ -342,6 +374,14 @@ class XboxBackupManager(QMainWindow):
 
         self.usb_mode_action = QAction("&USB", self)
         self.usb_mode_action.setCheckable(True)
+        self.usb_mode_action.setIcon(
+            qta.icon(
+                "fa6s.hard-drive",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.usb_mode_action.triggered.connect(lambda: self.switch_mode("usb"))
         self.mode_action_group.addAction(self.usb_mode_action)
         mode_menu.addAction(self.usb_mode_action)
@@ -379,18 +419,44 @@ class XboxBackupManager(QMainWindow):
     def create_view_menu(self, menubar):
         """Create the View menu"""
         view_menu = menubar.addMenu("&View")
+        view_menu.setTitle("View")
+
         theme_menu = view_menu.addMenu("&Theme")
+        theme_menu.setIcon(
+            qta.icon(
+                "fa6s.palette",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.theme_action_group = QActionGroup(self)
 
         self.auto_theme_action = QAction("&Auto", self)
         self.auto_theme_action.setCheckable(True)
         self.auto_theme_action.setChecked(True)
+        self.auto_theme_action.setIcon(
+            qta.icon(
+                "fa6s.circle-half-stroke",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.auto_theme_action.triggered.connect(lambda: self.set_theme_override(None))
         self.theme_action_group.addAction(self.auto_theme_action)
         theme_menu.addAction(self.auto_theme_action)
 
         self.light_theme_action = QAction("&Light", self)
         self.light_theme_action.setCheckable(True)
+        self.light_theme_action.setIcon(
+            qta.icon(
+                "fa6s.sun",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.light_theme_action.triggered.connect(
             lambda: self.set_theme_override(False)
         )
@@ -399,6 +465,14 @@ class XboxBackupManager(QMainWindow):
 
         self.dark_theme_action = QAction("&Dark", self)
         self.dark_theme_action.setCheckable(True)
+        self.dark_theme_action.setIcon(
+            qta.icon(
+                "fa6s.moon",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
         self.dark_theme_action.triggered.connect(lambda: self.set_theme_override(True))
         self.theme_action_group.addAction(self.dark_theme_action)
         theme_menu.addAction(self.dark_theme_action)
@@ -408,10 +482,26 @@ class XboxBackupManager(QMainWindow):
         help_menu = menubar.addMenu("&Help")
 
         about_action = QAction("&About", self)
+        about_action.setIcon(
+            qta.icon(
+                "fa6s.circle-info",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+            )
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
 
         licenses_action = QAction("&Licenses", self)
+        licenses_action.setIcon(
+            qta.icon(
+                "fa6s.file-contract",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+            )
         licenses_action.triggered.connect(self.show_licenses)
         help_menu.addAction(licenses_action)
 
