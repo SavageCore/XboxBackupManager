@@ -43,6 +43,7 @@ from database.xbox_title_database import XboxTitleDatabaseLoader
 # Import our modular components
 from models.game_info import GameInfo
 from ui.theme_manager import ThemeManager
+from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from widgets.icon_delegate import IconDelegate
@@ -109,6 +110,8 @@ class XboxBackupManager(QMainWindow):
         self.init_ui()
         self.load_settings()
         self.load_title_database()
+
+        self._check_for_updates()
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -489,9 +492,21 @@ class XboxBackupManager(QMainWindow):
                 color_active=self.active_color,
                 color_disabled=self.disabled_color,
             )
-            )
+        )
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+        check_updates_action = QAction("&Check for Updates...", self)
+        check_updates_action.setIcon(
+            qta.icon(
+                "fa6s.rotate",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
+        check_updates_action.triggered.connect(self._check_for_updates)
+        help_menu.addAction(check_updates_action)
 
         licenses_action = QAction("&Licenses", self)
         licenses_action.setIcon(
@@ -501,7 +516,7 @@ class XboxBackupManager(QMainWindow):
                 color_active=self.active_color,
                 color_disabled=self.disabled_color,
             )
-            )
+        )
         licenses_action.triggered.connect(self.show_licenses)
         help_menu.addAction(licenses_action)
 
@@ -1631,7 +1646,7 @@ class XboxBackupManager(QMainWindow):
                 )
             else:
                 self.status_bar.clearMessage()
-                self._update_search_status("")
+                self._update_search_status()
 
     def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
         """Create and populate table items for a game row"""
@@ -1757,7 +1772,7 @@ class XboxBackupManager(QMainWindow):
             self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
 
         # Update status and apply any active search filter
-        self._update_search_status("")
+        self._update_search_status()
 
         # Re-apply search filter if search bar is visible
         if self.search_input.isVisible() and self.search_input.text():
@@ -2171,7 +2186,7 @@ class XboxBackupManager(QMainWindow):
         if not search_text:
             for row in range(self.games_table.rowCount()):
                 self.games_table.setRowHidden(row, False)
-            self._update_search_status("")
+            self._update_search_status()
             return
 
         # Filter rows based on search text
@@ -2194,7 +2209,7 @@ class XboxBackupManager(QMainWindow):
         plural = "s" if visible_count > 1 else ""
         self._update_search_status(f" - {visible_count} game{plural} match search")
 
-    def _update_search_status(self, suffix: str):
+    def _update_search_status(self, suffix: str = ""):
         """Update status bar with search results"""
         if hasattr(self, "games") and self.games:
             game_count = len(self.games)
@@ -2305,6 +2320,47 @@ class XboxBackupManager(QMainWindow):
         else:
             self.games_table.setCursor(Qt.CursorShape.ArrowCursor)
         super(QTableWidget, self.games_table).mouseMoveEvent(event)
+
+    def _check_for_updates(self):
+        """Check for application updates in the background"""
+        # Set checking for updates status
+        self.status_bar.showMessage("Checking for updates...")
+
+        update_available, download_url = check_for_update()
+        if update_available:
+            # add update button pinned to right of status bar
+            self._add_update_button(download_url)
+
+        self._update_search_status()
+
+    def _add_update_button(self, download_url: str):
+        """Add an update button to the status bar"""
+        # Check if button already exists
+        if hasattr(self, "update_button"):
+            return
+
+        self.update_button = QPushButton("Update Available")
+        self.update_button.setIcon(
+            qta.icon(
+                "fa6s.rotate",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
+        self.update_button.setToolTip("A new version is available. Click to update.")
+        self.update_button.clicked.connect(
+            lambda: self._on_update_button_clicked(download_url)
+        )
+        self.update_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Add to status bar on the right side
+        self.status_bar.addPermanentWidget(self.update_button)
+
+    def _on_update_button_clicked(self, download_url: str):
+        """Handle update button click"""
+        print("Update button clicked")
+        update(download_url)
 
 
 class NonSortableHeaderView(QHeaderView):
