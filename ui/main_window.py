@@ -2254,9 +2254,30 @@ class NonSortableHeaderView(QHeaderView):
 
     def mouseMoveEvent(self, event):
         section = self.logicalIndexAt(event.pos())
+
+        # Check if we're near a column boundary (resize area)
+        resize_margin = 5  # pixels on each side of boundary
+        x = event.pos().x()
+
+        # Check each section boundary
+        for i in range(self.count()):
+            section_start = self.sectionPosition(i)
+            section_end = section_start + self.sectionSize(i)
+
+            # Check if we're within resize margin of this section's end
+            if abs(x - section_end) <= resize_margin and i < self.count() - 1:
+                # We're in a resize area - show resize cursor
+                self.setCursor(Qt.CursorShape.SplitHCursor)
+                super().mouseMoveEvent(event)
+                return
+
+        # Not in resize area - handle normal cursor logic
         if section >= 0 and section != 1:  # Valid section, not the icon column
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             return
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event):
