@@ -44,7 +44,8 @@ class IconDownloader(QThread):
         # Download from Xbox Unity or MobCat
         try:
             if self.platform == "xbox360":
-                url = f"https://xboxunity.net/Resources/Lib/Icon.php?tid={title_id}&custom=1"
+                # url = f"https://xboxunity.net/Resources/Lib/Icon.php?tid={title_id}&custom=1"
+                url = f"https://raw.githubusercontent.com/UncreativeXenon/XboxUnity-Scraper/refs/heads/master/Icons/{title_id}.png"
             else:
                 url = f"https://raw.githubusercontent.com/MobCat/MobCats-original-xbox-game-list/main/icon/{title_id[:4]}/{title_id}.png"
             urllib.request.urlretrieve(url, str(cache_file))
