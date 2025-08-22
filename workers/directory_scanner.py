@@ -93,7 +93,7 @@ class DirectoryScanner(QThread):
                     # Fallback: use folder name as title ID and name
                     folder_name = os.path.basename(folder_path)
                     title_id = folder_name
-                    name = f"Unknown Xbox Game ({folder_name})"
+                    name = f"Unknown Game ({folder_name})"
             else:
                 # No database available - use folder name
                 folder_name = os.path.basename(folder_path)
@@ -123,7 +123,10 @@ class DirectoryScanner(QThread):
         """Process an Xbox 360/XBLA game folder"""
         try:
             # Get title name from database
-            name = self.title_database.get(title_id, f"Unknown XBLA Game ({title_id})")
+            name = self.title_database.get(
+                title_id,
+                f"Unknown Game ({title_id})",
+            )
 
             # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
