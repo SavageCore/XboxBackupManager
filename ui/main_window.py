@@ -205,6 +205,7 @@ class XboxBackupManager(QMainWindow):
                 color_disabled=self.disabled_color,
             )
         )
+        self.transfer_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.remove_button = QPushButton("Remove Selected")
         self.remove_button.setObjectName("remove_button")
@@ -218,6 +219,7 @@ class XboxBackupManager(QMainWindow):
                 color_disabled=self.disabled_color,
             )
         )
+        self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
@@ -246,6 +248,7 @@ class XboxBackupManager(QMainWindow):
         self.search_clear_button = QPushButton("Clear")
         self.search_clear_button.clicked.connect(self.clear_search)
         self.search_clear_button.setVisible(False)
+        self.search_clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.search_layout.addWidget(self.search_label)
         self.search_layout.addWidget(self.search_input, 1)
@@ -583,8 +586,10 @@ class XboxBackupManager(QMainWindow):
         )
         has_selected = self._get_selected_games_count() > 0
 
+        is_enabled = has_games and has_target and has_selected
+
         # Enable if we have games, target directory, and at least one game is selected
-        self.transfer_button.setEnabled(has_games and has_target and has_selected)
+        self.transfer_button.setEnabled(is_enabled)
 
     def _update_remove_button_state(self):
         """Update remove button enabled state based on conditions"""
@@ -595,8 +600,10 @@ class XboxBackupManager(QMainWindow):
         )
         has_selected = self._get_selected_games_count() > 0
 
+        is_enabled = has_games and has_target and has_selected
+
         # Enable if we have games, target directory, and at least one game is selected
-        self.remove_button.setEnabled(has_games and has_target and has_selected)
+        self.remove_button.setEnabled(is_enabled)
 
     def _get_selected_games_count(self):
         """Get count of selected games (checked in checkbox column)"""
