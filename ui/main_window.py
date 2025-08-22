@@ -1509,6 +1509,39 @@ class XboxBackupManager(QMainWindow):
             self._update_transfer_button_state()
             self._update_remove_button_state()
 
+            # Update status bar with amount of selected games
+            selected_games = 0
+            selected_size = 0
+
+            for row in range(self.games_table.rowCount()):
+                checkbox_item = self.games_table.item(row, 0)
+                if (
+                    checkbox_item
+                    and checkbox_item.checkState() == Qt.CheckState.Checked
+                ):
+                    selected_games += 1
+
+                    # Get size from the size column (column 4)
+                    size_item = self.games_table.item(row, 4)
+                    if size_item:
+                        # Try to get the size from UserRole data first (for SizeTableWidgetItem)
+                        if hasattr(size_item, "size_bytes"):
+                            selected_size += size_item.size_bytes
+                        else:
+                            # Fallback to UserRole data
+                            size_data = size_item.data(Qt.ItemDataRole.UserRole)
+                            if size_data is not None:
+                                selected_size += size_data
+
+            if selected_games > 0:
+                plural = "s" if selected_games > 1 else ""
+                self.status_bar.showMessage(
+                    f"{selected_games} game{plural} selected ({self._format_size(selected_size)})"
+                )
+            else:
+                self.status_bar.clearMessage()
+                self._update_search_status("")
+
     def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
         """Create and populate table items for a game row"""
         col_index = 0
@@ -2072,7 +2105,8 @@ class XboxBackupManager(QMainWindow):
             if matches:
                 visible_count += 1
 
-        self._update_search_status(f" - {visible_count} games match search")
+        plural = "s" if visible_count > 1 else ""
+        self._update_search_status(f" - {visible_count} game{plural} match search")
 
     def _update_search_status(self, suffix: str):
         """Update status bar with search results"""
@@ -2087,7 +2121,8 @@ class XboxBackupManager(QMainWindow):
                     break
                 size_formatted /= 1024.0
 
-            base_message = f"Scan complete - {game_count:,} games found ({size_formatted:.1f} {unit})"
+            plural = "s" if game_count > 1 else ""
+            base_message = f"{game_count:,} game{plural} ({size_formatted:.1f} {unit})"
             self.status_bar.showMessage(base_message + suffix)
 
     def _check_target_directory_availability(self, target_path: str) -> bool:
