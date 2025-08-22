@@ -946,6 +946,12 @@ class XboxBackupManager(QMainWindow):
                 if status_item:
                     status_item.setText("✔️")
                     status_item.setData(Qt.ItemDataRole.UserRole, True)
+
+                # Uncheck the game after successful transfer
+                checkbox_item = self.games_table.item(row, 0)  # Checkbox column
+                if checkbox_item:
+                    checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+
                 break
 
     def _on_transfer_complete(self):
