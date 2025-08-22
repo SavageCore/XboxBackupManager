@@ -837,6 +837,11 @@ class XboxBackupManager(QMainWindow):
                 game_name = self.games_table.item(row, 3).text()
                 self._remove_game_from_target(title_id, game_name)
 
+                # Uncheck the game after successful transfer
+                checkbox_item = self.games_table.item(row, 0)
+                if checkbox_item:
+                    checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+
     def _get_available_disk_space(self, path: str) -> int:
         """Get available disk space for the given path in bytes"""
         try:
