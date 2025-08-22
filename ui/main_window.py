@@ -1134,24 +1134,26 @@ class XboxBackupManager(QMainWindow):
 
     def show_about(self):
         """Show about dialog"""
-        QMessageBox.about(
-            self,
-            f"About {APP_NAME}",
-            f"{APP_NAME} v{VERSION}\n\n"
-            "A cross-platform GUI for managing Xbox/Xbox 360 game backups.\n"
-            "Similar to Wii Backup Manager but for Xbox/Xbox 360/XBLA.\n\n"
-            "Supports automatic scanning, file system watching, and game organization.\n\n"
-            "Developed by SavageCore.",
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(f"About {APP_NAME}")
+        msg_box.setTextFormat(Qt.TextFormat.RichText)
+        msg_box.setText(
+            f"{APP_NAME} - v{VERSION}<br><br>"
+            "A cross-platform GUI for managing Xbox/Xbox 360 game backups.<br><br>"
+            "Developed by <a href='https://github.com/SavageCore'>SavageCore</a><br><br>"
+            "Issues/Requests: <a href='https://github.com/SavageCore/XboxBackupManager/issues'>GitHub Issues</a>"
         )
+
+        msg_box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+
+        msg_box.exec()
 
     def show_licenses(self):
         """Show licenses dialog"""
-        # Create a message box with rich text support
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Licenses")
-        msg_box.setTextFormat(Qt.TextFormat.RichText)  # Enable HTML/rich text
+        msg_box.setTextFormat(Qt.TextFormat.RichText)
 
-        # Set the text with HTML links
         msg_box.setText(
             "This application uses the following libraries:<br><br>"
             "• <a href='https://pypi.org/project/black/'>black</a> (MIT)<br>"
@@ -1168,7 +1170,6 @@ class XboxBackupManager(QMainWindow):
             "For more information, please visit the respective project pages."
         )
 
-        # Make sure links open in browser
         msg_box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
 
         msg_box.exec()
