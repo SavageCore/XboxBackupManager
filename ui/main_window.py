@@ -876,6 +876,8 @@ class XboxBackupManager(QMainWindow):
 
     def _start_transfer(self, games_to_transfer: List[GameInfo]):
         """Start the transfer process"""
+        self.stop_watching_directory()
+
         # Disable UI elements during transfer
         self.transfer_button.setEnabled(False)
         self.scan_button.setEnabled(False)
@@ -967,6 +969,8 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
+        self.start_watching_directory()
+
         self.status_bar.showMessage("Transfer completed successfully")
 
         # Update transfer button state
@@ -979,6 +983,8 @@ class XboxBackupManager(QMainWindow):
         self.scan_button.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
+
+        self.start_watching_directory()
 
         QMessageBox.critical(
             self, "Transfer Error", f"Transfer failed:\n{error_message}"
