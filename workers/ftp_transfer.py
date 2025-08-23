@@ -75,7 +75,11 @@ class FTPTransferWorker(QThread):
 
         # Create target directory on FTP server
         target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{source_path.name}"
-        ftp_client.create_directory(target_ftp_path)
+        success, message = ftp_client.create_directory(target_ftp_path)
+        if not success:
+            raise Exception(
+                f"Failed to create game directory {target_ftp_path}: {message}"
+            )
 
         # Calculate total size for progress
         total_size = 0
@@ -89,6 +93,10 @@ class FTPTransferWorker(QThread):
         if not file_list:
             return
 
+        # Keep track of created directories to avoid redundant creation
+        created_dirs = set()
+        created_dirs.add(target_ftp_path)
+
         # Upload files
         uploaded_size = 0
 
@@ -100,12 +108,14 @@ class FTPTransferWorker(QThread):
             rel_path = file_path.relative_to(source_path)
             ftp_file_path = f"{target_ftp_path}/{str(rel_path).replace(os.sep, '/')}"
 
-            # Create parent directories on FTP server
+            # Create parent directories on FTP server if needed
             ftp_dir = "/".join(ftp_file_path.split("/")[:-1])
-            ftp_client.create_directory(ftp_dir)
 
-            # Upload file
-            file_path.stat().st_size
+            # Create all parent directories recursively
+            if ftp_dir not in created_dirs:
+                self._create_ftp_directories_recursive(
+                    ftp_client, ftp_dir, created_dirs
+                )
 
             try:
                 with open(file_path, "rb") as local_file:
@@ -127,3 +137,26 @@ class FTPTransferWorker(QThread):
 
             except Exception as e:
                 raise Exception(f"Failed to upload {file_path}: {str(e)}")
+
+    def _create_ftp_directories_recursive(
+        self, ftp_client: FTPClient, ftp_path: str, created_dirs: set
+    ):
+        """Create FTP directories recursively"""
+        if ftp_path in created_dirs or ftp_path in ["/", ""]:
+            return
+
+        # Get parent directory
+        parent_dir = "/".join(ftp_path.split("/")[:-1])
+        if parent_dir and parent_dir not in created_dirs:
+            self._create_ftp_directories_recursive(ftp_client, parent_dir, created_dirs)
+
+        # Create current directory
+        success, message = ftp_client.create_directory(ftp_path)
+        if success:
+            created_dirs.add(ftp_path)
+        else:
+            # If creation fails but directory exists, that's ok
+            if "exists" not in message.lower():
+                raise Exception(f"Failed to create directory {ftp_path}: {message}")
+            else:
+                created_dirs.add(ftp_path)
