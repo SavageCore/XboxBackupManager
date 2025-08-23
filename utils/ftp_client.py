@@ -2,6 +2,7 @@ import ftplib
 import socket
 import ssl
 from typing import List, Tuple
+from utils.settings_manager import SettingsManager
 
 from PyQt6.QtCore import QObject
 
@@ -238,3 +239,28 @@ class FTPClient(QObject):
             return False, f"Failed to remove file: {str(e)}"
         except Exception as e:
             return False, f"Failed to remove file: {str(e)}"
+
+    def directory_exists(self, path: str) -> bool:
+        """Check if a directory exists on FTP server"""
+        if not self.is_connected():
+            # Load saved connection details
+            if not self._host and not self._username and not self._password:
+                settings = SettingsManager()
+                ftp_settings = settings.load_ftp_settings()
+                self.connect(
+                    ftp_settings.get("host", ""),
+                    ftp_settings.get("username", ""),
+                    ftp_settings.get("password", ""),
+                    ftp_settings.get("port", 21),
+                    self._use_tls,
+                )
+        try:
+            self._ftp.cwd(path)
+            self._ftp.cwd("..")  # Go back to parent directory
+            return True
+        except ftplib.error_perm as e:
+            if "No such file or directory" in str(e):
+                return False
+            return False
+        except Exception:
+            return False

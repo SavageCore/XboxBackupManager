@@ -46,6 +46,7 @@ from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.theme_manager import ThemeManager
+from utils.ftp_client import FTPClient
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
@@ -54,7 +55,6 @@ from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
-from utils.ftp_client import FTPClient
 
 
 class XboxBackupManager(QMainWindow):
@@ -688,10 +688,17 @@ class XboxBackupManager(QMainWindow):
     def _update_transfer_button_state(self):
         """Update transfer button enabled state based on conditions"""
         has_games = len(self.games) > 0
-        has_target = bool(
-            self.current_target_directory
-            and os.path.exists(self.current_target_directory)
-        )
+        if self.current_mode == "ftp":
+            ftp_client = FTPClient()
+
+            has_target = ftp_client.directory_exists(
+                self.ftp_target_directories[self.current_platform]
+            )
+        else:
+            has_target = bool(
+                self.usb_target_directories[self.current_platform]
+                and os.path.exists(self.usb_target_directories[self.current_platform])
+            )
         has_selected = self._get_selected_games_count() > 0
 
         is_enabled = has_games and has_target and has_selected
@@ -760,29 +767,34 @@ class XboxBackupManager(QMainWindow):
         total_size = sum(game.size_bytes for game in selected_games)
         size_formatted = self._format_size(total_size)
 
-        # Check available disk space
-        available_space = self._get_available_disk_space(self.current_target_directory)
-        if available_space is None:
-            QMessageBox.warning(
-                self,
-                "Disk Space Check Failed",
-                "Could not determine available disk space on target device.\n"
-                "The transfer may fail if there is insufficient space.",
+        if self.current_mode == "usb":
+            # Check available disk space
+            available_space = self._get_available_disk_space(
+                self.current_target_directory
             )
-        elif total_size > available_space:
-            available_formatted = self._format_size(available_space)
-            QMessageBox.critical(
-                self,
-                "Insufficient Disk Space",
-                f"Not enough space on target device!\n\n"
-                f"Required: {size_formatted}\n"
-                f"Available: {available_formatted}\n"
-                f"Additional space needed: {self._format_size(total_size - available_space)}",
-            )
-            return
+            if available_space is None:
+                QMessageBox.warning(
+                    self,
+                    "Disk Space Check Failed",
+                    "Could not determine available disk space on target device.\n"
+                    "The transfer may fail if there is insufficient space.",
+                )
+            elif total_size > available_space:
+                available_formatted = self._format_size(available_space)
+                QMessageBox.critical(
+                    self,
+                    "Insufficient Disk Space",
+                    f"Not enough space on target device!\n\n"
+                    f"Required: {size_formatted}\n"
+                    f"Available: {available_formatted}\n"
+                    f"Additional space needed: {self._format_size(total_size - available_space)}",
+                )
+                return
+        else:
+            available_space = None
 
         # Show confirmation with disk space info
-        if available_space is not None:
+        if available_space is not None and self.current_mode == "usb":
             available_formatted = self._format_size(available_space)
             remaining_after = available_space - total_size
             remaining_formatted = self._format_size(remaining_after)
@@ -1100,33 +1112,8 @@ class XboxBackupManager(QMainWindow):
             ftp_client = FTPClient()
 
             try:
-                success, message = ftp_client.connect(
-                    self.ftp_settings["host"],
-                    self.ftp_settings["username"],
-                    self.ftp_settings["password"],
-                    self.ftp_settings.get("port", 21),
-                    self.ftp_settings.get("use_tls", False),  # Use the TLS setting
-                )
-
-                if not success:
-                    QMessageBox.critical(
-                        self,
-                        "FTP Connection Error",
-                        f"Could not connect to FTP server:\n{message}\n\n"
-                        "Please check your FTP settings.",
-                    )
-                    return False
-
-                # Get the target path on FTP server
                 target_path = f"{self.current_target_directory.rstrip('/')}/{Path(game.folder_path).name}"
-
-                # List directory contents
-                list_success, items, error = ftp_client.list_directory(target_path)
-
-                ftp_client.disconnect()
-
-                # Return True if listing was successful and directory has contents
-                return list_success and len(items) > 0
+                return ftp_client.directory_exists(target_path)
 
             except Exception as e:
                 print(f"FTP error checking transferred state: {e}")
@@ -1757,6 +1744,13 @@ class XboxBackupManager(QMainWindow):
         # Stop any existing scan first
         self._stop_current_scan()
 
+        # Disconnect the itemChanged signal to prevent firing during bulk operations
+        try:
+            self.games_table.itemChanged.disconnect(self._on_checkbox_changed)
+        except TypeError:
+            # Signal wasn't connected, which is fine
+            pass
+
         # Store current sort settings before clearing table
         if hasattr(self.games_table, "horizontalHeader"):
             header = self.games_table.horizontalHeader()
@@ -1813,12 +1807,6 @@ class XboxBackupManager(QMainWindow):
 
         # Create table items
         self._create_table_items(row, game_info, show_dlcs)
-
-        # Connect checkbox state change to update transfer button
-        checkbox_item = self.games_table.item(row, 0)
-        if checkbox_item:
-            # We need to connect the itemChanged signal to handle checkbox changes
-            self.games_table.itemChanged.connect(self._on_checkbox_changed)
 
         # Update status
         self.status_bar.showMessage(f"Found {len(self.games)} games...")
@@ -1973,6 +1961,9 @@ class XboxBackupManager(QMainWindow):
         # Re-enable sorting and restore previous sort settings
         self.games_table.setSortingEnabled(True)
 
+        # Connect the checkbox signal AFTER all items are created
+        self.games_table.itemChanged.connect(self._on_checkbox_changed)
+
         # Apply the previous sort order, or default to Game Name
         if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
             # Adjust sort column if needed (because we added checkbox column)
@@ -2085,7 +2076,6 @@ class XboxBackupManager(QMainWindow):
             Qt.Orientation.Horizontal, self.games_table
         )
         self.games_table.setHorizontalHeader(custom_header)
-        self.games_table.itemChanged.connect(self._on_item_changed)
 
         # Set up custom icon delegate for proper icon rendering
         icon_delegate = IconDelegate()
@@ -2536,37 +2526,8 @@ class XboxBackupManager(QMainWindow):
 
             # Handle FTP mode
             if self.current_mode == "ftp":
-                # For FTP, check if we can connect and access the target path
-                if not self.ftp_settings or not self.ftp_settings.get("host"):
-                    return False
-
                 ftp_client = FTPClient()
-                try:
-                    # Connect to FTP server
-                    success, message = ftp_client.connect(
-                        self.ftp_settings["host"],
-                        self.ftp_settings["username"],
-                        self.ftp_settings["password"],
-                        self.ftp_settings.get("port", 21),
-                        self.ftp_settings.get("use_tls", False),
-                    )
-
-                    if not success:
-                        return False
-
-                    # Try to access the target directory
-                    list_success, items, error = ftp_client.list_directory(target_path)
-                    ftp_client.disconnect()
-
-                    return list_success
-
-                except Exception:
-                    return False
-                finally:
-                    try:
-                        ftp_client.disconnect()
-                    except Exception:
-                        pass
+                return ftp_client.directory_exists(target_path)
 
             else:
                 # USB/local mode - existing logic
