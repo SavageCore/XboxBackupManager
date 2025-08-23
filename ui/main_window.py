@@ -370,8 +370,7 @@ class XboxBackupManager(QMainWindow):
         self.ftp_mode_action.triggered.connect(lambda: self.switch_mode("ftp"))
         self.mode_action_group.addAction(self.ftp_mode_action)
         mode_menu.addAction(self.ftp_mode_action)
-        # DEBUG: Disable button for now
-        self.ftp_mode_action.setEnabled(False)
+        self.ftp_mode_action.setEnabled(True)
 
         self.usb_mode_action = QAction("&USB", self)
         self.usb_mode_action.setCheckable(True)
