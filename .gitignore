@@ -4,3 +4,5 @@ XboxBackupManager.ini
 build/
 dist/
 *.spec
+extract-xiso.exe
+iso2god-x86_64-windows.exe

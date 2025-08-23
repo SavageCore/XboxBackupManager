@@ -411,6 +411,14 @@ class XboxBackupManager(QMainWindow):
         extract_iso_action.triggered.connect(self.browse_for_iso)
         tools_menu.addAction(extract_iso_action)
 
+        # Create GOD action
+        create_god_action = QAction("&Create GOD...", self)
+        create_god_action.setIcon(
+            qta.icon("fa6s.compact-disc", color=self.normal_color)
+        )
+        create_god_action.triggered.connect(self.browse_for_god_creation)
+        tools_menu.addAction(create_god_action)
+
     def create_platform_menu(self, menubar):
         """Create the Platform menu"""
         platform_menu = menubar.addMenu("&Platform")
@@ -2751,12 +2759,13 @@ class XboxBackupManager(QMainWindow):
         file_dialog = QFileDialog(self)
         file_dialog.setWindowTitle("Select ISO/ZIP File(s)")
         file_dialog.setNameFilter("Game Files (*.iso *.zip);;")
-        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
 
         if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
-            selected_file = file_dialog.selectedFiles()[0]
-            self.iso_path = selected_file
-            self._extract_iso()
+            selected_file = file_dialog.selectedFiles()
+            for file in selected_file:
+                self.iso_path = file
+                self._extract_iso()
 
     def _extract_iso(self):
         """Extract ISO with extract-xiso.exe"""
@@ -2883,6 +2892,387 @@ class XboxBackupManager(QMainWindow):
             finally:
                 # Clear the reference
                 self.temp_iso_path = None
+
+    def browse_for_god_creation(self):
+        """Browse for ISO files to convert to GOD format"""
+        file_dialog = QFileDialog(self)
+        file_dialog.setWindowTitle("Select ISO File(s) to Convert to GOD")
+        file_dialog.setNameFilter("Game Files (*.iso *.zip);;")
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+
+        if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
+            selected_files = file_dialog.selectedFiles()
+            if selected_files:
+                self._create_god_from_files(selected_files)
+
+    def _create_god_from_files(self, file_paths):
+        """Create GOD files from selected ISOs/ZIPs"""
+        if not self.current_directory:
+            QMessageBox.warning(
+                self,
+                "No Source Directory",
+                "Please select a source directory first. GOD files will be created there.",
+            )
+            return
+
+        total_files = len(file_paths)
+
+        if total_files == 1:
+            # Single file - use existing logic
+            self.god_file_path = file_paths[0]
+            self._create_god()
+            return
+
+        # Multiple files - show confirmation
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Create Multiple GOD Files")
+        msg_box.setText(f"Convert {total_files} files to GOD format?")
+        msg_box.setInformativeText(
+            f"GOD files will be created in:\n{self.current_directory}"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._start_batch_god_creation(file_paths)
+
+    def _start_batch_god_creation(self, file_paths):
+        """Start batch GOD creation of multiple files"""
+        self.current_god_batch = file_paths
+        self.current_god_batch_index = 0
+        self.total_god_batch_files = len(file_paths)
+
+        # Initialize temp ISO tracking for batch
+        if not hasattr(self, "god_temp_isos"):
+            self.god_temp_isos = []
+
+        # Show progress
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        self.status_bar.showMessage(
+            f"Processing file 1 of {self.total_god_batch_files}..."
+        )
+
+        # Start with first file
+        self._create_next_god_file()
+
+    def _create_next_god_file(self):
+        """Create the next GOD file in the batch"""
+        if self.current_god_batch_index >= len(self.current_god_batch):
+            # Batch complete
+            self._on_batch_god_creation_complete()
+            return
+
+        self.god_file_path = self.current_god_batch[self.current_god_batch_index]
+
+        # Update status
+        current_file = self.current_god_batch_index + 1
+        filename = os.path.basename(self.god_file_path)
+        self.status_bar.showMessage(
+            f"Processing file {current_file} of {self.total_god_batch_files}: {filename}"
+        )
+
+        # Check if it's a ZIP or ISO
+        if self.god_file_path.lower().endswith(".zip"):
+            self._extract_zip_then_create_god_batch(self.god_file_path)
+        else:
+            # ISO file directly
+            self._create_god_directly(self.god_file_path, self.current_directory)
+
+    def _extract_zip_then_create_god_batch(self, zip_path):
+        """Extract ZIP file in batch mode for GOD creation"""
+        self.god_zip_extractor = ZipExtractorWorker(zip_path)
+
+        # Connect batch-specific signals for GOD
+        self.god_zip_extractor.progress.connect(self._update_batch_god_zip_progress)
+        self.god_zip_extractor.extraction_complete.connect(
+            lambda extracted_iso_path: self._on_batch_god_zip_extraction_complete(
+                extracted_iso_path, zip_path
+            )
+        )
+        self.god_zip_extractor.extraction_error.connect(
+            self._on_batch_god_zip_extraction_error
+        )
+
+        self.god_zip_extractor.start()
+
+    def _update_batch_god_zip_progress(self, progress: int):
+        """Update progress for batch ZIP extraction during GOD creation"""
+        # Calculate overall batch progress
+        file_progress = progress / 100.0
+        overall_progress = (
+            (self.current_god_batch_index + file_progress) / self.total_god_batch_files
+        ) * 100
+        self.progress_bar.setValue(int(overall_progress))
+
+    def _on_batch_god_zip_extraction_complete(
+        self, extracted_iso_path: str, original_zip: str
+    ):
+        """Handle batch ZIP extraction completion for GOD creation"""
+        if extracted_iso_path and extracted_iso_path.lower().endswith(".iso"):
+            # Store temp ISO for cleanup
+            self.god_temp_isos.append(extracted_iso_path)
+
+            # Create GOD from extracted ISO
+            self._create_god_directly(extracted_iso_path, self.current_directory)
+        else:
+            # No ISO found, move to next file
+            self._move_to_next_god_file()
+
+    def _on_batch_god_zip_extraction_error(self, error_message: str):
+        """Handle batch ZIP extraction error for GOD creation"""
+        filename = os.path.basename(self.god_file_path)
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("ZIP Extraction Error")
+        msg_box.setText(f"Failed to extract {filename}")
+        msg_box.setInformativeText(
+            f"Error: {error_message}\n\nContinue with remaining files?"
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._move_to_next_god_file()
+        else:
+            self._cancel_batch_god_creation()
+
+    def _on_god_creation_finished(self):
+        """Handle GOD creation process finished"""
+        self.status_bar.showMessage("GOD creation finished")
+
+        # Clean up temp ISOs for single file
+        self._cleanup_god_temp_isos()
+
+        # Rescan directory to show new GOD files
+        if self.current_directory:
+            self.scan_directory()
+
+    def _on_batch_god_creation_finished(self):
+        """Handle individual GOD creation completion in batch"""
+        self._move_to_next_god_file()
+
+    def _on_batch_god_creation_complete(self):
+        """Handle completion of entire GOD batch"""
+        self.progress_bar.setVisible(False)
+
+        # Clean up all temp ISOs from batch
+        self._cleanup_god_temp_isos()
+
+        # Clear batch variables
+        if hasattr(self, "current_god_batch"):
+            delattr(self, "current_god_batch")
+        if hasattr(self, "current_god_batch_index"):
+            delattr(self, "current_god_batch_index")
+        if hasattr(self, "total_god_batch_files"):
+            delattr(self, "total_god_batch_files")
+
+        self.status_bar.showMessage("Batch GOD creation completed")
+
+        QMessageBox.information(
+            self,
+            "Batch GOD Creation Complete",
+            f"Successfully created GOD files from {self.total_god_batch_files} files.",
+        )
+
+        # Rescan directory to show new GOD files
+        if self.current_directory:
+            self.scan_directory()
+
+    def _cancel_batch_god_creation(self):
+        """Cancel the batch GOD creation process"""
+        self.progress_bar.setVisible(False)
+
+        # Clean up any temp files created so far
+        self._cleanup_god_temp_isos()
+
+        self.status_bar.showMessage("Batch GOD creation cancelled")
+
+    def _cleanup_god_temp_isos(self):
+        """Clean up temporary ISO files from GOD creation"""
+        if hasattr(self, "god_temp_isos"):
+            for temp_iso in self.god_temp_isos:
+                try:
+                    if os.path.exists(temp_iso):
+                        os.remove(temp_iso)
+
+                        # Also clean up the temp directory if it's empty
+                        temp_dir = os.path.dirname(temp_iso)
+                        if (
+                            temp_dir
+                            and os.path.basename(temp_dir) == "xbbm_zip_extract"
+                        ):
+                            try:
+                                os.rmdir(temp_dir)  # Only removes if empty
+                                print(f"Deleted temporary directory: {temp_dir}")
+                            except OSError:
+                                # Directory not empty or other error, ignore
+                                pass
+                except OSError as e:
+                    print(f"Failed to delete temporary ISO: {e}")
+
+            # Clear the list
+            self.god_temp_isos = []
+
+    def _create_god(self):
+        """Create GOD file with iso2god-x86_64-windows.exe"""
+        if not self.god_file_path:
+            QMessageBox.warning(
+                self, "No files selected", "Please select an ISO/ZIP file to convert."
+            )
+            return
+
+        if not self.current_directory:
+            QMessageBox.warning(
+                self,
+                "No destination directory",
+                "Please select a source directory first. GOD files will be created there.",
+            )
+            return
+
+        # Check if it's a ZIP file
+        if self.god_file_path.lower().endswith(".zip"):
+            self._extract_zip_then_create_god(self.god_file_path)
+        else:
+            # ISO file directly
+            self._create_god_directly(self.god_file_path, self.current_directory)
+
+    def _extract_zip_then_create_god(self, zip_path):
+        """Extract ZIP file first, then create GOD from the ISO"""
+        self.status_bar.showMessage("Extracting ZIP archive for GOD creation...")
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        self.god_zip_extractor = ZipExtractorWorker(zip_path)
+
+        # Connect signals for GOD creation
+        self.god_zip_extractor.progress.connect(self._update_god_zip_progress)
+        self.god_zip_extractor.extraction_complete.connect(
+            lambda extracted_iso_path: self._on_god_zip_extraction_complete(
+                extracted_iso_path, zip_path
+            )
+        )
+        self.god_zip_extractor.extraction_error.connect(
+            self._on_god_zip_extraction_error
+        )
+
+        self.god_zip_extractor.start()
+
+    def _update_god_zip_progress(self, progress: int):
+        """Update progress bar for ZIP extraction during GOD creation"""
+        self.progress_bar.setValue(progress)
+
+    def _on_god_zip_extraction_complete(
+        self, extracted_iso_path: str, original_zip: str
+    ):
+        """Handle ZIP extraction completion for GOD creation"""
+        self.progress_bar.setVisible(False)
+
+        # If we got an ISO file, proceed with GOD creation
+        if extracted_iso_path and extracted_iso_path.lower().endswith(".iso"):
+            # Store the temp ISO path for cleanup later
+            if not hasattr(self, "god_temp_isos"):
+                self.god_temp_isos = []
+            self.god_temp_isos.append(extracted_iso_path)
+
+            # Create GOD from extracted ISO
+            self._create_god_directly(extracted_iso_path, self.current_directory)
+        else:
+            self.status_bar.showMessage("ZIP extracted, but no ISO file found")
+            QMessageBox.information(
+                self,
+                "No ISO Found",
+                f"ZIP file extracted successfully, but no ISO file was found in:\n{extracted_iso_path}",
+            )
+
+    def _on_god_zip_extraction_error(self, error_message: str):
+        """Handle ZIP extraction error during GOD creation"""
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage("ZIP extraction failed")
+
+        QMessageBox.critical(
+            self,
+            "ZIP Extraction Error",
+            f"Failed to extract ZIP file for GOD creation:\n{error_message}",
+        )
+
+    def _create_god_directly(self, iso_path, dest_dir):
+        """Create GOD file directly with iso2god-x86_64-windows.exe"""
+        self.status_bar.showMessage("Creating GOD file...")
+
+        # Ensure the output directory exists
+        os.makedirs(dest_dir, exist_ok=True)
+
+        god_process = QProcess(self)
+        god_process.setProgram("iso2god-x86_64-windows.exe")
+
+        god_process.setArguments([iso_path, dest_dir])
+
+        # Connect appropriate finished handler based on batch mode
+        if hasattr(self, "current_god_batch"):
+            god_process.finished.connect(self._on_batch_god_creation_finished)
+        else:
+            god_process.finished.connect(self._on_god_creation_finished)
+
+        god_process.start()
+
+    def _on_god_creation_finished(self):
+        """Handle GOD creation process finished"""
+        self.status_bar.showMessage("GOD creation finished")
+
+        # Clean up temp ISOs for single file
+        self._cleanup_god_temp_isos()
+
+        # Rescan directory to show new GOD files
+        if self.current_directory:
+            self.scan_directory()
+
+    def _on_batch_god_creation_finished(self):
+        """Handle individual GOD creation completion in batch"""
+        self._move_to_next_god_file()
+
+    def _move_to_next_god_file(self):
+        """Move to the next file in GOD batch"""
+        self.current_god_batch_index += 1
+
+        # Update overall progress
+        overall_progress = (
+            self.current_god_batch_index / self.total_god_batch_files
+        ) * 100
+        self.progress_bar.setValue(int(overall_progress))
+
+        # Create next GOD file
+        self._create_next_god_file()
+
+    def _on_batch_god_creation_complete(self):
+        """Handle completion of entire GOD batch"""
+        self.progress_bar.setVisible(False)
+
+        # Clear batch variables
+        if hasattr(self, "current_god_batch"):
+            delattr(self, "current_god_batch")
+        if hasattr(self, "current_god_batch_index"):
+            delattr(self, "current_god_batch_index")
+        if hasattr(self, "total_god_batch_files"):
+            delattr(self, "total_god_batch_files")
+
+        self.status_bar.showMessage("Batch GOD creation completed")
+
+        QMessageBox.information(
+            self,
+            "Batch GOD Creation Complete",
+            f"Successfully created GOD files from {self.total_god_batch_files} ISOs.",
+        )
+
+        # Rescan directory to show new GOD files
+        if self.current_directory:
+            self.scan_directory()
 
 
 class NonSortableHeaderView(QHeaderView):
