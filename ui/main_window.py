@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import qtawesome as qta
-from PyQt6.QtCore import QFileSystemWatcher, QRect, Qt, QTimer
+from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -55,6 +55,7 @@ from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
+from workers.zip_extract import ZipExtractorWorker
 
 
 class XboxBackupManager(QMainWindow):
@@ -308,6 +309,9 @@ class XboxBackupManager(QMainWindow):
         # Mode menu (FTP/USB)
         self.create_mode_menu(menubar)
 
+        # Tools menu
+        self.create_tools_menu(menubar)
+
         # Platform menu
         self.create_platform_menu(menubar)
 
@@ -393,6 +397,19 @@ class XboxBackupManager(QMainWindow):
             self.ftp_mode_action.setChecked(True)
         else:
             self.usb_mode_action.setChecked(True)
+
+    # Add tools menu with Extract ISO
+    def create_tools_menu(self, menubar):
+        """Create the Tools menu"""
+        tools_menu = menubar.addMenu("&Tools")
+
+        # Extract ISO action
+        extract_iso_action = QAction("&Extract ISO...", self)
+        extract_iso_action.setIcon(
+            qta.icon("fa6s.file-zipper", color=self.normal_color)
+        )
+        extract_iso_action.triggered.connect(self.browse_for_iso)
+        tools_menu.addAction(extract_iso_action)
 
     def create_platform_menu(self, menubar):
         """Create the Platform menu"""
@@ -2657,7 +2674,6 @@ class XboxBackupManager(QMainWindow):
 
     def _on_update_button_clicked(self, download_url: str):
         """Handle update button click"""
-        print("Update button clicked")
         update(download_url)
 
     def _has_sufficient_space(self, game: GameInfo) -> bool:
@@ -2729,6 +2745,144 @@ class XboxBackupManager(QMainWindow):
             self._update_transfer_button_state()
 
             self.status_bar.showMessage(f"FTP target directory set: {selected_path}")
+
+    def browse_for_iso(self):
+        """Browse for an ISO file to extract"""
+        file_dialog = QFileDialog(self)
+        file_dialog.setWindowTitle("Select ISO/ZIP File(s)")
+        file_dialog.setNameFilter("Game Files (*.iso *.zip);;")
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+
+        if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
+            selected_file = file_dialog.selectedFiles()[0]
+            self.iso_path = selected_file
+            self._extract_iso()
+
+    def _extract_iso(self):
+        """Extract ISO with extract-xiso.exe"""
+        if not self.iso_path:
+            QMessageBox.warning(
+                self, "No files selected", "Please select an ISO/ZIP file to extract."
+            )
+            return
+
+        # If a zip file, extract it first
+        if self.iso_path.lower().endswith(".zip"):
+            self._extract_zip_then_iso(self.iso_path)
+        else:
+            # ISO selected directly, extract to its own directory
+            folder_path = (
+                os.path.dirname(self.iso_path)
+                + f"/{os.path.basename(self.iso_path).replace('.iso', '')}"
+            )
+
+            self.temp_iso_path = self.iso_path  # Store for cleanup later
+
+            self._extract_iso_directly(self.iso_path, folder_path)
+
+    def _extract_zip_then_iso(self, zip_path):
+        """Extract ZIP file first, then extract the ISO"""
+        self.status_bar.showMessage("Extracting ZIP archive...")
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        self.zip_extractor = ZipExtractorWorker(zip_path)
+
+        # Connect signals
+        self.zip_extractor.progress.connect(self._update_zip_progress)
+        self.zip_extractor.file_extracted.connect(self._on_file_extracted)
+        self.zip_extractor.extraction_complete.connect(
+            lambda extracted_iso_path: self._on_zip_extraction_complete(
+                extracted_iso_path, zip_path
+            )
+        )
+        self.zip_extractor.extraction_error.connect(self._on_zip_extraction_error)
+
+        self.zip_extractor.start()
+
+    def _on_zip_extraction_complete(self, extracted_iso_path: str, original_zip: str):
+        """Handle ZIP extraction completion"""
+        self.progress_bar.setVisible(False)
+
+        # If we got an ISO file, proceed with ISO extraction
+        if extracted_iso_path and extracted_iso_path.lower().endswith(".iso"):
+            # Extract ISO to the original ZIP's directory
+            extract_to_dir = (
+                os.path.dirname(original_zip)
+                + f"/{os.path.basename(extracted_iso_path).replace('.iso', '')}"
+            )
+
+            # Store the temp ISO path for cleanup later
+            self.temp_iso_path = extracted_iso_path
+
+            self._extract_iso_directly(extracted_iso_path, extract_to_dir)
+        else:
+            self.status_bar.showMessage("ZIP extracted, but no ISO file found")
+            QMessageBox.information(
+                self,
+                "No ISO Found",
+                f"ZIP file extracted successfully, but no ISO file was found in:\n{extracted_iso_path}",
+            )
+
+    def _extract_iso_directly(self, iso_path, extract_to_dir):
+        """Extract ISO directly with extract-xiso.exe"""
+        self.status_bar.showMessage("Extracting ISO...")
+
+        # Ensure the output directory exists
+        os.makedirs(extract_to_dir, exist_ok=True)
+
+        extraction_process = QProcess(self)
+        extraction_process.setProgram("extract-xiso.exe")
+        extraction_process.setArguments(["-d", extract_to_dir, iso_path])
+        extraction_process.finished.connect(self._on_extraction_finished)
+        extraction_process.start()
+
+    def _update_zip_progress(self, progress: int):
+        """Update progress bar for ZIP extraction"""
+        self.progress_bar.setValue(progress)
+
+    def _on_file_extracted(self, filename: str):
+        """Handle individual file extraction"""
+        self.file_path = filename
+        self.status_bar.showMessage(f"Extracting: {filename}")
+
+    def _on_zip_extraction_error(self, error_message: str):
+        """Handle ZIP extraction error"""
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage("ZIP extraction failed")
+
+        QMessageBox.critical(
+            self,
+            "ZIP Extraction Error",
+            f"Failed to extract ZIP file:\n{error_message}",
+        )
+
+    def _on_extraction_finished(self):
+        """Handle extraction process finished"""
+        self.status_bar.showMessage("Extraction finished")
+
+        # Clean up temporary ISO file if it exists
+        if hasattr(self, "temp_iso_path") and self.temp_iso_path:
+            try:
+                if os.path.exists(self.temp_iso_path):
+                    os.remove(self.temp_iso_path)
+
+                    # Also clean up the temp directory if it's empty
+                    temp_dir = os.path.dirname(self.temp_iso_path)
+                    if temp_dir and os.path.basename(temp_dir) == "xbbm_zip_extract":
+                        try:
+                            os.rmdir(temp_dir)  # Only removes if empty
+                        except OSError:
+                            # Directory not empty or other error, ignore
+                            pass
+
+            except OSError as e:
+                print(f"Failed to delete temporary ISO: {e}")
+            finally:
+                # Clear the reference
+                self.temp_iso_path = None
 
 
 class NonSortableHeaderView(QHeaderView):
