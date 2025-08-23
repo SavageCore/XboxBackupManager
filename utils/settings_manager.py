@@ -124,3 +124,30 @@ class SettingsManager:
             directory = self.settings.value(f"usb_target_{platform}_directory", "")
             directories[platform] = directory
         return directories
+
+    def save_ftp_settings(self, ftp_settings: dict):
+        """Save FTP connection settings"""
+        for key, value in ftp_settings.items():
+            self.settings.setValue(f"ftp_{key}", value)
+
+    def load_ftp_settings(self) -> dict:
+        """Load FTP connection settings"""
+        return {
+            "host": self.settings.value("ftp_host", ""),
+            "port": int(self.settings.value("ftp_port", 21)),
+            "username": self.settings.value("ftp_username", ""),
+            "password": self.settings.value("ftp_password", ""),
+        }
+
+    def save_ftp_target_directories(self, ftp_target_directories: dict):
+        """Save FTP target directories for all platforms"""
+        for platform, directory in ftp_target_directories.items():
+            self.settings.setValue(f"ftp_target_{platform}_directory", directory)
+
+    def load_ftp_target_directories(self) -> dict:
+        """Load FTP target directories for all platforms"""
+        directories = {}
+        for platform in ["xbox", "xbox360", "xbla"]:
+            directory = self.settings.value(f"ftp_target_{platform}_directory", "/")
+            directories[platform] = directory
+        return directories
