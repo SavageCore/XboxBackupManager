@@ -1188,6 +1188,9 @@ class XboxBackupManager(QMainWindow):
         self.settings_manager.save_current_mode(mode)
 
         if mode == "ftp":
+            self.ftp_target_directories = (
+                self.settings_manager.load_ftp_target_directories()
+            )
             self.ftp_mode_action.setChecked(True)
             self.usb_mode_action.setChecked(False)
 
@@ -1201,6 +1204,9 @@ class XboxBackupManager(QMainWindow):
             self._update_target_space_label(ftp_target)
 
         elif mode == "usb":
+            self.usb_target_directories = (
+                self.settings_manager.load_usb_target_directories()
+            )
             self.ftp_mode_action.setChecked(False)
             self.usb_mode_action.setChecked(True)
             # Show target directory controls and load saved target
