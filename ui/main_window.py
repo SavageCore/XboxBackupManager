@@ -2078,15 +2078,9 @@ class XboxBackupManager(QMainWindow):
         # Add separator
         menu.addSeparator()
 
-        # Add "Toggle Selection" action
-        checkbox_item = self.games_table.item(row, 0)
-        if checkbox_item:
-            current_state = checkbox_item.checkState()
-            toggle_text = (
-                "Unselect" if current_state == Qt.CheckState.Checked else "Select"
-            )
-            toggle_action = menu.addAction(f"{toggle_text} for Transfer")
-            toggle_action.triggered.connect(lambda: self._toggle_row_selection(row))
+        # Add "Transfer" action
+        transfer_action = menu.addAction("Transfer")
+        transfer_action.triggered.connect(lambda: self._transfer_single_game(row))
 
         # Add "Remove from Target" action
         remove_action = menu.addAction("Remove from Target")
@@ -2378,6 +2372,38 @@ class XboxBackupManager(QMainWindow):
         """Handle update button click"""
         print("Update button clicked")
         update(download_url)
+
+    def _has_sufficient_space(self, game: GameInfo) -> bool:
+        """Check if there is enough space to transfer the game"""
+        free_space = self._get_available_disk_space(self.current_target_directory)
+        if free_space is None:
+            return False
+
+        return free_space >= game.size_bytes
+
+    def _transfer_single_game(self, row: int):
+        """Transfer a single game by row index"""
+        # First ensure the game is selected
+        checkbox_item = self.games_table.item(row, 0)
+        if checkbox_item:
+            checkbox_item.setCheckState(Qt.CheckState.Checked)
+
+        # Get the game info for this specific row
+        title_id_item = self.games_table.item(row, 2)
+        if title_id_item:
+            title_id = title_id_item.text()
+
+            # Find the game in our games list
+            selected_game = None
+            for game in self.games:
+                if game.title_id == title_id:
+                    selected_game = game
+                    break
+
+            # If we found the selected game and there's enough space, start transfer
+            if selected_game and self._has_sufficient_space(selected_game):
+                # Start transfer with just this one game
+                self._start_transfer([selected_game])
 
 
 class NonSortableHeaderView(QHeaderView):
