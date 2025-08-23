@@ -40,11 +40,7 @@ class FTPTransferWorker(QThread):
         try:
             # Connect to FTP server
             success, message = ftp_client.connect(
-                self.ftp_host,
-                self.ftp_username,
-                self.ftp_password,
-                self.ftp_port,
-                self.ftp_use_tls,
+                self.ftp_host, self.ftp_username, self.ftp_password, self.ftp_port
             )
 
             if not success:

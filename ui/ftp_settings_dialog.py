@@ -1,5 +1,4 @@
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -55,13 +54,6 @@ class FTPSettingsDialog(QDialog):
         self.password_input.setPlaceholderText("FTP password")
         connection_layout.addRow("Password:", self.password_input)
 
-        self.use_tls_checkbox = QCheckBox("Use SSL/TLS (FTPS)")
-        self.use_tls_checkbox.setChecked(True)  # Default to secure connection
-        self.use_tls_checkbox.setToolTip(
-            "Enable for secure encrypted connections (recommended)"
-        )
-        connection_layout.addRow("Security:", self.use_tls_checkbox)
-
         layout.addWidget(connection_group)
 
         # Test connection button
@@ -86,7 +78,6 @@ class FTPSettingsDialog(QDialog):
         self.port_input.setValue(self._current_settings.get("port", 21))
         self.username_input.setText(self._current_settings.get("username", ""))
         self.password_input.setText(self._current_settings.get("password", ""))
-        self.use_tls_checkbox.setChecked(self._current_settings.get("use_tls", True))
 
     def _test_connection(self):
         """Test the FTP connection with current settings"""
@@ -94,7 +85,6 @@ class FTPSettingsDialog(QDialog):
         port = self.port_input.value()
         username = self.username_input.text().strip()
         password = self.password_input.text()
-        use_tls = self.use_tls_checkbox.isChecked()
 
         if not host or not username:
             QMessageBox.warning(
@@ -105,16 +95,12 @@ class FTPSettingsDialog(QDialog):
         self.test_button.setEnabled(False)
         self.test_button.setText("Testing...")
 
-        # Use the fallback connection method for better user experience
-        success, message = self._ftp_client.connect(
-            host, username, password, port, use_tls
-        )
+        # Test connection in the main thread (it's quick)
+        success, message = self._ftp_client.connect(host, username, password, port)
 
         if success:
             self._ftp_client.disconnect()
-            QMessageBox.information(
-                self, "Connection Test", f"Connection successful!\n\n{message}"
-            )
+            QMessageBox.information(self, "Connection Test", "Connection successful!")
         else:
             QMessageBox.critical(
                 self, "Connection Test", f"Connection failed:\n{message}"
@@ -130,5 +116,4 @@ class FTPSettingsDialog(QDialog):
             "port": self.port_input.value(),
             "username": self.username_input.text().strip(),
             "password": self.password_input.text(),
-            "use_tls": self.use_tls_checkbox.isChecked(),
         }
