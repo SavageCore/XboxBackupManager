@@ -84,33 +84,6 @@ class FTPClient(QObject):
                 )
             return False, f"Connection failed: {error_msg}"
 
-    def connect_with_fallback(
-        self, host: str, username: str, password: str, port: int = 21
-    ) -> Tuple[bool, str]:
-        """Connect to FTP server with automatic TLS fallback"""
-        # First try with TLS
-        success, message = self.connect(host, username, password, port, use_tls=True)
-        if success:
-            return success, message
-
-        # If TLS fails with specific errors, try without TLS
-        if "503 Use AUTH first" not in message and "SSL" not in message:
-            success, fallback_message = self.connect(
-                host, username, password, port, use_tls=False
-            )
-            if success:
-                return (
-                    success,
-                    f"{fallback_message} (Note: Using unencrypted connection)",
-                )
-            else:
-                return (
-                    False,
-                    f"TLS failed: {message}\nPlain FTP failed: {fallback_message}",
-                )
-
-        return False, message
-
     def disconnect(self):
         """Disconnect from FTP server"""
         if self._ftp:
@@ -206,3 +179,62 @@ class FTPClient(QObject):
             return self._ftp.pwd()
         except Exception:
             return "/"
+
+    def remove_directory(self, path: str) -> Tuple[bool, str]:
+        """Remove directory and all its contents recursively on FTP server"""
+        if not self.is_connected():
+            return False, "Not connected to FTP server"
+
+        try:
+            self._remove_directory_recursive(path)
+            return True, "Directory removed successfully"
+        except ftplib.error_perm as e:
+            return False, f"Failed to remove directory: {str(e)}"
+        except Exception as e:
+            return False, f"Failed to remove directory: {str(e)}"
+
+    def _remove_directory_recursive(self, path: str):
+        """Recursively remove directory and all its contents"""
+        try:
+            self._ftp.cwd(path)
+            lines = []
+            self._ftp.retrlines("LIST", lines.append)
+
+            for line in lines:
+                parts = line.split(None, 8)
+                if len(parts) >= 9:
+                    permissions = parts[0]
+                    name = parts[8]
+
+                    # Skip . and .. entries
+                    if name in [".", ".."]:
+                        continue
+
+                    is_directory = permissions.startswith("d")
+                    full_path = f"{path.rstrip('/')}/{name}"
+
+                    if is_directory:
+                        # Recursively remove subdirectory
+                        self._remove_directory_recursive(full_path)
+                    else:
+                        # Remove file
+                        self._ftp.delete(full_path)
+
+            # Now remove the empty directory
+            self._ftp.rmd(path)
+
+        except Exception as e:
+            raise Exception(f"Failed to remove {path}: {str(e)}")
+
+    def remove_file(self, path: str) -> Tuple[bool, str]:
+        """Remove a single file on FTP server"""
+        if not self.is_connected():
+            return False, "Not connected to FTP server"
+
+        try:
+            self._ftp.delete(path)
+            return True, "File removed successfully"
+        except ftplib.error_perm as e:
+            return False, f"Failed to remove file: {str(e)}"
+        except Exception as e:
+            return False, f"Failed to remove file: {str(e)}"

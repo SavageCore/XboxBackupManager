@@ -54,6 +54,7 @@ from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
+from utils.ftp_client import FTPClient
 
 
 class XboxBackupManager(QMainWindow):
@@ -1089,8 +1090,52 @@ class XboxBackupManager(QMainWindow):
         if not self.current_target_directory:
             return False
 
-        target_path = Path(self.current_target_directory) / Path(game.folder_path).name
-        return target_path.exists() and target_path.is_dir()
+        if self.current_mode == "ftp":
+            ftp_client = FTPClient()
+
+            try:
+                success, message = ftp_client.connect(
+                    self.ftp_settings["host"],
+                    self.ftp_settings["username"],
+                    self.ftp_settings["password"],
+                    self.ftp_settings.get("port", 21),
+                    self.ftp_settings.get("use_tls", False),  # Use the TLS setting
+                )
+
+                if not success:
+                    QMessageBox.critical(
+                        self,
+                        "FTP Connection Error",
+                        f"Could not connect to FTP server:\n{message}\n\n"
+                        "Please check your FTP settings.",
+                    )
+                    return False
+
+                # Get the target path on FTP server
+                target_path = f"{self.current_target_directory.rstrip('/')}/{Path(game.folder_path).name}"
+
+                # List directory contents
+                list_success, items, error = ftp_client.list_directory(target_path)
+
+                ftp_client.disconnect()
+
+                # Return True if listing was successful and directory has contents
+                return list_success and len(items) > 0
+
+            except Exception as e:
+                print(f"FTP error checking transferred state: {e}")
+                return False
+            finally:
+                # Ensure disconnection even if there's an exception
+                try:
+                    ftp_client.disconnect()
+                except Exception:
+                    pass
+        else:
+            target_path = (
+                Path(self.current_target_directory) / Path(game.folder_path).name
+            )
+            return target_path.exists() and target_path.is_dir()
 
     def browse_directory(self):
         """Open directory selection dialog"""
@@ -2207,11 +2252,10 @@ class XboxBackupManager(QMainWindow):
         menu.exec(self.games_table.mapToGlobal(position))
 
     def remove_game_from_target(self, title_id: str, game_name: str):
-        target_path = (
-            self.usb_target_directories.get(self.current_platform, "")
-            + os.sep
-            + title_id
-        )
+        if self.current_mode == "ftp":
+            target_path = f"{self.current_target_directory.rstrip('/')}/{title_id}"
+        else:
+            target_path = str(Path(self.current_target_directory) / title_id)
 
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Confirm Removal")
@@ -2229,21 +2273,99 @@ class XboxBackupManager(QMainWindow):
     def _remove_game_from_target(self, title_id: str, game_name: str):
         """Remove game from target directory"""
         if title_id and game_name:
-            target_path = (
-                self.usb_target_directories.get(self.current_platform, "")
-                + os.sep
-                + title_id
-            )
+            if self.current_mode == "ftp":
+                # Handle FTP removal
+                target_path = f"{self.current_target_directory.rstrip('/')}/{title_id}"
 
-            shutil.rmtree(target_path, ignore_errors=True)
-            self.status_bar.showMessage(f"Removed {game_name} from target directory")
-            # Update transferred status
-            for row in range(self.games_table.rowCount()):
-                title_item = self.games_table.item(row, 2)
-                if title_item and title_item.text() == title_id:
-                    status_item = self.games_table.item(row, 5)
-                    if status_item:
-                        status_item.setText("❌")
+                ftp_client = FTPClient()
+
+                try:
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        QMessageBox.critical(
+                            self,
+                            "FTP Connection Error",
+                            f"Could not connect to FTP server:\n{message}\n\n"
+                            "Please check your FTP settings.",
+                        )
+                        return False
+
+                    # Remove directory recursively
+                    success, message = ftp_client.remove_directory(target_path)
+
+                    if success:
+                        self.status_bar.showMessage(
+                            f"Removed {game_name} from FTP server"
+                        )
+
+                        # Update transferred status in table
+                        for row in range(self.games_table.rowCount()):
+                            title_item = self.games_table.item(row, 2)
+                            if title_item and title_item.text() == title_id:
+                                show_dlcs = self.current_platform in ["xbla"]
+                                status_column = 6 if show_dlcs else 5
+                                status_item = self.games_table.item(row, status_column)
+                                if status_item:
+                                    status_item.setText("❌")
+                                    status_item.setData(Qt.ItemDataRole.UserRole, False)
+                                break
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "FTP Removal Failed",
+                            f"Failed to remove {game_name} from FTP server:\n{message}",
+                        )
+
+                except Exception as e:
+                    QMessageBox.critical(
+                        self,
+                        "FTP Error",
+                        f"An error occurred while removing {game_name}:\n{str(e)}",
+                    )
+                finally:
+                    ftp_client.disconnect()
+
+            else:
+                # USB/local mode - existing code
+                target_path = Path(self.current_target_directory) / title_id
+
+                try:
+                    if target_path.exists():
+                        shutil.rmtree(target_path, ignore_errors=True)
+                        self.status_bar.showMessage(
+                            f"Removed {game_name} from target directory"
+                        )
+
+                        # Update transferred status in table
+                        for row in range(self.games_table.rowCount()):
+                            title_item = self.games_table.item(row, 2)
+                            if title_item and title_item.text() == title_id:
+                                show_dlcs = self.current_platform in ["xbla"]
+                                status_column = 6 if show_dlcs else 5
+                                status_item = self.games_table.item(row, status_column)
+                                if status_item:
+                                    status_item.setText("❌")
+                                    status_item.setData(Qt.ItemDataRole.UserRole, False)
+                                break
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Directory Not Found",
+                            f"Game directory not found:\n{target_path}",
+                        )
+                except Exception as e:
+                    QMessageBox.critical(
+                        self,
+                        "Removal Error",
+                        f"Failed to remove {game_name}:\n{str(e)}",
+                    )
 
     def _toggle_row_selection(self, row: int):
         """Toggle the selection state of a row"""
