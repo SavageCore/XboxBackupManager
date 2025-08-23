@@ -1178,6 +1178,9 @@ class XboxBackupManager(QMainWindow):
         # Update mode first
         self.current_mode = mode
 
+        # Save mode setting immediately
+        self.settings_manager.save_current_mode(mode)
+
         if mode == "ftp":
             self.ftp_mode_action.setChecked(True)
             self.usb_mode_action.setChecked(False)
@@ -1207,11 +1210,6 @@ class XboxBackupManager(QMainWindow):
             else:
                 # Prompt for USB target directory
                 self._prompt_for_usb_target_directory()
-        else:  # ftp mode
-            # Hide target directory controls for FTP mode
-            self.current_target_directory = ""
-            self.target_directory_label.setText("Not used in FTP mode")
-            self.status_bar.showMessage("Switched to FTP mode")
 
         # Source directory remains the same regardless of mode
         platform_dir = self.platform_directories[self.current_platform]
@@ -1219,6 +1217,9 @@ class XboxBackupManager(QMainWindow):
             self.current_directory = platform_dir
             self.directory_label.setText(self.current_directory)
             self.scan_button.setEnabled(True)
+
+        # Update transfer button state
+        self._update_transfer_button_state()
 
     def switch_platform(self, platform: str):
         """Switch to a different platform"""
@@ -1468,6 +1469,9 @@ class XboxBackupManager(QMainWindow):
         # Restore current platform
         self.current_platform = self.settings_manager.load_current_platform()
 
+        # Restore current mode
+        self.current_mode = self.settings_manager.load_current_mode()
+
         # Update platform menu state
         platform_actions = {
             "xbox": self.xbox_action,
@@ -1476,6 +1480,14 @@ class XboxBackupManager(QMainWindow):
         }
         if self.current_platform in platform_actions:
             platform_actions[self.current_platform].setChecked(True)
+
+        # Update mode menu state
+        if self.current_mode == "ftp":
+            self.ftp_mode_action.setChecked(True)
+            self.usb_mode_action.setChecked(False)
+        else:
+            self.ftp_mode_action.setChecked(False)
+            self.usb_mode_action.setChecked(True)
 
         # Update window title
         self.setWindowTitle(
@@ -1566,6 +1578,9 @@ class XboxBackupManager(QMainWindow):
         # Save current platform
         self.settings_manager.save_current_platform(self.current_platform)
 
+        # Save current mode
+        self.settings_manager.save_current_mode(self.current_mode)
+
         # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
@@ -1579,6 +1594,12 @@ class XboxBackupManager(QMainWindow):
 
         # Save USB target directories
         self.settings_manager.save_usb_target_directories(self.usb_target_directories)
+
+        # Save FTP target directories
+        self.settings_manager.save_ftp_target_directories(self.ftp_target_directories)
+
+        # Save FTP settings
+        self.settings_manager.save_ftp_settings(self.ftp_settings)
 
         # Save theme preference
         self.settings_manager.save_theme_preference(
@@ -2176,22 +2197,21 @@ class XboxBackupManager(QMainWindow):
                 self.settings_manager.load_table_settings(self.current_platform)
             )
 
-            # New: Prevent sorting by column 0 (Icon)
-            if sort_column == 0:
-                sort_column = 2  # Fallback to Game Name column
-                sort_order = Qt.SortOrder.AscendingOrder
-
             # Restore column widths
             header = self.games_table.horizontalHeader()
-            for i, width in column_widths.items():
-                header.resizeSection(i, width)
+            for column_index, width in column_widths.items():
+                if column_index < header.count():  # Make sure column exists
+                    header.resizeSection(column_index, width)
 
             # Restore sort settings
-            self.games_table.sortItems(sort_column, Qt.SortOrder(sort_order))
+            self.games_table.sortItems(sort_column - 1, Qt.SortOrder(sort_order))
 
-        except Exception:
+        except Exception as e:
+            print(f"Error loading table settings: {e}")
             # If loading fails, use defaults
-            pass
+            self.games_table.sortItems(
+                3, Qt.SortOrder.AscendingOrder
+            )  # Game Name column
 
     def show_context_menu(self, position):
         """Show context menu when right-clicking on table"""

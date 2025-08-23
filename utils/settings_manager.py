@@ -83,7 +83,7 @@ class SettingsManager:
             if width:
                 column_widths[i] = int(width)
 
-        sort_column = self.settings.value("sort_column", 2)
+        sort_column = self.settings.value("sort_column", 3)
         sort_order = self.settings.value("sort_order", 0)  # Qt.SortOrder.AscendingOrder
 
         return column_widths, int(sort_column), int(sort_order)
@@ -95,6 +95,14 @@ class SettingsManager:
     def load_current_platform(self):
         """Load current platform selection"""
         return self.settings.value("current_platform", "xbox360")
+
+    def save_current_mode(self, mode: str):
+        """Save current mode selection (ftp/usb)"""
+        self.settings.setValue("current_mode", mode)
+
+    def load_current_mode(self) -> str:
+        """Load current mode selection"""
+        return self.settings.value("current_mode", "usb")
 
     def save_usb_directories(self, usb_directories: Dict[str, str]):
         """Save USB directories for all platforms"""
