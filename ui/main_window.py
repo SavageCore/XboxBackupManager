@@ -18,6 +18,7 @@ from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -42,12 +43,15 @@ from database.xbox_title_database import XboxTitleDatabaseLoader
 
 # Import our modular components
 from models.game_info import GameInfo
+from ui.ftp_browser_dialog import FTPBrowserDialog
+from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.theme_manager import ThemeManager
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
+from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
 
 
@@ -84,6 +88,9 @@ class XboxBackupManager(QMainWindow):
             "xbla": "Xbox Live Arcade",
         }
         self.icon_cache: Dict[str, QPixmap] = {}
+        self.ftp_settings = {}
+        self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
+
         # Get the current palette from your theme manager
         palette = self.theme_manager.get_palette()
 
@@ -315,12 +322,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action = QAction("&Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
         self.browse_action.setIcon(
-            qta.icon(
-                "fa6s.folder-open",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
+            qta.icon("fa6s.folder-open", color=self.normal_color)
         )
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
@@ -328,28 +330,24 @@ class XboxBackupManager(QMainWindow):
         self.browse_target_action = QAction("&Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.setIcon(
-            qta.icon(
-                "fa6s.bullseye",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
+            qta.icon("fa6s.bullseye", color=self.normal_color)
         )
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
 
         file_menu.addSeparator()
 
+        # FTP settings action
+        self.ftp_settings_action = QAction("&FTP Settings...", self)
+        self.ftp_settings_action.setIcon(qta.icon("fa6s.gear", color=self.normal_color))
+        self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
+        file_menu.addAction(self.ftp_settings_action)
+
+        file_menu.addSeparator()
+
         exit_action = QAction("E&xit", self)
         exit_action.setShortcut("Ctrl+Q")
-        exit_action.setIcon(
-            qta.icon(
-                "fa6s.xmark",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
+        exit_action.setIcon(qta.icon("fa6s.xmark", color=self.normal_color))
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
@@ -633,6 +631,10 @@ class XboxBackupManager(QMainWindow):
 
     def browse_target_directory(self):
         """Open target directory selection dialog"""
+        if self.current_mode == "ftp":
+            self.browse_ftp_target_directory()
+            return
+
         start_dir = (
             self.current_target_directory
             if self.current_target_directory
@@ -891,25 +893,39 @@ class XboxBackupManager(QMainWindow):
         # Add cancel button to status bar
         self._add_cancel_button()
 
-        # Start transfer worker
-        from workers.file_transfer import FileTransferWorker
+        if self.current_mode == "ftp":
+            # Start FTP transfer worker
+            self.transfer_worker = FTPTransferWorker(
+                games_to_transfer,
+                self.ftp_settings["host"],
+                self.ftp_settings["username"],
+                self.ftp_settings["password"],
+                self.current_target_directory,
+                self.ftp_settings.get("port", 21),
+            )
+        else:
+            # Start USB/local transfer worker
+            from workers.file_transfer import FileTransferWorker
 
-        self.transfer_worker = FileTransferWorker(
-            games_to_transfer,
-            self.current_target_directory,
-            max_workers=2,
-            buffer_size=2 * 1024 * 1024,
-        )
+            self.transfer_worker = FileTransferWorker(
+                games_to_transfer,
+                self.current_target_directory,
+                max_workers=2,
+                buffer_size=2 * 1024 * 1024,
+            )
+
+        # Connect signals (same for both transfer types)
         self.transfer_worker.progress.connect(self._update_transfer_progress)
-        self.transfer_worker.file_progress.connect(
-            self._update_file_progress
-        )  # New signal
+        self.transfer_worker.file_progress.connect(self._update_file_progress)
         self.transfer_worker.game_transferred.connect(self._on_game_transferred)
         self.transfer_worker.transfer_complete.connect(self._on_transfer_complete)
         self.transfer_worker.transfer_error.connect(self._on_transfer_error)
         self.transfer_worker.start()
 
-        self.status_bar.showMessage(f"Transferring {len(games_to_transfer)} games...")
+        mode_text = "via FTP" if self.current_mode == "ftp" else "to USB"
+        self.status_bar.showMessage(
+            f"Transferring {len(games_to_transfer)} games {mode_text}..."
+        )
 
     def _add_cancel_button(self):
         """Add a cancel button to the status bar"""
@@ -1118,18 +1134,24 @@ class XboxBackupManager(QMainWindow):
             return
 
         # Update mode first
-        self.current_mode
         self.current_mode = mode
 
         if mode == "ftp":
             self.ftp_mode_action.setChecked(True)
             self.usb_mode_action.setChecked(False)
+
+            # Enable FTP settings action
+            self.ftp_settings_action.setEnabled(True)
+
+            # Load FTP target directory
+            ftp_target = self.ftp_target_directories[self.current_platform]
+            self.current_target_directory = ftp_target
+            self.target_directory_label.setText(f"FTP: {ftp_target}")
+            self.target_space_label.setText("(FTP)")
+
         elif mode == "usb":
             self.ftp_mode_action.setChecked(False)
             self.usb_mode_action.setChecked(True)
-
-        # Handle target directory display based on mode
-        if mode == "usb":
             # Show target directory controls and load saved target
             usb_target = self.usb_target_directories[self.current_platform]
 
@@ -1430,6 +1452,19 @@ class XboxBackupManager(QMainWindow):
         if self.platform_directories[self.current_platform]:
             self.current_directory = self.platform_directories[self.current_platform]
             self.directory_label.setText(self.current_directory)
+
+        # Load FTP settings
+        self.ftp_settings = self.settings_manager.load_ftp_settings()
+        self.ftp_target_directories = (
+            self.settings_manager.load_ftp_target_directories()
+        )
+
+        # Set current target directory based on mode
+        if self.current_mode == "ftp":
+            ftp_target = self.ftp_target_directories[self.current_platform]
+            self.current_target_directory = ftp_target
+            self.target_directory_label.setText(f"FTP: {ftp_target}")
+            self.target_space_label.setText("(FTP)")
 
         # Set current target directory based on mode and check availability
         if self.current_mode == "usb":
@@ -2484,6 +2519,40 @@ class XboxBackupManager(QMainWindow):
             if selected_game and self._has_sufficient_space(selected_game):
                 # Start transfer with just this one game
                 self._start_transfer([selected_game])
+
+    def show_ftp_settings(self):
+        """Show FTP settings dialog"""
+        dialog = FTPSettingsDialog(self, self.ftp_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.ftp_settings = dialog.get_settings()
+            self.settings_manager.save_ftp_settings(self.ftp_settings)
+            self.status_bar.showMessage("FTP settings saved")
+
+    def browse_ftp_target_directory(self):
+        """Browse FTP server for target directory"""
+        if not self.ftp_settings or not self.ftp_settings.get("host"):
+            QMessageBox.warning(
+                self,
+                "FTP Settings Required",
+                "Please configure FTP settings first (File → FTP Settings).",
+            )
+            self.show_ftp_settings()
+            return
+
+        dialog = FTPBrowserDialog(self, self.ftp_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_path = dialog.get_selected_path()
+            self.ftp_target_directories[self.current_platform] = selected_path
+            self.current_target_directory = selected_path
+            self.target_directory_label.setText(f"FTP: {selected_path}")
+            self.target_space_label.setText("(FTP)")
+
+            self.settings_manager.save_ftp_target_directories(
+                self.ftp_target_directories
+            )
+            self._update_transfer_button_state()
+
+            self.status_bar.showMessage(f"FTP target directory set: {selected_path}")
 
 
 class NonSortableHeaderView(QHeaderView):
