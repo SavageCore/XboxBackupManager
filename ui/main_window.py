@@ -51,6 +51,7 @@ from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
+from workers.file_transfer import FileTransferWorker
 from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
 
@@ -903,9 +904,6 @@ class XboxBackupManager(QMainWindow):
                 self.ftp_settings.get("port", 21),
             )
         else:
-            # Start USB/local transfer worker
-            from workers.file_transfer import FileTransferWorker
-
             self.transfer_worker = FileTransferWorker(
                 games_to_transfer,
                 self.current_target_directory,

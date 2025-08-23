@@ -25,7 +25,7 @@ class FTPClient(QObject):
         username: str,
         password: str,
         port: int = 21,
-        use_tls: bool = True,
+        use_tls: bool = False,
     ) -> Tuple[bool, str]:
         """Connect to FTP server"""
         try:
