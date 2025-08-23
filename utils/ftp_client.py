@@ -84,33 +84,6 @@ class FTPClient(QObject):
                 )
             return False, f"Connection failed: {error_msg}"
 
-    def connect_with_fallback(
-        self, host: str, username: str, password: str, port: int = 21
-    ) -> Tuple[bool, str]:
-        """Connect to FTP server with automatic TLS fallback"""
-        # First try with TLS
-        success, message = self.connect(host, username, password, port, use_tls=True)
-        if success:
-            return success, message
-
-        # If TLS fails with specific errors, try without TLS
-        if "503 Use AUTH first" not in message and "SSL" not in message:
-            success, fallback_message = self.connect(
-                host, username, password, port, use_tls=False
-            )
-            if success:
-                return (
-                    success,
-                    f"{fallback_message} (Note: Using unencrypted connection)",
-                )
-            else:
-                return (
-                    False,
-                    f"TLS failed: {message}\nPlain FTP failed: {fallback_message}",
-                )
-
-        return False, message
-
     def disconnect(self):
         """Disconnect from FTP server"""
         if self._ftp:

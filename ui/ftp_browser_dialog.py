@@ -83,6 +83,7 @@ class FTPBrowserDialog(QDialog):
             self._ftp_settings["username"],
             self._ftp_settings["password"],
             self._ftp_settings.get("port", 21),
+            self._ftp_settings.get("use_tls", True),
         )
 
         if not success:
