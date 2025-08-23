@@ -1590,10 +1590,6 @@ class XboxBackupManager(QMainWindow):
         # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
-        if self.current_target_directory:
-            self.usb_target_directories[self.current_platform] = (
-                self.current_target_directory
-            )
 
         # Save all platform directories
         self.settings_manager.save_platform_directories(self.platform_directories)
