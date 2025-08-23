@@ -888,6 +888,9 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
+        # Add cancel button to status bar
+        self._add_cancel_button()
+
         # Start transfer worker
         from workers.file_transfer import FileTransferWorker
 
@@ -907,6 +910,79 @@ class XboxBackupManager(QMainWindow):
         self.transfer_worker.start()
 
         self.status_bar.showMessage(f"Transferring {len(games_to_transfer)} games...")
+
+    def _add_cancel_button(self):
+        """Add a cancel button to the status bar"""
+        if hasattr(self, "cancel_button"):
+            return  # Button already exists
+
+        self.cancel_button = QPushButton("Cancel Transfer")
+        self.cancel_button.setIcon(
+            qta.icon(
+                "fa6s.xmark",
+                color=self.normal_color,
+                color_active=self.active_color,
+                color_disabled=self.disabled_color,
+            )
+        )
+        self.cancel_button.setToolTip("Cancel the current transfer")
+        self.cancel_button.clicked.connect(self._cancel_transfer)
+        self.cancel_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Add to status bar on the right side
+        self.status_bar.addPermanentWidget(self.cancel_button)
+
+    def _remove_cancel_button(self):
+        """Remove the cancel button from the status bar"""
+        if hasattr(self, "cancel_button"):
+            self.status_bar.removeWidget(self.cancel_button)
+            self.cancel_button.deleteLater()
+            delattr(self, "cancel_button")
+
+    def _cancel_transfer(self):
+        """Cancel the current transfer"""
+        if hasattr(self, "transfer_worker") and self.transfer_worker.isRunning():
+            # Show confirmation dialog
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Cancel Transfer")
+            msg_box.setText("Are you sure you want to cancel the transfer?")
+            msg_box.setInformativeText(
+                "Any files currently being transferred will be incomplete."
+            )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+            if msg_box.exec() == QMessageBox.StandardButton.Yes:
+                # Stop the transfer worker
+                self.transfer_worker.should_stop = True
+                self.transfer_worker.terminate()
+                self.transfer_worker.wait(3000)  # Wait up to 3 seconds
+
+                # Reset UI state
+                self._on_transfer_cancelled()
+
+    def _on_transfer_cancelled(self):
+        """Handle transfer cancellation"""
+        self.progress_bar.setVisible(False)
+        self.transfer_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        # Remove cancel button
+        self._remove_cancel_button()
+
+        # Restart watching directory
+        self.start_watching_directory()
+
+        self.status_bar.showMessage("Transfer cancelled")
+
+        # Update transfer button state
+        self._update_transfer_button_state()
+
+        self._update_search_status()
 
     def _update_transfer_progress(self, current: int, total: int, current_game: str):
         """Update transfer progress"""
@@ -969,6 +1045,8 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
+        self._remove_cancel_button()
+
         self.start_watching_directory()
 
         self.status_bar.showMessage("Transfer completed successfully")
@@ -983,6 +1061,8 @@ class XboxBackupManager(QMainWindow):
         self.scan_button.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
+
+        self._remove_cancel_button()
 
         self.start_watching_directory()
 
