@@ -1227,6 +1227,8 @@ class XboxBackupManager(QMainWindow):
         # Update transfer button state
         self._update_transfer_button_state()
 
+        self.scan_directory()
+
     def switch_platform(self, platform: str):
         """Switch to a different platform"""
         if platform == self.current_platform:
