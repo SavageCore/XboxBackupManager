@@ -1192,7 +1192,7 @@ class XboxBackupManager(QMainWindow):
             ftp_target = self.ftp_target_directories[self.current_platform]
             self.current_target_directory = ftp_target
             self.target_directory_label.setText(f"FTP: {ftp_target}")
-            self.target_space_label.setText("(FTP)")
+            self._update_target_space_label(ftp_target)
 
         elif mode == "usb":
             self.ftp_mode_action.setChecked(False)
@@ -1256,7 +1256,7 @@ class XboxBackupManager(QMainWindow):
 
         self.load_title_database()
 
-        # Load source directory for new platform - FIX: Update self.current_directory immediately
+        # Load source directory for new platform
         if self.platform_directories[platform]:
             self.current_directory = self.platform_directories[platform]
             self.directory_label.setText(self.current_directory)
@@ -1270,7 +1270,7 @@ class XboxBackupManager(QMainWindow):
             self.games.clear()
             self.games_table.setRowCount(0)
 
-        # Load target directory for new platform (USB mode only)
+        # Load target directory for new platform
         if self.current_mode == "usb":
             if self.usb_target_directories[platform]:
                 self.current_target_directory = self.usb_target_directories[platform]
@@ -1283,9 +1283,16 @@ class XboxBackupManager(QMainWindow):
                 )
                 self.target_space_label.setText("")
         else:
-            self.current_target_directory = ""
-            self.target_directory_label.setText("Not used in FTP mode")
-            self.target_space_label.setText("")
+            if self.ftp_target_directories[platform]:
+                self.current_target_directory = self.ftp_target_directories[platform]
+                self.target_directory_label.setText(
+                    f"FTP: {self.current_target_directory}"
+                )
+                self._update_target_space_label(self.current_target_directory)
+            else:
+                self.current_target_directory = ""
+                self.target_directory_label.setText("No FTP target set")
+                self.target_space_label.setText("")
 
         # Save platform selection
         self.settings_manager.save_current_platform(platform)
@@ -1518,32 +1525,30 @@ class XboxBackupManager(QMainWindow):
             ftp_target = self.ftp_target_directories[self.current_platform]
             self.current_target_directory = ftp_target
             self.target_directory_label.setText(f"FTP: {ftp_target}")
-            self.target_space_label.setText("(FTP)")
+            self._update_target_space_label(ftp_target)
 
         # Set current target directory based on mode and check availability
         if self.current_mode == "usb":
             target_dir = self.usb_target_directories[self.current_platform]
-            if target_dir:
-                # Check if target directory is available/mounted
-                is_available = self._check_target_directory_availability(target_dir)
-                if is_available:
-                    self.current_target_directory = target_dir
-                    self.target_directory_label.setText(target_dir)
-                    self._update_target_space_label(target_dir)
-                    self.status_bar.showMessage(
-                        f"Target directory available: {target_dir}"
-                    )
-                else:
-                    # Target directory not available
-                    self.current_target_directory = ""
-                    self.target_directory_label.setText(
-                        "Target directory not available"
-                    )
-                    self._handle_unavailable_target_directory(target_dir)
-            else:
-                self.target_directory_label.setText("No target directory selected")
+            text = target_dir
         else:
-            self.target_directory_label.setText("Not used in FTP mode")
+            target_dir = self.ftp_target_directories[self.current_platform]
+            text = f"FTP: {target_dir}"
+        if target_dir:
+            # Check if target directory is available/mounted
+            is_available = self._check_target_directory_availability(target_dir)
+            if is_available:
+                self.current_target_directory = target_dir
+                self.target_directory_label.setText(text)
+                self._update_target_space_label(target_dir)
+                self.status_bar.showMessage(f"Target directory available: {target_dir}")
+            else:
+                # Target directory not available
+                self.current_target_directory = ""
+                self.target_directory_label.setText("Target directory not available")
+                self._handle_unavailable_target_directory(target_dir)
+        else:
+            self.target_directory_label.setText("No target directory selected")
 
         # Update platform label
         self.platform_label.setText(self.platform_names[self.current_platform])
@@ -2497,16 +2502,51 @@ class XboxBackupManager(QMainWindow):
             if not target_path:
                 return False
 
-            # Check if path exists and is accessible
-            if not os.path.exists(target_path):
-                return False
+            # Handle FTP mode
+            if self.current_mode == "ftp":
+                # For FTP, check if we can connect and access the target path
+                if not self.ftp_settings or not self.ftp_settings.get("host"):
+                    return False
 
-            # Try to access the directory to ensure it's mounted and readable
-            try:
-                os.listdir(target_path)
-                return True
-            except (OSError, PermissionError):
-                return False
+                ftp_client = FTPClient()
+                try:
+                    # Connect to FTP server
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        return False
+
+                    # Try to access the target directory
+                    list_success, items, error = ftp_client.list_directory(target_path)
+                    ftp_client.disconnect()
+
+                    return list_success
+
+                except Exception:
+                    return False
+                finally:
+                    try:
+                        ftp_client.disconnect()
+                    except Exception:
+                        pass
+
+            else:
+                # USB/local mode - existing logic
+                if not os.path.exists(target_path):
+                    return False
+
+                # Try to access the directory to ensure it's mounted and readable
+                try:
+                    os.listdir(target_path)
+                    return True
+                except (OSError, PermissionError):
+                    return False
 
         except Exception:
             return False
@@ -2566,6 +2606,10 @@ class XboxBackupManager(QMainWindow):
 
     def _update_target_space_label(self, directory_path: str):
         """Update the target space label with free space information"""
+        if self.current_mode == "ftp":
+            self.target_space_label.setText("")
+            return
+
         free_space = self._get_available_disk_space(directory_path)
         if free_space is not None:
             free_gb = free_space // (2**30)
@@ -2629,6 +2673,10 @@ class XboxBackupManager(QMainWindow):
 
     def _has_sufficient_space(self, game: GameInfo) -> bool:
         """Check if there is enough space to transfer the game"""
+        if self.current_mode == "ftp":
+            # For FTP, we cannot reliably check space, so assume true
+            return True
+
         free_space = self._get_available_disk_space(self.current_target_directory)
         if free_space is None:
             return False
