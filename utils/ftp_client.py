@@ -1,5 +1,6 @@
 import ftplib
 import socket
+import ssl
 from typing import List, Tuple
 
 from PyQt6.QtCore import QObject
@@ -16,32 +17,99 @@ class FTPClient(QObject):
         self._password = ""
         self._port = 21
         self._connected = False
+        self._use_tls = False
 
     def connect(
-        self, host: str, username: str, password: str, port: int = 21
+        self,
+        host: str,
+        username: str,
+        password: str,
+        port: int = 21,
+        use_tls: bool = True,
     ) -> Tuple[bool, str]:
         """Connect to FTP server"""
         try:
-            self._ftp = ftplib.FTP()
+            if use_tls:
+                # Try FTP with TLS first
+                self._ftp = ftplib.FTP_TLS()
+                self._ftp.ssl_version = ssl.PROTOCOL_TLS_CLIENT
+                # Ignore certificate verification for simplicity
+                self._ftp.check_hostname = False
+                context = ssl.create_default_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                self._ftp.ssl_context = context
+            else:
+                # Fall back to regular FTP
+                self._ftp = ftplib.FTP()
+
             self._ftp.connect(host, port, timeout=10)
             self._ftp.login(username, password)
+
+            if use_tls and isinstance(self._ftp, ftplib.FTP_TLS):
+                # Secure the data connection
+                self._ftp.prot_p()
 
             self._host = host
             self._username = username
             self._password = password
             self._port = port
             self._connected = True
+            self._use_tls = use_tls
 
-            return True, "Connected successfully"
+            connection_type = "FTPS" if use_tls else "FTP"
+            return True, f"Connected successfully via {connection_type}"
 
         except ftplib.error_perm as e:
-            return False, f"Authentication failed: {str(e)}"
+            error_msg = str(e)
+            if "503 Use AUTH first" in error_msg and not use_tls:
+                return (
+                    False,
+                    "Server requires SSL/TLS. Please enable secure connection.",
+                )
+            return False, f"Authentication failed: {error_msg}"
         except socket.gaierror as e:
             return False, f"Could not resolve hostname: {str(e)}"
         except socket.timeout:
             return False, "Connection timed out"
+        except ssl.SSLError as e:
+            return False, f"SSL/TLS error: {str(e)}"
         except Exception as e:
-            return False, f"Connection failed: {str(e)}"
+            error_msg = str(e)
+            if "503 Use AUTH first" in error_msg and not use_tls:
+                # If we get this error with regular FTP, suggest trying TLS
+                return (
+                    False,
+                    "Server requires SSL/TLS. Please enable secure connection and try again.",
+                )
+            return False, f"Connection failed: {error_msg}"
+
+    def connect_with_fallback(
+        self, host: str, username: str, password: str, port: int = 21
+    ) -> Tuple[bool, str]:
+        """Connect to FTP server with automatic TLS fallback"""
+        # First try with TLS
+        success, message = self.connect(host, username, password, port, use_tls=True)
+        if success:
+            return success, message
+
+        # If TLS fails with specific errors, try without TLS
+        if "503 Use AUTH first" not in message and "SSL" not in message:
+            success, fallback_message = self.connect(
+                host, username, password, port, use_tls=False
+            )
+            if success:
+                return (
+                    success,
+                    f"{fallback_message} (Note: Using unencrypted connection)",
+                )
+            else:
+                return (
+                    False,
+                    f"TLS failed: {message}\nPlain FTP failed: {fallback_message}",
+                )
+
+        return False, message
 
     def disconnect(self):
         """Disconnect from FTP server"""
