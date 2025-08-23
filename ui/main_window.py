@@ -838,7 +838,13 @@ class XboxBackupManager(QMainWindow):
             for row in reversed(selected_rows):
                 title_id = self.games_table.item(row, 2).text()
                 game_name = self.games_table.item(row, 3).text()
-                self._remove_game_from_target(title_id, game_name)
+                if self.current_platform == "xbla":
+                    source_path = self.games_table.item(row, 7).text()
+                else:
+                    source_path = self.games_table.item(row, 6).text()
+                folder_name = os.path.basename(os.path.dirname(source_path))
+
+                self._remove_game_from_target(title_id, game_name, folder_name)
 
                 # Uncheck the game after successful transfer
                 checkbox_item = self.games_table.item(row, 0)
@@ -2218,6 +2224,21 @@ class XboxBackupManager(QMainWindow):
                 3, Qt.SortOrder.AscendingOrder
             )  # Game Name column
 
+    def create_remove_action(self, row, show_dlcs):
+        if show_dlcs:
+            folder_item = self.games_table.item(row, 7)
+        else:
+            folder_item = self.games_table.item(row, 6)
+        if folder_item:
+            folder_path = folder_item.text()
+            folder_name = os.path.basename(folder_path)
+
+        return lambda: self.remove_game_from_target(
+            title_id=self.games_table.item(row, 2).text(),
+            game_name=self.games_table.item(row, 3).text(),
+            folder_name=folder_name,
+        )
+
     def show_context_menu(self, position):
         """Show context menu when right-clicking on table"""
         item = self.games_table.itemAt(position)
@@ -2266,21 +2287,19 @@ class XboxBackupManager(QMainWindow):
 
         # Add "Remove from Target" action
         remove_action = menu.addAction("Remove from Target")
-        remove_action.triggered.connect(
-            lambda: self.remove_game_from_target(
-                title_id=self.games_table.item(row, 2).text(),
-                game_name=self.games_table.item(row, 3).text(),
-            )
-        )
+        remove_action.triggered.connect(self.create_remove_action(row, show_dlcs))
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
 
-    def remove_game_from_target(self, title_id: str, game_name: str):
+    def remove_game_from_target(
+        self, title_id: str, game_name: str, folder_name: str = ""
+    ):
+        remove_target = title_id if self.current_platform != "xbox" else folder_name
         if self.current_mode == "ftp":
-            target_path = f"{self.current_target_directory.rstrip('/')}/{title_id}"
+            target_path = f"{self.current_target_directory.rstrip('/')}/{remove_target}"
         else:
-            target_path = str(Path(self.current_target_directory) / title_id)
+            target_path = str(Path(self.current_target_directory) / remove_target)
 
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Confirm Removal")
@@ -2293,14 +2312,19 @@ class XboxBackupManager(QMainWindow):
         msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
 
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
-            self._remove_game_from_target(title_id, game_name)
+            self._remove_game_from_target(title_id, game_name, folder_name)
 
-    def _remove_game_from_target(self, title_id: str, game_name: str):
+    def _remove_game_from_target(
+        self, title_id: str, game_name: str, folder_name: str = ""
+    ):
         """Remove game from target directory"""
         if title_id and game_name:
+            remove_target = title_id if self.current_platform != "xbox" else folder_name
             if self.current_mode == "ftp":
                 # Handle FTP removal
-                target_path = f"{self.current_target_directory.rstrip('/')}/{title_id}"
+                target_path = (
+                    f"{self.current_target_directory.rstrip('/')}/{remove_target}"
+                )
 
                 ftp_client = FTPClient()
 
@@ -2359,7 +2383,7 @@ class XboxBackupManager(QMainWindow):
 
             else:
                 # USB/local mode - existing code
-                target_path = Path(self.current_target_directory) / title_id
+                target_path = Path(self.current_target_directory) / remove_target
 
                 try:
                     if target_path.exists():
