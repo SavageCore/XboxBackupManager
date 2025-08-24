@@ -2477,6 +2477,12 @@ class XboxBackupManager(QMainWindow):
             self.icon_downloader.terminate()
             self.icon_downloader.wait()
 
+        # Clean up zip extractor
+        if hasattr(self, "zip_extractor") and self.zip_extractor:
+            if self.zip_extractor.isRunning():
+                self.zip_extractor.should_stop = True
+                self.zip_extractor.wait(1000)
+
         self.save_settings()
         event.accept()
 
@@ -2755,17 +2761,78 @@ class XboxBackupManager(QMainWindow):
             self.status_bar.showMessage(f"FTP target directory set: {selected_path}")
 
     def browse_for_iso(self):
-        """Browse for an ISO file to extract"""
+        """Browse for ISO/ZIP files to extract"""
         file_dialog = QFileDialog(self)
         file_dialog.setWindowTitle("Select ISO/ZIP File(s)")
         file_dialog.setNameFilter("Game Files (*.iso *.zip);;")
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
 
         if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
-            selected_file = file_dialog.selectedFiles()
-            for file in selected_file:
-                self.iso_path = file
-                self._extract_iso()
+            selected_files = file_dialog.selectedFiles()
+            if selected_files:
+                # Process files sequentially to avoid thread conflicts
+                self._extract_multiple_files(selected_files)
+
+    def _extract_multiple_files(self, file_paths):
+        """Extract multiple ISO/ZIP files sequentially"""
+        total_files = len(file_paths)
+
+        if total_files == 1:
+            # Single file - use existing logic
+            self.iso_path = file_paths[0]
+            self._extract_iso()
+            return
+
+        # Multiple files - show confirmation and set up batch processing
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Extract Multiple Files")
+        msg_box.setText(f"Extract {total_files} files?")
+        msg_box.setInformativeText("Each file will be extracted to its own folder.")
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            self._start_batch_extraction(file_paths)
+
+    def _start_batch_extraction(self, file_paths):
+        """Start batch extraction of multiple files"""
+        self.current_extraction_batch = file_paths
+        self.current_extraction_batch_index = 0
+        self.total_extraction_batch_files = len(file_paths)
+
+        # Show progress
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        self.status_bar.showMessage(
+            f"Extracting file 1 of {self.total_extraction_batch_files}..."
+        )
+
+        # Start with first file
+        self._extract_next_batch_file()
+
+    def _extract_next_batch_file(self):
+        """Extract the next file in the batch"""
+        if self.current_extraction_batch_index >= len(self.current_extraction_batch):
+            # Batch complete
+            self._on_batch_extraction_complete()
+            return
+
+        self.iso_path = self.current_extraction_batch[
+            self.current_extraction_batch_index
+        ]
+
+        # Update status
+        current_file = self.current_extraction_batch_index + 1
+        filename = os.path.basename(self.iso_path)
+        self.status_bar.showMessage(
+            f"Extracting file {current_file} of {self.total_extraction_batch_files}: {filename}"
+        )
+
+        # Extract current file - this will call the sequential extraction logic
+        self._extract_iso()
 
     def _extract_iso(self):
         """Extract ISO with extract-xiso.exe"""
@@ -2793,6 +2860,13 @@ class XboxBackupManager(QMainWindow):
         """Extract ZIP file first, then extract the ISO"""
         self.status_bar.showMessage("Extracting ZIP archive...")
 
+        # Clean up any existing zip extractor
+        if hasattr(self, "zip_extractor") and self.zip_extractor:
+            if self.zip_extractor.isRunning():
+                self.zip_extractor.should_stop = True
+                self.zip_extractor.wait(1000)  # Wait up to 1 second
+            self.zip_extractor.deleteLater()
+
         # Show progress bar
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -2808,8 +2882,15 @@ class XboxBackupManager(QMainWindow):
             )
         )
         self.zip_extractor.extraction_error.connect(self._on_zip_extraction_error)
+        self.zip_extractor.finished.connect(self._cleanup_zip_extractor)
 
         self.zip_extractor.start()
+
+    def _cleanup_zip_extractor(self):
+        """Clean up the zip extractor thread"""
+        if hasattr(self, "zip_extractor") and self.zip_extractor:
+            self.zip_extractor.deleteLater()
+            self.zip_extractor = None
 
     def _on_zip_extraction_complete(self, extracted_iso_path: str, original_zip: str):
         """Handle ZIP extraction completion"""
@@ -2829,11 +2910,16 @@ class XboxBackupManager(QMainWindow):
             self._extract_iso_directly(extracted_iso_path, extract_to_dir)
         else:
             self.status_bar.showMessage("ZIP extracted, but no ISO file found")
-            QMessageBox.information(
-                self,
-                "No ISO Found",
-                f"ZIP file extracted successfully, but no ISO file was found in:\n{extracted_iso_path}",
-            )
+
+            # If we're in batch mode, move to next file
+            if hasattr(self, "current_extraction_batch"):
+                self._move_to_next_extraction_file()
+            else:
+                QMessageBox.information(
+                    self,
+                    "No ISO Found",
+                    f"ZIP file extracted successfully, but no ISO file was found in:\n{extracted_iso_path}",
+                )
 
     def _extract_iso_directly(self, iso_path, extract_to_dir):
         """Extract ISO directly with extract-xiso.exe"""
@@ -2892,6 +2978,46 @@ class XboxBackupManager(QMainWindow):
             finally:
                 # Clear the reference
                 self.temp_iso_path = None
+
+        # If we're in batch mode, move to next file
+        if hasattr(self, "current_extraction_batch"):
+            self._move_to_next_extraction_file()
+
+    def _move_to_next_extraction_file(self):
+        """Move to the next file in extraction batch"""
+        self.current_extraction_batch_index += 1
+
+        # Update overall progress
+        overall_progress = (
+            self.current_extraction_batch_index / self.total_extraction_batch_files
+        ) * 100
+        self.progress_bar.setValue(int(overall_progress))
+
+        # Extract next file
+        self._extract_next_batch_file()
+
+    def _on_batch_extraction_complete(self):
+        """Handle completion of entire extraction batch"""
+        self.progress_bar.setVisible(False)
+
+        # Clear batch variables
+        if hasattr(self, "current_extraction_batch"):
+            delattr(self, "current_extraction_batch")
+        if hasattr(self, "current_extraction_batch_index"):
+            delattr(self, "current_extraction_batch_index")
+        if hasattr(self, "total_extraction_batch_files"):
+            total_completed = self.total_extraction_batch_files
+            delattr(self, "total_extraction_batch_files")
+        else:
+            total_completed = 0
+
+        self.status_bar.showMessage("Batch extraction completed")
+
+        QMessageBox.information(
+            self,
+            "Batch Extraction Complete",
+            f"Successfully extracted {total_completed} files.",
+        )
 
     def browse_for_god_creation(self):
         """Browse for ISO files to convert to GOD format"""
@@ -3254,20 +3380,26 @@ class XboxBackupManager(QMainWindow):
         """Handle completion of entire GOD batch"""
         self.progress_bar.setVisible(False)
 
+        # Clean up all temp ISOs from batch
+        self._cleanup_god_temp_isos()
+
         # Clear batch variables
         if hasattr(self, "current_god_batch"):
             delattr(self, "current_god_batch")
         if hasattr(self, "current_god_batch_index"):
             delattr(self, "current_god_batch_index")
         if hasattr(self, "total_god_batch_files"):
+            total_completed = self.total_god_batch_files  # Store before deletion
             delattr(self, "total_god_batch_files")
+        else:
+            total_completed = 0
 
         self.status_bar.showMessage("Batch GOD creation completed")
 
         QMessageBox.information(
             self,
             "Batch GOD Creation Complete",
-            f"Successfully created GOD files from {self.total_god_batch_files} ISOs.",
+            f"Successfully created GOD files from {total_completed} files.",
         )
 
         # Rescan directory to show new GOD files
