@@ -9,12 +9,20 @@ import os
 import platform
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 from typing import Dict, List
 
 import qtawesome as qta
-from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, Qt, QTimer
-from PyQt6.QtGui import QAction, QActionGroup, QIcon, QPainter, QPixmap
+from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, Qt, QTimer, QUrl
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPixmap,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -122,6 +130,8 @@ class XboxBackupManager(QMainWindow):
         self.load_title_database()
 
         self._check_for_updates()
+
+        QTimer.singleShot(100, self._check_required_tools)
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -2477,11 +2487,11 @@ class XboxBackupManager(QMainWindow):
             self.icon_downloader.terminate()
             self.icon_downloader.wait()
 
-        # Clean up zip extractor
-        if hasattr(self, "zip_extractor") and self.zip_extractor:
-            if self.zip_extractor.isRunning():
-                self.zip_extractor.should_stop = True
-                self.zip_extractor.wait(1000)
+        # Clean up tools watcher
+        if hasattr(self, "tools_watcher"):
+            self.tools_watcher.removePaths(
+                self.tools_watcher.files() + self.tools_watcher.directories()
+            )
 
         self.save_settings()
         event.accept()
@@ -3405,6 +3415,202 @@ class XboxBackupManager(QMainWindow):
         # Rescan directory to show new GOD files
         if self.current_directory:
             self.scan_directory()
+
+    def _check_required_tools(self):
+        """Check for required executables and set up watchers"""
+        self.extract_xiso_path = os.path.join(os.getcwd(), "extract-xiso.exe")
+        self.iso2god_path = os.path.join(os.getcwd(), "iso2god-x86_64-windows.exe")
+
+        self.extract_xiso_found = os.path.exists(self.extract_xiso_path)
+        self.iso2god_found = os.path.exists(self.iso2god_path)
+
+        # Update status bar
+        self._update_tools_status()
+
+        # If both tools are found, no need for dialog
+        if self.extract_xiso_found and self.iso2god_found:
+            return
+
+        # Set up file system watchers
+        self._setup_tools_watchers()
+
+        # Show download dialog
+        self._show_tools_download_dialog()
+
+    def _update_tools_status(self):
+        """Update status bar with tools status"""
+        extract_status = "✔️" if self.extract_xiso_found else "❌"
+        iso2god_status = "✔️" if self.iso2god_found else "❌"
+
+        # Update download button
+        if self.extract_xiso_found:
+            xiso_button = self.findChild(QPushButton, "extract_xiso_download_button")
+            if xiso_button:
+                xiso_button.setEnabled(False)
+                xiso_button.setText("✔️ Downloaded")
+        if self.iso2god_found:
+            iso2god_button = self.findChild(QPushButton, "iso2god_download_button")
+            if iso2god_button:
+                iso2god_button.setEnabled(False)
+                iso2god_button.setText("✔️ Downloaded")
+
+        # If both tools are now found, close the dialog and update status bar
+        if self.extract_xiso_found and self.iso2god_found:
+            if hasattr(self, "tools_dialog") and self.tools_dialog:
+                self.tools_dialog.accept()
+                delattr(self, "tools_dialog")
+            # Set a status message of tools ready for use, then 5 seconds later return to games found
+            self.status_bar.showMessage("✔️ Required tools are ready for use")
+            QTimer.singleShot(
+                5000, self._update_search_status
+            )  # Return status bar to games found
+            return
+
+        status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status}"
+        self.status_bar.showMessage(status_text)
+
+    def _show_tools_download_dialog(self):
+        """Show dialog with download links for missing tools"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Required Tools Missing")
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+
+        label = QLabel("The following tools are required but not found:")
+        layout.addWidget(label)
+
+        # Extract-xiso download
+        if not self.extract_xiso_found:
+            extract_layout = QHBoxLayout()
+            extract_label = QLabel("extract-xiso.exe:")
+            extract_button = QPushButton("Download")
+            extract_button.setObjectName("extract_xiso_download_button")
+            extract_button.clicked.connect(
+                lambda: QDesktopServices.openUrl(
+                    QUrl(
+                        "https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso-Win64_Release.zip"
+                    )
+                )
+            )
+            extract_layout.addWidget(extract_label)
+            extract_layout.addWidget(extract_button)
+            layout.addLayout(extract_layout)
+
+        # iso2god download
+        if not self.iso2god_found:
+            iso2god_layout = QHBoxLayout()
+            iso2god_label = QLabel("iso2god-x86_64-windows.exe:")
+            iso2god_button = QPushButton("Download")
+            iso2god_button.setObjectName("iso2god_download_button")
+            iso2god_button.clicked.connect(
+                lambda: QDesktopServices.openUrl(
+                    QUrl(
+                        "https://github.com/iliazeus/iso2god-rs/releases/latest/download/iso2god-x86_64-windows.exe"
+                    )
+                )
+            )
+            iso2god_layout.addWidget(iso2god_label)
+            iso2god_layout.addWidget(iso2god_button)
+            layout.addLayout(iso2god_layout)
+
+        instructions = QLabel(
+            "After downloading:\n"
+            "• Place files next to the application executable or your Downloads folder\n"
+            "• The app will automatically detect and move them if required\n"
+            "• extract-xiso will be extracted from the ZIP automatically"
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+
+        # Store dialog reference for auto-closing
+        self.tools_dialog = dialog
+        dialog.exec()
+
+    def _setup_tools_watchers(self):
+        """Set up file system watchers for tools detection"""
+        self.tools_watcher = QFileSystemWatcher()
+
+        # Watch the current directory
+        self.tools_watcher.addPath(os.getcwd())
+
+        # Watch Downloads directory on Windows
+        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        if os.path.exists(downloads_path):
+            self.tools_watcher.addPath(downloads_path)
+            self.tools_watcher.addPath(downloads_path)
+
+        # Connect to directory changed signal
+        self.tools_watcher.directoryChanged.connect(self._on_tools_directory_changed)
+
+    def _on_tools_directory_changed(self, path):
+        """Handle directory changes for tools detection"""
+        # Check if it's the Downloads directory
+        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        is_downloads = path == downloads_path
+
+        # Check for new files
+        try:
+            for filename in os.listdir(path):
+                file_path = os.path.join(path, filename)
+
+                # Handle extract-xiso ZIP
+                if (
+                    filename == "extract-xiso-Win64_Release.zip"
+                    and not self.extract_xiso_found
+                ):
+                    if is_downloads:
+                        # Move ZIP to current directory
+                        dest_path = os.path.join(os.getcwd(), filename)
+                        shutil.move(file_path, dest_path)
+                        self._extract_xiso_zip(dest_path)
+                    else:
+                        # Already in current directory, extract it
+                        self._extract_xiso_zip(file_path)
+
+                # Handle iso2god EXE
+                elif (
+                    filename == "iso2god-x86_64-windows.exe" and not self.iso2god_found
+                ):
+                    if is_downloads:
+                        # Move EXE to current directory
+                        dest_path = self.iso2god_path
+                        shutil.move(file_path, dest_path)
+                        self.iso2god_found = True
+                        self._update_tools_status()
+                    else:
+                        # Already in current directory
+                        self.iso2god_found = True
+                        self._update_tools_status()
+
+        except Exception as e:
+            print(f"Error handling file change: {e}")
+
+    def _extract_xiso_zip(self, zip_path):
+        """Extract extract-xiso.exe from the ZIP file"""
+        try:
+            extracted = False
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                # Look for the exe file in the ZIP, it is under the `artifacts` subdirectory, ensure we only extract that file into the current directory
+                for zip_info in zip_ref.infolist():
+                    if zip_info.filename.endswith("extract-xiso.exe"):
+                        zip_info.filename = os.path.basename(zip_info.filename)
+                        zip_ref.extract(zip_info, os.getcwd())
+                        extracted = True
+                        break
+
+            if extracted:
+                self.extract_xiso_found = True
+                self._update_tools_status()
+
+                os.remove(zip_path)
+
+        except Exception as e:
+            print(f"Error extracting extract-xiso: {e}")
 
 
 class NonSortableHeaderView(QHeaderView):
