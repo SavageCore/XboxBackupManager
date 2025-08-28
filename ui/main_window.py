@@ -2069,6 +2069,7 @@ class XboxBackupManager(QMainWindow):
     def on_icon_download_finished(self):
         """Handle completion of icon download batch"""
         self.status_bar.showMessage("Icon downloads completed")
+        QTimer.singleShot(5000, self._update_search_status)
 
     def setup_table(self):
         """Setup the games table widget"""
