@@ -61,6 +61,7 @@ from utils.system_utils import SystemUtils
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
+from workers.ftp_connection_tester import FTPConnectionTester
 from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
 from workers.zip_extract import ZipExtractorWorker
@@ -1199,7 +1200,7 @@ class XboxBackupManager(QMainWindow):
             self.scan_directory()
 
     def switch_mode(self, mode: str):
-        """Switch between FTP and USB modes"""
+        """Switch between FTP and USB modes with proper timeout handling"""
         if mode == self.current_mode:
             return
 
@@ -1219,11 +1220,25 @@ class XboxBackupManager(QMainWindow):
             # Enable FTP settings action
             self.ftp_settings_action.setEnabled(True)
 
-            # Load FTP target directory
-            ftp_target = self.ftp_target_directories[self.current_platform]
-            self.current_target_directory = ftp_target
-            self.target_directory_label.setText(f"FTP: {ftp_target}")
-            self._update_target_space_label(ftp_target)
+            # Check if FTP settings are configured
+            if not self.ftp_settings or not self.ftp_settings.get("host"):
+                QMessageBox.information(
+                    self,
+                    "FTP Settings Required",
+                    "FTP mode requires connection settings.\nPlease configure FTP settings first.",
+                )
+                self.show_ftp_settings()
+                # If user cancels settings dialog, switch back to USB mode
+                if not self.ftp_settings or not self.ftp_settings.get("host"):
+                    self.current_mode = "usb"
+                    self.usb_mode_action.setChecked(True)
+                    self.ftp_mode_action.setChecked(False)
+                    self.settings_manager.save_current_mode("usb")
+                    return
+
+            # Test FTP connection before fully switching
+            self._test_ftp_connection_for_switch()
+            return  # Exit here, _on_ftp_connection_tested will continue the switch
 
         elif mode == "usb":
             self.usb_target_directories = (
@@ -1231,31 +1246,9 @@ class XboxBackupManager(QMainWindow):
             )
             self.ftp_mode_action.setChecked(False)
             self.usb_mode_action.setChecked(True)
-            # Show target directory controls and load saved target
-            usb_target = self.usb_target_directories[self.current_platform]
 
-            if usb_target and os.path.exists(usb_target):
-                self.current_target_directory = usb_target
-                self.target_directory_label.setText(usb_target)
-                self._update_target_space_label(usb_target)
-                self.status_bar.showMessage(
-                    "Switched to USB mode - target directory loaded"
-                )
-            else:
-                # Prompt for USB target directory
-                self._prompt_for_usb_target_directory()
-
-        # Source directory remains the same regardless of mode
-        platform_dir = self.platform_directories[self.current_platform]
-        if platform_dir:
-            self.current_directory = platform_dir
-            self.directory_label.setText(self.current_directory)
-            self.scan_button.setEnabled(True)
-
-        # Update transfer button state
-        self._update_transfer_button_state()
-
-        self.scan_directory()
+            # Continue with normal USB mode setup
+            self._complete_mode_switch(mode)
 
     def switch_platform(self, platform: str):
         """Switch to a different platform"""
@@ -3612,6 +3605,89 @@ class XboxBackupManager(QMainWindow):
 
         except Exception as e:
             print(f"Error extracting extract-xiso: {e}")
+
+    def _test_ftp_connection_for_switch(self):
+        """Test FTP connection before switching modes"""
+        # Disable UI during connection test
+        self.setEnabled(False)
+        self.status_bar.showMessage("Testing FTP connection...")
+
+        # Create and start connection tester thread
+        self.ftp_tester = FTPConnectionTester(
+            self.ftp_settings["host"], self.ftp_settings.get("port", 21), timeout=5
+        )
+        self.ftp_tester.connection_result.connect(self._on_ftp_connection_tested)
+        self.ftp_tester.start()
+
+    def _on_ftp_connection_tested(self, success: bool, message: str):
+        """Handle FTP connection test result"""
+        # Re-enable UI
+        self.setEnabled(True)
+
+        if success:
+            # Connection successful, complete the switch to FTP mode
+            self.status_bar.showMessage(f"FTP connection successful")
+            self._complete_mode_switch("ftp")
+        else:
+            # Connection failed, revert to USB mode
+            self.current_mode = "usb"
+            self.usb_mode_action.setChecked(True)
+            self.ftp_mode_action.setChecked(False)
+            self.settings_manager.save_current_mode("usb")
+
+            # Show error message
+            QMessageBox.warning(
+                self,
+                "FTP Connection Failed",
+                f"Cannot connect to FTP server:\n{message}\n\n"
+                "Switching back to USB mode.\n\n"
+                "Please check your FTP settings and ensure the Xbox FTP server is running.",
+            )
+
+            self.status_bar.showMessage(
+                "FTP connection failed - switched back to USB mode"
+            )
+
+            # Complete switch to USB mode
+            self._complete_mode_switch("usb")
+
+    def _complete_mode_switch(self, mode: str):
+        """Complete the mode switch after connection test"""
+        if mode == "ftp":
+            # Load FTP target directory
+            ftp_target = self.ftp_target_directories[self.current_platform]
+            self.current_target_directory = ftp_target
+            self.target_directory_label.setText(f"FTP: {ftp_target}")
+            self._update_target_space_label(ftp_target)
+
+        elif mode == "usb":
+            # Show target directory controls and load saved target
+            usb_target = self.usb_target_directories[self.current_platform]
+
+            if usb_target and os.path.exists(usb_target):
+                self.current_target_directory = usb_target
+                self.target_directory_label.setText(usb_target)
+                self._update_target_space_label(usb_target)
+                self.status_bar.showMessage(
+                    "Switched to USB mode - target directory loaded"
+                )
+            else:
+                # Prompt for USB target directory
+                self._prompt_for_usb_target_directory()
+
+        # Source directory remains the same regardless of mode
+        platform_dir = self.platform_directories[self.current_platform]
+        if platform_dir:
+            self.current_directory = platform_dir
+            self.directory_label.setText(self.current_directory)
+            self.scan_button.setEnabled(True)
+
+        # Update transfer button state
+        self._update_transfer_button_state()
+
+        # Rescan directory if we have one
+        if self.current_directory:
+            self.scan_directory()
 
 
 class NonSortableHeaderView(QHeaderView):

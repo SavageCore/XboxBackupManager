@@ -241,26 +241,32 @@ class FTPClient(QObject):
             return False, f"Failed to remove file: {str(e)}"
 
     def directory_exists(self, path: str) -> bool:
-        """Check if a directory exists on FTP server"""
+        """Check if a directory exists on FTP server with timeout protection"""
         if not self.is_connected():
-            # Load saved connection details
-            if not self._host and not self._username and not self._password:
-                settings = SettingsManager()
-                ftp_settings = settings.load_ftp_settings()
-                self.connect(
-                    ftp_settings.get("host", ""),
-                    ftp_settings.get("username", ""),
-                    ftp_settings.get("password", ""),
-                    ftp_settings.get("port", 21),
-                    self._use_tls,
-                )
+            return False
+
         try:
-            self._ftp.cwd(path)
-            self._ftp.cwd("..")  # Go back to parent directory
+            # Set a shorter timeout for this operation
+            old_timeout = None
+            if hasattr(self._ftp, "sock") and self._ftp.sock:
+                old_timeout = self._ftp.sock.gettimeout()
+                self._ftp.sock.settimeout(3)  # 3 second timeout
+
+            current_dir = self._ftp.pwd()  # Save current directory
+            self._ftp.cwd(path)  # Try to change to target directory
+            self._ftp.cwd(current_dir)  # Go back to original directory
+
+            # Restore original timeout
+            if (
+                old_timeout is not None
+                and hasattr(self._ftp, "sock")
+                and self._ftp.sock
+            ):
+                self._ftp.sock.settimeout(old_timeout)
+
             return True
-        except ftplib.error_perm as e:
-            if "No such file or directory" in str(e):
-                return False
+
+        except (ftplib.error_perm, socket.timeout, OSError):
             return False
         except Exception:
             return False
