@@ -3598,7 +3598,7 @@ class XboxBackupManager(QMainWindow):
         """Test FTP connection before switching modes"""
         # Disable UI during connection test
         self.setEnabled(False)
-        self.status_bar.showMessage("Testing FTP connection...")
+        self.status_manager.show_message("Testing FTP connection...")
 
         # Create and start connection tester thread
         self.ftp_tester = FTPConnectionTester(
@@ -3614,7 +3614,7 @@ class XboxBackupManager(QMainWindow):
 
         if success:
             # Connection successful, complete the switch to FTP mode
-            self.status_bar.showMessage(f"FTP connection successful")
+            self.status_manager.show_message("FTP connection successful")
             self._complete_mode_switch("ftp")
         else:
             # Connection failed, revert to USB mode
@@ -3632,7 +3632,7 @@ class XboxBackupManager(QMainWindow):
                 "Please check your FTP settings and ensure the Xbox FTP server is running.",
             )
 
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 "FTP connection failed - switched back to USB mode"
             )
 
@@ -3656,7 +3656,7 @@ class XboxBackupManager(QMainWindow):
                 self.current_target_directory = usb_target
                 self.target_directory_label.setText(usb_target)
                 self._update_target_space_label(usb_target)
-                self.status_bar.showMessage(
+                self.status_manager.show_message(
                     "Switched to USB mode - target directory loaded"
                 )
             else:

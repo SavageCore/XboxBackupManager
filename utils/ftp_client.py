@@ -2,7 +2,6 @@ import ftplib
 import socket
 import ssl
 from typing import List, Tuple
-from utils.settings_manager import SettingsManager
 
 from PyQt6.QtCore import QObject
 
