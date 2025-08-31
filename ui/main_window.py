@@ -57,6 +57,7 @@ from ui.theme_manager import ThemeManager
 from utils.ftp_client import FTPClient
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
+from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
@@ -81,6 +82,9 @@ class XboxBackupManager(QMainWindow):
         self.settings_manager = SettingsManager()
         self.theme_manager = ThemeManager()
         self.database_loader = TitleDatabaseLoader()
+
+        self.status_bar = self.statusBar()
+        self.status_manager = StatusManager(self.status_bar, self)
 
         self.xbox_database_loader = XboxTitleDatabaseLoader()
         self.xbox_database_loader.database_loaded.connect(self.on_xbox_database_loaded)
@@ -162,7 +166,6 @@ class XboxBackupManager(QMainWindow):
 
         # Status bar
         self.status_bar = self.statusBar()
-        self.status_bar.showMessage("Ready - Load title database first")
 
     def create_top_section(self, main_layout):
         """Create the top section with directory controls"""
@@ -563,7 +566,7 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory and os.path.exists(self.current_directory):
             SystemUtils.open_folder_in_explorer(self.current_directory, self)
         else:
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 "No source directory set - opening browse dialog..."
             )
             self.browse_directory()
@@ -578,7 +581,7 @@ class XboxBackupManager(QMainWindow):
         ):
             SystemUtils.open_folder_in_explorer(self.current_target_directory, self)
         else:
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 "No target directory set - opening browse dialog..."
             )
             self.browse_target_directory()
@@ -655,7 +658,7 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory and os.path.exists(self.current_directory):
             SystemUtils.open_folder_in_explorer(self.current_directory, self)
         else:
-            self.status_bar.showMessage("No valid directory selected", 3000)
+            self.status_manager.show_message("No valid directory selected", 3000)
 
     def open_target_directory(self, event):
         """Open the target directory in file explorer"""
@@ -664,7 +667,7 @@ class XboxBackupManager(QMainWindow):
         ):
             SystemUtils.open_folder_in_explorer(self.current_target_directory, self)
         else:
-            self.status_bar.showMessage("No valid target directory selected", 3000)
+            self.status_manager.show_message("No valid target directory selected", 3000)
 
     def browse_target_directory(self):
         """Open target directory selection dialog"""
@@ -703,7 +706,7 @@ class XboxBackupManager(QMainWindow):
                 # Enable transfer button if we have games and target directory
                 self._update_transfer_button_state()
 
-                self.status_bar.showMessage(
+                self.status_manager.show_message(
                     f"Selected target directory: {normalized_directory}"
                 )
 
@@ -717,7 +720,7 @@ class XboxBackupManager(QMainWindow):
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
                     "Please ensure the device is properly connected and try again.",
                 )
-                self.status_bar.showMessage(
+                self.status_manager.show_message(
                     "Selected directory is not accessible", 5000
                 )
 
@@ -975,7 +978,7 @@ class XboxBackupManager(QMainWindow):
         self.transfer_worker.start()
 
         mode_text = "via FTP" if self.current_mode == "ftp" else "to USB"
-        self.status_bar.showMessage(
+        self.status_manager.show_permanent_message(
             f"Transferring {len(games_to_transfer)} games {mode_text}..."
         )
 
@@ -1045,12 +1048,10 @@ class XboxBackupManager(QMainWindow):
         # Restart watching directory
         self.start_watching_directory()
 
-        self.status_bar.showMessage("Transfer cancelled")
+        self.status_manager.show_message("Transfer cancelled")
 
         # Update transfer button state
         self._update_transfer_button_state()
-
-        self._update_search_status()
 
     def _update_transfer_progress(self, current: int, total: int, current_game: str):
         """Update transfer progress"""
@@ -1060,7 +1061,7 @@ class XboxBackupManager(QMainWindow):
             current_transfer = (
                 current + 1
             )  # Current is zero-based, so add 1 for display
-            self.status_bar.showMessage(
+            self.status_manager.show_permanent_message(
                 f"Transferring: {current_game} ({current_transfer}/{total})"
             )
 
@@ -1080,7 +1081,7 @@ class XboxBackupManager(QMainWindow):
             ) / total_games
             self.progress_bar.setValue(int(overall_progress))
 
-            self.status_bar.showMessage(
+            self.status_manager.show_permanent_message(
                 f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games})"
             )
 
@@ -1117,7 +1118,7 @@ class XboxBackupManager(QMainWindow):
 
         self.start_watching_directory()
 
-        self.status_bar.showMessage("Transfer completed successfully")
+        self.status_manager.show_message("Transfer completed successfully")
 
         # Update transfer button state
         self._update_transfer_button_state()
@@ -1137,7 +1138,7 @@ class XboxBackupManager(QMainWindow):
         QMessageBox.critical(
             self, "Transfer Error", f"Transfer failed:\n{error_message}"
         )
-        self.status_bar.showMessage("Transfer failed")
+        self.status_manager.show_message("Transfer failed")
 
     def _check_if_transferred(self, game: GameInfo) -> bool:
         """Check if a game has already been transferred to target directory"""
@@ -1191,7 +1192,9 @@ class XboxBackupManager(QMainWindow):
             self.platform_directories[self.current_platform] = normalized_directory
             self.directory_label.setText(normalized_directory)
             self.scan_button.setEnabled(True)
-            self.status_bar.showMessage(f"Selected directory: {normalized_directory}")
+            self.status_manager.show_message(
+                f"Selected directory: {normalized_directory}"
+            )
 
             # Start watching new directory
             self.start_watching_directory()
@@ -1325,7 +1328,7 @@ class XboxBackupManager(QMainWindow):
 
         # Save platform selection
         self.settings_manager.save_current_platform(platform)
-        self.status_bar.showMessage(f"Switched to {self.platform_names[platform]}")
+        self.status_manager.show_message(f"Switched to {self.platform_names[platform]}")
 
     def _select_usb_target_directory(self, platform: str):
         """Select USB target directory for specified platform"""
@@ -1351,7 +1354,7 @@ class XboxBackupManager(QMainWindow):
                 self.target_directory_label.setText(normalized_directory)
                 self._update_target_space_label(self.current_target_directory)
 
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 f"USB target directory set for {platform_name}: {normalized_directory}"
             )
         else:
@@ -1363,7 +1366,7 @@ class XboxBackupManager(QMainWindow):
         """Handle when user cancels USB target directory selection"""
         self.current_target_directory = ""
         self.target_directory_label.setText("No target directory selected")
-        self.status_bar.showMessage(
+        self.status_manager.show_message(
             "USB mode requires a target directory - use Browse Target or File menu to set one"
         )
 
@@ -1570,7 +1573,9 @@ class XboxBackupManager(QMainWindow):
                 self.current_target_directory = target_dir
                 self.target_directory_label.setText(text)
                 self._update_target_space_label(target_dir)
-                self.status_bar.showMessage(f"Target directory available: {target_dir}")
+                self.status_manager.show_message(
+                    f"Target directory available: {target_dir}"
+                )
             else:
                 # Target directory not available
                 self.current_target_directory = ""
@@ -1648,19 +1653,12 @@ class XboxBackupManager(QMainWindow):
     def load_title_database(self):
         """Load the appropriate title database based on platform"""
         if self.current_platform == "xbox":
-            self.status_bar.showMessage("Loading Xbox title database...")
             self.xbox_database_loader.load_database()
         else:
-            self.status_bar.showMessage("Loading Xbox 360 title database...")
             self.database_loader.load_database()
 
     def on_database_loaded(self, database: Dict[str, str]):
         """Handle successful database loading"""
-        count = len(database)
-        self.status_bar.showMessage(
-            f"Title database loaded - {count:,} titles available"
-        )
-
         # Enable UI elements
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
@@ -1671,7 +1669,6 @@ class XboxBackupManager(QMainWindow):
 
     def on_database_error(self, error_msg: str):
         """Handle database loading error"""
-        self.status_bar.showMessage("Failed to load title database")
         QMessageBox.critical(
             self, "Database Error", f"Failed to load title database:\n{error_msg}"
         )
@@ -1684,11 +1681,6 @@ class XboxBackupManager(QMainWindow):
 
     def on_xbox_database_loaded(self, database: Dict[str, Dict[str, str]]):
         """Handle successful Xbox database loading"""
-        count = len(database)
-        self.status_bar.showMessage(
-            f"Xbox title database loaded - {count:,} titles available"
-        )
-
         # Enable UI elements
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
@@ -1699,7 +1691,6 @@ class XboxBackupManager(QMainWindow):
 
     def on_xbox_database_error(self, error_msg: str):
         """Handle Xbox database loading error"""
-        self.status_bar.showMessage("Failed to load Xbox title database")
         QMessageBox.warning(
             self,
             "Database Error",
@@ -1738,7 +1729,7 @@ class XboxBackupManager(QMainWindow):
             # Use timer to debounce rapid file system events
             self.scan_timer.stop()
             self.scan_timer.start(self.scan_delay)
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 f"Directory changed - rescanning in {self.scan_delay//1000}s..."
             )
 
@@ -1767,6 +1758,8 @@ class XboxBackupManager(QMainWindow):
 
         # Stop any existing scan first
         self._stop_current_scan()
+
+        self._is_scanning = True
 
         # Disconnect the itemChanged signal to prevent firing during bulk operations
         try:
@@ -1807,7 +1800,7 @@ class XboxBackupManager(QMainWindow):
         self.scanner.error.connect(self.scan_error)
         self.scanner.start()
 
-        self.status_bar.showMessage("Scanning directory...")
+        self.status_manager.show_permanent_message("Scanning directory...")
 
     def update_progress(self, current: int, total: int):
         """Update progress bar"""
@@ -1833,7 +1826,7 @@ class XboxBackupManager(QMainWindow):
         self._create_table_items(row, game_info, show_dlcs)
 
         # Update status
-        self.status_bar.showMessage(f"Found {len(self.games)} games...")
+        self.status_manager.show_permanent_message(f"Found {len(self.games)} games...")
 
     def _on_checkbox_changed(self, item):
         """Handle checkbox state changes"""
@@ -1867,12 +1860,11 @@ class XboxBackupManager(QMainWindow):
 
             if selected_games > 0:
                 plural = "s" if selected_games > 1 else ""
-                self.status_bar.showMessage(
+                self.status_manager.show_permanent_message(
                     f"{selected_games} game{plural} selected ({self._format_size(selected_size)})"
                 )
             else:
                 self.status_bar.clearMessage()
-                self._update_search_status()
 
     def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
         """Create and populate table items for a game row"""
@@ -1968,6 +1960,8 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
+        self._is_scanning = False
+
         # Clean up scanner reference
         if hasattr(self, "scanner"):
             self.scanner = None
@@ -2000,9 +1994,6 @@ class XboxBackupManager(QMainWindow):
             # Default sort (Game Name column is now column 3)
             self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
 
-        # Update status and apply any active search filter
-        self._update_search_status()
-
         # Re-apply search filter if search bar is visible
         if self.search_input.isVisible() and self.search_input.text():
             self.filter_games(self.search_input.text())
@@ -2015,7 +2006,9 @@ class XboxBackupManager(QMainWindow):
             self.download_missing_icons()
 
         if game_count == 0:
-            self.status_bar.showMessage("Scan complete - no games found")
+            self.status_manager.show_permanent_message("Scan complete - no games found")
+        else:
+            self.status_manager.show_games_status()
 
     def download_missing_icons(self):
         """Download icons for games that don't have them cached"""
@@ -2026,7 +2019,7 @@ class XboxBackupManager(QMainWindow):
                 missing_title_ids.append(game.title_id)
 
         if missing_title_ids:
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 f"Downloading {len(missing_title_ids)} game icons..."
             )
 
@@ -2061,8 +2054,7 @@ class XboxBackupManager(QMainWindow):
 
     def on_icon_download_finished(self):
         """Handle completion of icon download batch"""
-        self.status_bar.showMessage("Icon downloads completed")
-        QTimer.singleShot(5000, self._update_search_status)
+        self.status_manager.show_message("Icon downloads completed")
 
     def setup_table(self):
         """Setup the games table widget"""
@@ -2373,7 +2365,7 @@ class XboxBackupManager(QMainWindow):
                     success, message = ftp_client.remove_directory(target_path)
 
                     if success:
-                        self.status_bar.showMessage(
+                        self.status_manager.show_message(
                             f"Removed {game_name} from FTP server"
                         )
 
@@ -2411,7 +2403,7 @@ class XboxBackupManager(QMainWindow):
                 try:
                     if target_path.exists():
                         shutil.rmtree(target_path, ignore_errors=True)
-                        self.status_bar.showMessage(
+                        self.status_manager.show_message(
                             f"Removed {game_name} from target directory"
                         )
 
@@ -2466,7 +2458,7 @@ class XboxBackupManager(QMainWindow):
             self, "Scan Error", f"An error occurred while scanning:\n{error_msg}"
         )
 
-        self.status_bar.showMessage("Scan failed")
+        self.status_manager.show_permanent_message("Scan failed")
 
     def closeEvent(self, event):
         """Handle application close event"""
@@ -2509,7 +2501,6 @@ class XboxBackupManager(QMainWindow):
         if not search_text:
             for row in range(self.games_table.rowCount()):
                 self.games_table.setRowHidden(row, False)
-            self._update_search_status()
             return
 
         # Filter rows based on search text
@@ -2547,7 +2538,7 @@ class XboxBackupManager(QMainWindow):
 
             plural = "s" if game_count > 1 else ""
             base_message = f"{game_count:,} game{plural} ({size_formatted:.1f} {unit})"
-            self.status_bar.showMessage(base_message + suffix)
+            self.status_manager.show_message(base_message + suffix)
 
     def _check_target_directory_availability(self, target_path: str) -> bool:
         """Check if target directory is available/mounted"""
@@ -2605,7 +2596,7 @@ class XboxBackupManager(QMainWindow):
             self._prompt_for_new_target_directory()
         else:
             # User chose to ignore - show message in status bar
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 f"Warning: Target directory not available - {target_path}", 10000
             )
 
@@ -2626,7 +2617,7 @@ class XboxBackupManager(QMainWindow):
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
             self.browse_target_directory()
         else:
-            self.status_bar.showMessage("No target directory selected", 5000)
+            self.status_manager.show_message("No target directory selected", 5000)
 
     def _update_target_space_label(self, directory_path: str):
         """Update the target space label with free space information"""
@@ -2657,14 +2648,12 @@ class XboxBackupManager(QMainWindow):
     def _check_for_updates(self):
         """Check for application updates in the background"""
         # Set checking for updates status
-        self.status_bar.showMessage("Checking for updates...")
+        self.status_manager.show_message("Checking for updates...")
 
         update_available, download_url = check_for_update()
         if update_available:
             # add update button pinned to right of status bar
             self._add_update_button(download_url)
-
-        self._update_search_status()
 
     def _add_update_button(self, download_url: str):
         """Add an update button to the status bar"""
@@ -2736,7 +2725,7 @@ class XboxBackupManager(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.ftp_settings = dialog.get_settings()
             self.settings_manager.save_ftp_settings(self.ftp_settings)
-            self.status_bar.showMessage("FTP settings saved")
+            self.status_manager.show_message("FTP settings saved")
 
     def browse_ftp_target_directory(self):
         """Browse FTP server for target directory"""
@@ -2762,7 +2751,9 @@ class XboxBackupManager(QMainWindow):
             )
             self._update_transfer_button_state()
 
-            self.status_bar.showMessage(f"FTP target directory set: {selected_path}")
+            self.status_manager.show_message(
+                f"FTP target directory set: {selected_path}"
+            )
 
     def browse_for_iso(self):
         """Browse for ISO/ZIP files to extract"""
@@ -2810,7 +2801,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        self.status_bar.showMessage(
+        self.status_manager.show_message(
             f"Extracting file 1 of {self.total_extraction_batch_files}..."
         )
 
@@ -2831,7 +2822,7 @@ class XboxBackupManager(QMainWindow):
         # Update status
         current_file = self.current_extraction_batch_index + 1
         filename = os.path.basename(self.iso_path)
-        self.status_bar.showMessage(
+        self.status_manager.show_message(
             f"Extracting file {current_file} of {self.total_extraction_batch_files}: {filename}"
         )
 
@@ -2862,7 +2853,7 @@ class XboxBackupManager(QMainWindow):
 
     def _extract_zip_then_iso(self, zip_path):
         """Extract ZIP file first, then extract the ISO"""
-        self.status_bar.showMessage("Extracting ZIP archive...")
+        self.status_manager.show_message("Extracting ZIP archive...")
 
         # Clean up any existing zip extractor
         if hasattr(self, "zip_extractor") and self.zip_extractor:
@@ -2913,7 +2904,7 @@ class XboxBackupManager(QMainWindow):
 
             self._extract_iso_directly(extracted_iso_path, extract_to_dir)
         else:
-            self.status_bar.showMessage("ZIP extracted, but no ISO file found")
+            self.status_manager.show_message("ZIP extracted, but no ISO file found")
 
             # If we're in batch mode, move to next file
             if hasattr(self, "current_extraction_batch"):
@@ -2927,7 +2918,7 @@ class XboxBackupManager(QMainWindow):
 
     def _extract_iso_directly(self, iso_path, extract_to_dir):
         """Extract ISO directly with extract-xiso.exe"""
-        self.status_bar.showMessage("Extracting ISO...")
+        self.status_manager.show_message("Extracting ISO...")
 
         # Ensure the output directory exists
         os.makedirs(extract_to_dir, exist_ok=True)
@@ -2945,12 +2936,12 @@ class XboxBackupManager(QMainWindow):
     def _on_file_extracted(self, filename: str):
         """Handle individual file extraction"""
         self.file_path = filename
-        self.status_bar.showMessage(f"Extracting: {filename}")
+        self.status_manager.show_message(f"Extracting: {filename}")
 
     def _on_zip_extraction_error(self, error_message: str):
         """Handle ZIP extraction error"""
         self.progress_bar.setVisible(False)
-        self.status_bar.showMessage("ZIP extraction failed")
+        self.status_manager.show_message("ZIP extraction failed")
 
         QMessageBox.critical(
             self,
@@ -2960,7 +2951,7 @@ class XboxBackupManager(QMainWindow):
 
     def _on_extraction_finished(self):
         """Handle extraction process finished"""
-        self.status_bar.showMessage("Extraction finished")
+        self.status_manager.show_message("Extraction finished")
 
         # Clean up temporary ISO file if it exists
         if hasattr(self, "temp_iso_path") and self.temp_iso_path:
@@ -3015,7 +3006,7 @@ class XboxBackupManager(QMainWindow):
         else:
             total_completed = 0
 
-        self.status_bar.showMessage("Batch extraction completed")
+        self.status_manager.show_message("Batch extraction completed")
 
         QMessageBox.information(
             self,
@@ -3082,7 +3073,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        self.status_bar.showMessage(
+        self.status_manager.show_message(
             f"Processing file 1 of {self.total_god_batch_files}..."
         )
 
@@ -3101,7 +3092,7 @@ class XboxBackupManager(QMainWindow):
         # Update status
         current_file = self.current_god_batch_index + 1
         filename = os.path.basename(self.god_file_path)
-        self.status_bar.showMessage(
+        self.status_manager.show_message(
             f"Processing file {current_file} of {self.total_god_batch_files}: {filename}"
         )
 
@@ -3173,7 +3164,7 @@ class XboxBackupManager(QMainWindow):
 
     def _on_god_creation_finished(self):
         """Handle GOD creation process finished"""
-        self.status_bar.showMessage("GOD creation finished")
+        self.status_manager.show_message("GOD creation finished")
 
         # Clean up temp ISOs for single file
         self._cleanup_god_temp_isos()
@@ -3201,7 +3192,7 @@ class XboxBackupManager(QMainWindow):
         if hasattr(self, "total_god_batch_files"):
             delattr(self, "total_god_batch_files")
 
-        self.status_bar.showMessage("Batch GOD creation completed")
+        self.status_manager.show_message("Batch GOD creation completed")
 
         QMessageBox.information(
             self,
@@ -3220,7 +3211,7 @@ class XboxBackupManager(QMainWindow):
         # Clean up any temp files created so far
         self._cleanup_god_temp_isos()
 
-        self.status_bar.showMessage("Batch GOD creation cancelled")
+        self.status_manager.show_message("Batch GOD creation cancelled")
 
     def _cleanup_god_temp_isos(self):
         """Clean up temporary ISO files from GOD creation"""
@@ -3273,7 +3264,7 @@ class XboxBackupManager(QMainWindow):
 
     def _extract_zip_then_create_god(self, zip_path):
         """Extract ZIP file first, then create GOD from the ISO"""
-        self.status_bar.showMessage("Extracting ZIP archive for GOD creation...")
+        self.status_manager.show_message("Extracting ZIP archive for GOD creation...")
 
         # Show progress bar
         self.progress_bar.setVisible(True)
@@ -3314,7 +3305,7 @@ class XboxBackupManager(QMainWindow):
             # Create GOD from extracted ISO
             self._create_god_directly(extracted_iso_path, self.current_directory)
         else:
-            self.status_bar.showMessage("ZIP extracted, but no ISO file found")
+            self.status_manager.show_message("ZIP extracted, but no ISO file found")
             QMessageBox.information(
                 self,
                 "No ISO Found",
@@ -3324,7 +3315,7 @@ class XboxBackupManager(QMainWindow):
     def _on_god_zip_extraction_error(self, error_message: str):
         """Handle ZIP extraction error during GOD creation"""
         self.progress_bar.setVisible(False)
-        self.status_bar.showMessage("ZIP extraction failed")
+        self.status_manager.show_message("ZIP extraction failed")
 
         QMessageBox.critical(
             self,
@@ -3334,7 +3325,7 @@ class XboxBackupManager(QMainWindow):
 
     def _create_god_directly(self, iso_path, dest_dir):
         """Create GOD file directly with iso2god-x86_64-windows.exe"""
-        self.status_bar.showMessage("Creating GOD file...")
+        self.status_manager.show_message("Creating GOD file...")
 
         # Ensure the output directory exists
         os.makedirs(dest_dir, exist_ok=True)
@@ -3354,7 +3345,7 @@ class XboxBackupManager(QMainWindow):
 
     def _on_god_creation_finished(self):
         """Handle GOD creation process finished"""
-        self.status_bar.showMessage("GOD creation finished")
+        self.status_manager.show_message("GOD creation finished")
 
         # Clean up temp ISOs for single file
         self._cleanup_god_temp_isos()
@@ -3398,7 +3389,7 @@ class XboxBackupManager(QMainWindow):
         else:
             total_completed = 0
 
-        self.status_bar.showMessage("Batch GOD creation completed")
+        self.status_manager.show_message("Batch GOD creation completed")
 
         QMessageBox.information(
             self,
@@ -3454,14 +3445,11 @@ class XboxBackupManager(QMainWindow):
                 self.tools_dialog.accept()
                 delattr(self, "tools_dialog")
             # Set a status message of tools ready for use, then 5 seconds later return to games found
-            self.status_bar.showMessage("✔️ Required tools are ready for use")
-            QTimer.singleShot(
-                5000, self._update_search_status
-            )  # Return status bar to games found
+            self.status_manager.show_message("✔️ Required tools are ready for use")
             return
 
         status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status}"
-        self.status_bar.showMessage(status_text)
+        self.status_manager.show_message(status_text)
 
     def _show_tools_download_dialog(self):
         """Show dialog with download links for missing tools"""
@@ -3610,7 +3598,7 @@ class XboxBackupManager(QMainWindow):
         """Test FTP connection before switching modes"""
         # Disable UI during connection test
         self.setEnabled(False)
-        self.status_bar.showMessage("Testing FTP connection...")
+        self.status_manager.show_message("Testing FTP connection...")
 
         # Create and start connection tester thread
         self.ftp_tester = FTPConnectionTester(
@@ -3626,7 +3614,7 @@ class XboxBackupManager(QMainWindow):
 
         if success:
             # Connection successful, complete the switch to FTP mode
-            self.status_bar.showMessage(f"FTP connection successful")
+            self.status_manager.show_message("FTP connection successful")
             self._complete_mode_switch("ftp")
         else:
             # Connection failed, revert to USB mode
@@ -3644,7 +3632,7 @@ class XboxBackupManager(QMainWindow):
                 "Please check your FTP settings and ensure the Xbox FTP server is running.",
             )
 
-            self.status_bar.showMessage(
+            self.status_manager.show_message(
                 "FTP connection failed - switched back to USB mode"
             )
 
@@ -3668,7 +3656,7 @@ class XboxBackupManager(QMainWindow):
                 self.current_target_directory = usb_target
                 self.target_directory_label.setText(usb_target)
                 self._update_target_space_label(usb_target)
-                self.status_bar.showMessage(
+                self.status_manager.show_message(
                     "Switched to USB mode - target directory loaded"
                 )
             else:
