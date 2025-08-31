@@ -16,6 +16,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List
 
+import qt_themes
 import qtawesome as qta
 import requests
 from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
@@ -129,6 +130,7 @@ class XboxBackupManager(QMainWindow):
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
 
+        self.is_dark = self.theme_manager.should_use_dark_mode()
         self.xboxunity_settings = {}
 
         # Transfer state
@@ -143,6 +145,11 @@ class XboxBackupManager(QMainWindow):
         self.normal_color = palette.COLOR_BACKGROUND_6
         self.active_color = palette.COLOR_BACKGROUND_6
         self.disabled_color = palette.COLOR_DISABLED
+        self.theme = qt_themes.get_theme(
+            "catppuccin_mocha" if self.is_dark else "catppuccin_latte"
+        )
+
+        self.change_theme("catppuccin_mocha" if self.is_dark else "catppuccin_latte")
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -172,11 +179,10 @@ class XboxBackupManager(QMainWindow):
 
     def setup_colors(self):
         """Setup color properties from theme"""
-        palette = self.theme_manager.get_palette()
-
-        self.normal_color = palette.COLOR_TEXT_1
-        self.active_color = palette.COLOR_TEXT_1
-        self.disabled_color = palette.COLOR_DISABLED
+        palette = self.theme_manager.get_qcolor_palette()
+        self.normal_color = palette["text"]
+        self.active_color = palette["subtext1"]
+        self.disabled_color = palette["overlay0"]
 
     def setup_ui(self):
         """Setup UI with themed icons"""
@@ -333,7 +339,7 @@ class XboxBackupManager(QMainWindow):
         source_layout.setSpacing(10)
 
         self.directory_label = QLabel("No directory selected - click to select")
-        self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
+        # self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         source_layout.addWidget(QLabel("Source:"))
         source_layout.addWidget(self.directory_label, 0)
@@ -344,7 +350,7 @@ class XboxBackupManager(QMainWindow):
         target_layout.setSpacing(1)
 
         self.target_directory_label = QLabel("No target directory selected")
-        self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
+        # self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
         # Set size policy to only take minimum space needed
         self.target_directory_label.setSizePolicy(
             self.target_directory_label.sizePolicy().horizontalPolicy(),
@@ -361,7 +367,7 @@ class XboxBackupManager(QMainWindow):
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
-        self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
+        # self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         target_layout.addWidget(QLabel("Target:"))
         target_layout.addWidget(self.target_directory_label, 0)  # No stretch factor
@@ -772,29 +778,29 @@ class XboxBackupManager(QMainWindow):
         self.target_directory_label.mousePressEvent = self._target_directory_clicked
 
         # Optional: Add visual styling to indicate it's clickable
-        self.directory_label.setStyleSheet(
-            """
-            QLabel {
-                font-weight: bold;
-            }
-            QLabel:hover {
-                color: palette(highlight);
-                text-decoration: underline;
-            }
-        """
-        )
+        # self.directory_label.setStyleSheet(
+        #     """
+        #     QLabel {
+        #         font-weight: bold;
+        #     }
+        #     QLabel:hover {
+        #         color: palette(highlight);
+        #         text-decoration: underline;
+        #     }
+        # """
+        # )
 
-        self.target_directory_label.setStyleSheet(
-            """
-            QLabel {
-                font-weight: bold;
-            }
-            QLabel:hover {
-                color: palette(highlight);
-                text-decoration: underline;
-            }
-        """
-        )
+        # self.target_directory_label.setStyleSheet(
+        #     """
+        #     QLabel {
+        #         font-weight: bold;
+        #     }
+        #     QLabel:hover {
+        #         color: palette(highlight);
+        #         text-decoration: underline;
+        #     }
+        # """
+        # )
 
     def open_current_directory(self, event):
         """Open the current directory in file explorer"""
@@ -1775,8 +1781,10 @@ class XboxBackupManager(QMainWindow):
 
     def apply_theme(self):
         """Apply the current theme"""
-        stylesheet = self.theme_manager.get_stylesheet()
-        self.setStyleSheet(stylesheet)
+        # stylesheet = self.theme_manager.get_stylesheet()
+        # self.setStyleSheet(stylesheet)
+        dark = self.theme_manager.should_use_dark_mode()
+        self.change_theme("catppuccin_mocha" if dark else "catppuccin_latte")
         self.update_theme_menu_state()
 
         palette = self.theme_manager.get_palette()
@@ -2528,30 +2536,30 @@ class XboxBackupManager(QMainWindow):
         header.setSortIndicatorShown(True)
         header.setSectionsClickable(True)
 
-        # Apply custom styling
-        self.games_table.setStyleSheet(
-            """
-            QTableWidget {
-                gridline-color: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-            }
-            QTableWidget::item {
-                border-bottom: 1px solid palette(mid);
-                padding: 4px;
-            }
-            QHeaderView::down-arrow, QHeaderView::up-arrow {
-                width: 12px;
-                height: 12px;
-                right: 4px;
-            }
-            QHeaderView {
-                margin: 0px;
-                padding: 0px;
-            }
-        """
-        )
+        # # Apply custom styling
+        # self.games_table.setStyleSheet(
+        #     """
+        #     QTableWidget {
+        #         gridline-color: transparent;
+        #         border: none;
+        #         margin: 0px;
+        #         padding: 0px;
+        #     }
+        #     QTableWidget::item {
+        #         border-bottom: 1px solid palette(mid);
+        #         padding: 4px;
+        #     }
+        #     QHeaderView::down-arrow, QHeaderView::up-arrow {
+        #         width: 12px;
+        #         height: 12px;
+        #         right: 4px;
+        #     }
+        #     QHeaderView {
+        #         margin: 0px;
+        #         padding: 0px;
+        #     }
+        # """
+        # )
 
         # Set default sort to Game Name (column 2 with icons)
         self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
@@ -3534,12 +3542,13 @@ class XboxBackupManager(QMainWindow):
         self.update_button = QPushButton("Update Available")
         self.update_button.setIcon(
             qta.icon(
-                "fa6s.rotate",
+                "fa6s.download",
                 color=self.normal_color,
                 color_active=self.active_color,
                 color_disabled=self.disabled_color,
             )
         )
+
         self.update_button.setToolTip("A new version is available. Click to update.")
         self.update_button.clicked.connect(
             lambda: self._on_update_button_clicked(download_url)
@@ -4680,6 +4689,8 @@ class XboxBackupManager(QMainWindow):
         if not self.current_directory:
             print("No current directory set.")
             return None
+    def change_theme(self, theme_name):
+        qt_themes.set_theme(theme_name)
 
         # Create a safe filename from directory path
         dir_hash = hashlib.md5(
@@ -4925,6 +4936,13 @@ class XboxBackupManager(QMainWindow):
                 f"Cannot connect to FTP server on startup:\n{message}\n\n"
                 "FTP operations will not be available until connection is restored.",
             )
+
+
+        # Update color properties
+        self.setup_colors()
+
+        # Update all registered icons automatically
+        self.icon_manager.update_all_icons()
 
 
 class NonSortableHeaderView(QHeaderView):
