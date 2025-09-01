@@ -141,10 +141,13 @@ class XboxBackupManager(QMainWindow):
         # Get the current palette from your theme manager
         palette = self.theme_manager.get_palette()
 
+        palette = self.theme_manager.get_palette()
+
         # Extract colors from the palette for different states
-        self.normal_color = palette.COLOR_BACKGROUND_6
-        self.active_color = palette.COLOR_BACKGROUND_6
-        self.disabled_color = palette.COLOR_DISABLED
+        self.normal_color = palette["text"]
+        self.active_color = palette["subtext1"]
+        self.disabled_color = palette["overlay0"]
+
         self.theme = qt_themes.get_theme(
             "catppuccin_mocha" if self.is_dark else "catppuccin_latte"
         )
@@ -339,7 +342,7 @@ class XboxBackupManager(QMainWindow):
         source_layout.setSpacing(10)
 
         self.directory_label = QLabel("No directory selected - click to select")
-        # self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
+        self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         source_layout.addWidget(QLabel("Source:"))
         source_layout.addWidget(self.directory_label, 0)
@@ -347,10 +350,10 @@ class XboxBackupManager(QMainWindow):
 
         # Target directory row
         target_layout = QHBoxLayout()
-        target_layout.setSpacing(1)
+        target_layout.setSpacing(10)
 
         self.target_directory_label = QLabel("No target directory selected")
-        # self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
+        self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
         # Set size policy to only take minimum space needed
         self.target_directory_label.setSizePolicy(
             self.target_directory_label.sizePolicy().horizontalPolicy(),
@@ -367,7 +370,14 @@ class XboxBackupManager(QMainWindow):
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
-        # self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
+        self.platform_label.setStyleSheet(
+            """
+            QLabel {
+                font-weight: bold;
+                color: palette(text);
+            }
+            """
+        )
 
         target_layout.addWidget(QLabel("Target:"))
         target_layout.addWidget(self.target_directory_label, 0)  # No stretch factor
@@ -433,7 +443,15 @@ class XboxBackupManager(QMainWindow):
         # menubar = QMenuBar()
         menubar = self.menuBar()
 
-        # menubar.setNativeMenuBar(True)
+        # Apply comprehensive menu bar styling
+        menubar.setStyleSheet(
+            """
+            QMenuBar {
+                background-color: #313244; #surface0
+                padding: 2px;
+            }
+        """
+        )
 
         # File menu
         self.create_file_menu(menubar)
@@ -778,29 +796,27 @@ class XboxBackupManager(QMainWindow):
         self.target_directory_label.mousePressEvent = self._target_directory_clicked
 
         # Optional: Add visual styling to indicate it's clickable
-        # self.directory_label.setStyleSheet(
-        #     """
-        #     QLabel {
-        #         font-weight: bold;
-        #     }
-        #     QLabel:hover {
-        #         color: palette(highlight);
-        #         text-decoration: underline;
-        #     }
-        # """
-        # )
+        self.directory_label.setStyleSheet(
+            """
+            QLabel {
+                font-weight: bold;
+            }
+            QLabel:hover {
+                color: palette(highlight);
+            }
+        """
+        )
 
-        # self.target_directory_label.setStyleSheet(
-        #     """
-        #     QLabel {
-        #         font-weight: bold;
-        #     }
-        #     QLabel:hover {
-        #         color: palette(highlight);
-        #         text-decoration: underline;
-        #     }
-        # """
-        # )
+        self.target_directory_label.setStyleSheet(
+            """
+            QLabel {
+                font-weight: bold;
+            }
+            QLabel:hover {
+                color: palette(highlight);
+            }
+        """
+        )
 
     def open_current_directory(self, event):
         """Open the current directory in file explorer"""
@@ -1784,8 +1800,6 @@ class XboxBackupManager(QMainWindow):
 
     def apply_theme(self):
         """Apply the current theme"""
-        # stylesheet = self.theme_manager.get_stylesheet()
-        # self.setStyleSheet(stylesheet)
         dark = self.theme_manager.should_use_dark_mode()
         self.change_theme("catppuccin_mocha" if dark else "catppuccin_latte")
         self.update_theme_menu_state()
@@ -1793,14 +1807,9 @@ class XboxBackupManager(QMainWindow):
         palette = self.theme_manager.get_palette()
 
         # Update colours
-        if self.theme_manager.should_use_dark_mode():
-            self.normal_color = palette.COLOR_TEXT_1
-            self.active_color = palette.COLOR_TEXT_1
-            self.disabled_color = palette.COLOR_DISABLED
-        else:
-            self.normal_color = palette.COLOR_BACKGROUND_6
-            self.active_color = palette.COLOR_BACKGROUND_6
-            self.disabled_color = palette.COLOR_DISABLED
+        self.normal_color = palette["text"]
+        self.active_color = palette["subtext1"]
+        self.disabled_color = palette["overlay0"]
 
         self.icon_manager.update_all_icons()
 
@@ -4927,6 +4936,62 @@ class XboxBackupManager(QMainWindow):
 
         # Update all registered icons automatically
         self.icon_manager.update_all_icons()
+
+        menubar = self.menuBar()
+
+        if theme_name == "catppuccin_mocha":
+            menubar.setStyleSheet(
+                """
+            QMenuBar {
+                background-color: #11111b;
+                padding: 2px;
+            }
+        """
+            )
+        else:
+            menubar.setStyleSheet(
+                """
+            QMenuBar {
+                background-color: #eff1f5;
+                padding: 2px;
+            }
+        """
+            )
+
+        if hasattr(self, "directory_label") and self.directory_label:
+            self.directory_label.setStyleSheet(
+                """
+                QLabel {
+                    font-weight: bold;
+                }
+            QLabel:hover {
+                color: palette(highlight);
+            }
+        """
+            )
+
+        if hasattr(self, "target_directory_label") and self.target_directory_label:
+            self.target_directory_label.setStyleSheet(
+                """
+                QLabel {
+                    font-weight: bold;
+                }
+            QLabel:hover {
+                color: palette(highlight);
+            }
+        """
+            )
+
+        # platform_label
+        if hasattr(self, "platform_label") and self.platform_label:
+            self.platform_label.setStyleSheet(
+                """
+                QLabel {
+                    font-weight: bold;
+                    color: palette(text);
+                }
+        """
+            )
 
 
 class NonSortableHeaderView(QHeaderView):
