@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import qtawesome as qta
-from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, Qt, QTimer, QUrl
+from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
@@ -153,11 +153,6 @@ class XboxBackupManager(QMainWindow):
 
     def setup_ui(self):
         """Setup UI with themed icons"""
-        self.icon_manager.register_widget_icon(
-            self.scan_button, "fa6s.magnifying-glass"
-        )
-        self.icon_manager.register_widget_icon(self.transfer_button, "fa6s.download")
-        self.icon_manager.register_widget_icon(self.remove_button, "fa6s.trash")
         self.icon_manager.register_widget_icon(self.browse_action, "fa6s.folder-open")
         self.icon_manager.register_widget_icon(
             self.browse_target_action, "fa6s.bullseye"
@@ -189,6 +184,17 @@ class XboxBackupManager(QMainWindow):
             self.licenses_action, "fa6s.file-contract"
         )
 
+        # Register toolbar icons
+        if hasattr(self, "toolbar_actions"):
+            for action in self.toolbar_actions:
+                icon_name = {
+                    "Scan": "fa6s.magnifying-glass",
+                    "Transfer": "fa6s.download",
+                    "Remove": "fa6s.trash",
+                }.get(action.text(), "fa6s.circle")
+
+                self.icon_manager.register_widget_icon(action, icon_name)
+
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle(
@@ -198,6 +204,9 @@ class XboxBackupManager(QMainWindow):
 
         # Create menu bar
         self.create_menu_bar()
+
+        # Create toolbar
+        self.create_toolbar()
 
         # Central widget and main layout
         central_widget = QWidget()
@@ -218,6 +227,54 @@ class XboxBackupManager(QMainWindow):
         # Status bar
         self.status_bar = self.statusBar()
 
+    def create_toolbar(self):
+        """Create the application toolbar"""
+        toolbar = self.addToolBar("Main")
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        toolbar.setObjectName("MainToolbar")
+
+        # Set toolbar icon size
+        toolbar.setIconSize(QSize(24, 24))
+
+        # Scan Directory
+        self.toolbar_scan_action = QAction("Scan", self)
+        self.toolbar_scan_action.setIcon(
+            qta.icon("fa6s.magnifying-glass", color=self.normal_color)
+        )
+        self.toolbar_scan_action.setToolTip("Scan current directory for games")
+        self.toolbar_scan_action.triggered.connect(self.scan_directory)
+        self.toolbar_scan_action.setEnabled(False)
+        toolbar.addAction(self.toolbar_scan_action)
+
+        # Transfer Selected
+        self.toolbar_transfer_action = QAction("Transfer", self)
+        self.toolbar_transfer_action.setIcon(
+            qta.icon("fa6s.download", color=self.normal_color)
+        )
+        self.toolbar_transfer_action.setToolTip("Transfer selected games to target")
+        self.toolbar_transfer_action.triggered.connect(self.transfer_selected_games)
+        self.toolbar_transfer_action.setEnabled(False)
+        toolbar.addAction(self.toolbar_transfer_action)
+
+        # Remove Selected
+        self.toolbar_remove_action = QAction("Remove", self)
+        self.toolbar_remove_action.setIcon(
+            qta.icon("fa6s.trash", color=self.normal_color)
+        )
+        self.toolbar_remove_action.setToolTip("Remove selected games from target")
+        self.toolbar_remove_action.triggered.connect(self.remove_selected_games)
+        self.toolbar_remove_action.setEnabled(False)
+        toolbar.addAction(self.toolbar_remove_action)
+
+        # Store references for icon updates
+        self.toolbar_actions = [
+            self.toolbar_scan_action,
+            self.toolbar_transfer_action,
+            self.toolbar_remove_action,
+        ]
+
     def create_top_section(self, main_layout):
         """Create the top section with directory controls"""
         top_layout = QVBoxLayout()
@@ -231,25 +288,9 @@ class XboxBackupManager(QMainWindow):
         self.directory_label = QLabel("No directory selected - click to select")
         self.directory_label.setStyleSheet("QLabel { font-weight: bold; }")
 
-        self.scan_button = QPushButton("Scan Directory")
-        self.scan_button.setObjectName("scan_button")
-        self.scan_button.clicked.connect(self.scan_directory)
-        self.scan_button.setEnabled(False)
-        self.scan_button.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.scan_button.setIcon(
-            qta.icon(
-                "fa6s.magnifying-glass",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
-
         source_layout.addWidget(QLabel("Source:"))
         source_layout.addWidget(self.directory_label, 0)
         source_layout.addStretch(1)  # Add stretch to push buttons right
-        source_layout.addWidget(self.scan_button)
 
         # Target directory row
         target_layout = QHBoxLayout()
@@ -271,34 +312,6 @@ class XboxBackupManager(QMainWindow):
             self.target_space_label.sizePolicy().verticalPolicy(),
         )
 
-        self.transfer_button = QPushButton("Transfer Selected")
-        self.transfer_button.setObjectName("transfer_button")
-        self.transfer_button.clicked.connect(self.transfer_selected_games)
-        self.transfer_button.setEnabled(False)
-        self.transfer_button.setIcon(
-            qta.icon(
-                "fa6s.download",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
-        self.transfer_button.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.remove_button = QPushButton("Remove Selected")
-        self.remove_button.setObjectName("remove_button")
-        self.remove_button.clicked.connect(self.remove_selected_games)
-        self.remove_button.setEnabled(False)
-        self.remove_button.setIcon(
-            qta.icon(
-                "fa6s.trash",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
-        self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
-
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
         self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -308,8 +321,6 @@ class XboxBackupManager(QMainWindow):
         target_layout.addWidget(self.target_space_label, 0)  # No stretch factor
         target_layout.addStretch(1)  # Add stretch to push buttons right
         target_layout.addWidget(self.platform_label, 0)  # Platform next to buttons
-        target_layout.addWidget(self.transfer_button)
-        target_layout.addWidget(self.remove_button)
 
         # Search bar (initially hidden)
         self.search_layout = QHBoxLayout()
@@ -366,7 +377,10 @@ class XboxBackupManager(QMainWindow):
 
     def create_menu_bar(self):
         """Create the application menu bar"""
+        # menubar = QMenuBar()
         menubar = self.menuBar()
+
+        # menubar.setNativeMenuBar(True)
 
         # File menu
         self.create_file_menu(menubar)
@@ -794,7 +808,8 @@ class XboxBackupManager(QMainWindow):
         is_enabled = has_games and has_target and has_selected
 
         # Enable if we have games, target directory, and at least one game is selected
-        self.transfer_button.setEnabled(is_enabled)
+        self.toolbar_transfer_action.setEnabled(is_enabled)
+        self.toolbar_remove_action.setEnabled(is_enabled)
 
     def _update_remove_button_state(self):
         """Update remove button enabled state based on conditions"""
@@ -808,7 +823,8 @@ class XboxBackupManager(QMainWindow):
         is_enabled = has_games and has_target and has_selected
 
         # Enable if we have games, target directory, and at least one game is selected
-        self.remove_button.setEnabled(is_enabled)
+        self.toolbar_transfer_action.setEnabled(is_enabled)
+        self.toolbar_remove_action.setEnabled(is_enabled)
 
     def _get_selected_games_count(self):
         """Get count of selected games (checked in checkbox column)"""
@@ -990,8 +1006,8 @@ class XboxBackupManager(QMainWindow):
         self.stop_watching_directory()
 
         # Disable UI elements during transfer
-        self.transfer_button.setEnabled(False)
-        self.scan_button.setEnabled(False)
+        self.toolbar_transfer_action.setEnabled(False)
+        self.toolbar_remove_action.setEnabled(False)
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
@@ -1088,8 +1104,8 @@ class XboxBackupManager(QMainWindow):
     def _on_transfer_cancelled(self):
         """Handle transfer cancellation"""
         self.progress_bar.setVisible(False)
-        self.transfer_button.setEnabled(True)
-        self.scan_button.setEnabled(True)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1160,8 +1176,8 @@ class XboxBackupManager(QMainWindow):
     def _on_transfer_complete(self):
         """Handle transfer completion"""
         self.progress_bar.setVisible(False)
-        self.transfer_button.setEnabled(True)
-        self.scan_button.setEnabled(True)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1177,8 +1193,8 @@ class XboxBackupManager(QMainWindow):
     def _on_transfer_error(self, error_message: str):
         """Handle transfer error"""
         self.progress_bar.setVisible(False)
-        self.transfer_button.setEnabled(True)
-        self.scan_button.setEnabled(True)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1242,7 +1258,7 @@ class XboxBackupManager(QMainWindow):
             self.current_directory = normalized_directory
             self.platform_directories[self.current_platform] = normalized_directory
             self.directory_label.setText(normalized_directory)
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
             self.status_manager.show_message(
                 f"Selected directory: {normalized_directory}"
             )
@@ -1343,13 +1359,11 @@ class XboxBackupManager(QMainWindow):
         if self.platform_directories[platform]:
             self.current_directory = self.platform_directories[platform]
             self.directory_label.setText(self.current_directory)
-            self.scan_button.setEnabled(True)
             self.start_watching_directory()
             self.scan_directory()
         else:
             self.current_directory = ""
             self.directory_label.setText("No directory selected - click to select")
-            self.scan_button.setEnabled(False)
             self.games.clear()
             self.games_table.setRowCount(0)
 
@@ -1690,7 +1704,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
         if self.current_directory:
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
             self.start_watching_directory()
             self.scan_directory()
 
@@ -1704,7 +1718,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
         if self.current_directory:
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
 
     def on_xbox_database_loaded(self, database: Dict[str, Dict[str, str]]):
         """Handle successful Xbox database loading"""
@@ -1712,7 +1726,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
         if self.current_directory:
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
             self.start_watching_directory()
             self.scan_directory()
 
@@ -1728,7 +1742,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
         if self.current_directory:
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
 
     def start_watching_directory(self):
         """Start watching the current directory for changes"""
@@ -1774,7 +1788,7 @@ class XboxBackupManager(QMainWindow):
 
             # Reset UI state
             self.progress_bar.setVisible(False)
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
             self.browse_action.setEnabled(True)
             self.browse_target_action.setEnabled(True)
 
@@ -1808,7 +1822,7 @@ class XboxBackupManager(QMainWindow):
         # Setup progress bar
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.scan_button.setEnabled(False)
+        self.toolbar_scan_action.setEnabled(False)
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
@@ -1983,7 +1997,7 @@ class XboxBackupManager(QMainWindow):
     def scan_finished(self):
         """Handle scan completion"""
         self.progress_bar.setVisible(False)
-        self.scan_button.setEnabled(True)
+        self.toolbar_scan_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -2473,7 +2487,7 @@ class XboxBackupManager(QMainWindow):
     def scan_error(self, error_msg: str):
         """Handle scan error"""
         self.progress_bar.setVisible(False)
-        self.scan_button.setEnabled(True)
+        self.toolbar_scan_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -3695,7 +3709,7 @@ class XboxBackupManager(QMainWindow):
         if platform_dir:
             self.current_directory = platform_dir
             self.directory_label.setText(self.current_directory)
-            self.scan_button.setEnabled(True)
+            self.toolbar_scan_action.setEnabled(True)
 
         # Update transfer button state
         self._update_transfer_button_state()
