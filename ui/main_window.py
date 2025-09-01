@@ -2525,8 +2525,14 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setContentsMargins(0, 0, 0, 0)
         self.games_table.verticalHeader().setDefaultSectionSize(72)
 
-        # Disable row selection
+        # Disable all selection to prevent column highlighting
         self.games_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.games_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectItems
+        )
+
+        # Disable focus to prevent highlighting on click
+        self.games_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Configure horizontal header
         header = self.games_table.horizontalHeader()
@@ -2538,31 +2544,6 @@ class XboxBackupManager(QMainWindow):
         # Enable sorting and indicators
         header.setSortIndicatorShown(True)
         header.setSectionsClickable(True)
-
-        # # Apply custom styling
-        # self.games_table.setStyleSheet(
-        #     """
-        #     QTableWidget {
-        #         gridline-color: transparent;
-        #         border: none;
-        #         margin: 0px;
-        #         padding: 0px;
-        #     }
-        #     QTableWidget::item {
-        #         border-bottom: 1px solid palette(mid);
-        #         padding: 4px;
-        #     }
-        #     QHeaderView::down-arrow, QHeaderView::up-arrow {
-        #         width: 12px;
-        #         height: 12px;
-        #         right: 4px;
-        #     }
-        #     QHeaderView {
-        #         margin: 0px;
-        #         padding: 0px;
-        #     }
-        # """
-        # )
 
         # Set default sort to Game Name (column 2 with icons)
         self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
