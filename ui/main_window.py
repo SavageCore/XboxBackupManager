@@ -1813,6 +1813,8 @@ class XboxBackupManager(QMainWindow):
 
         self.icon_manager.update_all_icons()
 
+        self.fix_checkbox_stylesheet()
+
     def update_theme_menu_state(self):
         """Update theme menu state based on current override"""
         if self.theme_manager.dark_mode_override is None:
@@ -2235,6 +2237,10 @@ class XboxBackupManager(QMainWindow):
         checkbox_item.setTextAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
+        checkbox_item.setData(
+            Qt.ItemDataRole.TextAlignmentRole,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+        )
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2553,6 +2559,8 @@ class XboxBackupManager(QMainWindow):
         # Enable sorting and indicators
         header.setSortIndicatorShown(True)
         header.setSectionsClickable(True)
+
+        self.fix_checkbox_stylesheet()
 
         # Set default sort to Game Name (column 2 with icons)
         self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
@@ -4677,13 +4685,76 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory:
             self.scan_directory()
 
+    def change_theme(self, theme_name):
+        qt_themes.set_theme(theme_name)
+
+        # Update color properties
+        self.setup_colors()
+
+        # Update all registered icons automatically
+        self.icon_manager.update_all_icons()
+
+        menubar = self.menuBar()
+
+        if theme_name == "catppuccin_mocha":
+            menubar.setStyleSheet(
+                """
+            QMenuBar {
+                background-color: #11111b;
+                padding: 2px;
+            }
+        """
+            )
+        else:
+            menubar.setStyleSheet(
+                """
+            QMenuBar {
+                background-color: #eff1f5;
+                padding: 2px;
+            }
+        """
+            )
+
+        if hasattr(self, "directory_label") and self.directory_label:
+            self.directory_label.setStyleSheet(
+                """
+                QLabel {
+                    font-weight: bold;
+                }
+            QLabel:hover {
+                color: palette(highlight);
+            }
+        """
+            )
+
+        if hasattr(self, "target_directory_label") and self.target_directory_label:
+            self.target_directory_label.setStyleSheet(
+                """
+                QLabel {
+                    font-weight: bold;
+                }
+            QLabel:hover {
+                color: palette(highlight);
+            }
+        """
+            )
+
+        # platform_label
+        if hasattr(self, "platform_label") and self.platform_label:
+            self.platform_label.setStyleSheet(
+                """
+                QLabel {
+                    font-weight: bold;
+                    color: palette(text);
+                }
+        """
+            )
+
     def _get_cache_file_path(self) -> Path:
         """Get the cache file path for current platform and directory"""
         if not self.current_directory:
             print("No current directory set.")
             return None
-    def change_theme(self, theme_name):
-        qt_themes.set_theme(theme_name)
 
         # Create a safe filename from directory path
         dir_hash = hashlib.md5(
@@ -4930,68 +5001,62 @@ class XboxBackupManager(QMainWindow):
                 "FTP operations will not be available until connection is restored.",
             )
 
-
         # Update color properties
         self.setup_colors()
 
-        # Update all registered icons automatically
-        self.icon_manager.update_all_icons()
+    def fix_checkbox_stylesheet(self):
+        self.games_table.setStyleSheet(
+            """
+            QTableWidget::item {
+                padding: 4px;
+            }
 
-        menubar = self.menuBar()
+            QTableWidget::item:selected {
+                background-color: transparent;
+                color: palette(text);
+            }
+            QTableWidget::item:focus {
+                background-color: transparent;
+                border: none;
+                outline: 0;
+            }
 
-        if theme_name == "catppuccin_mocha":
-            menubar.setStyleSheet(
-                """
-            QMenuBar {
-                background-color: #11111b;
-                padding: 2px;
+            /* Force checkbox alignment */
+            QTableWidget::item:first-child {
+                text-align: center;
+                padding: 0px;
+            }
+
+            QHeaderView {
+                margin: 0px;
+                padding: 0px;
+                background-color: palette(button);
+            }
+
+            QHeaderView::section {
+                background-color: palette(button);
+                color: palette(button-text);
+                border: 1px solid palette(mid);
+                border-left: none;
+                border-top: none;
+                padding: 4px;
+            }
+
+            QHeaderView::section:hover {
+                background-color: palette(highlight);
+            }
+
+            QHeaderView::section:pressed {
+                background-color: palette(dark);
+            }
+
+            QHeaderView::down-arrow, QHeaderView::up-arrow {
+                width: 12px;
+                height: 12px;
+                right: 4px;
             }
         """
-            )
-        else:
-            menubar.setStyleSheet(
-                """
-            QMenuBar {
-                background-color: #eff1f5;
-                padding: 2px;
-            }
-        """
-            )
-
-        if hasattr(self, "directory_label") and self.directory_label:
-            self.directory_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                }
-            QLabel:hover {
-                color: palette(highlight);
-            }
-        """
-            )
-
-        if hasattr(self, "target_directory_label") and self.target_directory_label:
-            self.target_directory_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                }
-            QLabel:hover {
-                color: palette(highlight);
-            }
-        """
-            )
-
-        # platform_label
-        if hasattr(self, "platform_label") and self.platform_label:
-            self.platform_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                    color: palette(text);
-                }
-        """
-            )
+        )
 
 
 class NonSortableHeaderView(QHeaderView):
@@ -5023,11 +5088,21 @@ class NonSortableHeaderView(QHeaderView):
             return
 
         painter.save()
+
+        # Fill the header background first
+        painter.fillRect(rect, self.palette().button())
+
+        # Draw border if needed
+        painter.setPen(self.palette().mid().color())
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
         opt = QStyleOptionButton()
         indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
         indicator_height = self.style().pixelMetric(
             QStyle.PixelMetric.PM_IndicatorHeight
         )
+
+        # Center the checkbox in the header
         x = rect.x() + (rect.width() - indicator_width) // 2
         y = rect.y() + (rect.height() - indicator_height) // 2
         opt.rect = QRect(x, y, indicator_width, indicator_height)
@@ -5038,7 +5113,6 @@ class NonSortableHeaderView(QHeaderView):
             opt.state |= QStyle.StateFlag.State_On
         elif check_state == Qt.CheckState.PartiallyChecked:
             opt.state |= QStyle.StateFlag.State_NoChange
-        # else State_Off by default
 
         self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
         painter.restore()
