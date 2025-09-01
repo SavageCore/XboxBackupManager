@@ -3854,7 +3854,6 @@ class XboxBackupManager(QMainWindow):
 
             # Update status
             game_count = len(self.games)
-            self.status_manager.show_message(f"Loaded {game_count} games from cache")
 
             # Download missing icons
             if game_count > 0:
