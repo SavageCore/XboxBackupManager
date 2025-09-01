@@ -254,7 +254,9 @@ class XboxBackupManager(QMainWindow):
             qta.icon("fa6s.magnifying-glass", color=self.normal_color)
         )
         self.toolbar_scan_action.setToolTip("Scan current directory for games")
-        self.toolbar_scan_action.triggered.connect(self.scan_directory)
+        self.toolbar_scan_action.triggered.connect(
+            lambda: self.scan_directory(force=True)
+        )
         self.toolbar_scan_action.setEnabled(False)
         toolbar.addAction(self.toolbar_scan_action)
 
@@ -1280,7 +1282,7 @@ class XboxBackupManager(QMainWindow):
             self.start_watching_directory()
 
             # Start scanning the directory
-            self.scan_directory()
+            self.scan_directory(force=True)
 
     def switch_mode(self, mode: str):
         """Switch between FTP and USB modes with proper timeout handling"""
@@ -1807,7 +1809,7 @@ class XboxBackupManager(QMainWindow):
             self.browse_action.setEnabled(True)
             self.browse_target_action.setEnabled(True)
 
-    def scan_directory(self):
+    def scan_directory(self, force: bool = False):
         """Start scanning the selected directory"""
         if not self.current_directory:
             return
@@ -1825,7 +1827,7 @@ class XboxBackupManager(QMainWindow):
             pass
 
         # Try to load from cache first
-        if self._load_scan_cache():
+        if self._load_scan_cache() and not force:
             self._is_scanning = False
             self.status_manager.show_games_status()
 
@@ -3240,7 +3242,7 @@ class XboxBackupManager(QMainWindow):
 
         # Rescan directory to show new GOD files
         if self.current_directory:
-            self.scan_directory()
+            self.scan_directory(force=True)
 
     def _on_batch_god_creation_finished(self):
         """Handle individual GOD creation completion in batch"""
@@ -3271,7 +3273,7 @@ class XboxBackupManager(QMainWindow):
 
         # Rescan directory to show new GOD files
         if self.current_directory:
-            self.scan_directory()
+            self.scan_directory(force=True)
 
     def _cancel_batch_god_creation(self):
         """Cancel the batch GOD creation process"""
@@ -3421,7 +3423,7 @@ class XboxBackupManager(QMainWindow):
 
         # Rescan directory to show new GOD files
         if self.current_directory:
-            self.scan_directory()
+            self.scan_directory(force=True)
 
     def _on_batch_god_creation_finished(self):
         """Handle individual GOD creation completion in batch"""
@@ -3468,7 +3470,7 @@ class XboxBackupManager(QMainWindow):
 
         # Rescan directory to show new GOD files
         if self.current_directory:
-            self.scan_directory()
+            self.scan_directory(force=True)
 
     def _check_required_tools(self):
         """Check for required executables and set up watchers"""
