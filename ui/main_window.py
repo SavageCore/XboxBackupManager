@@ -53,6 +53,7 @@ from database.xbox_title_database import XboxTitleDatabaseLoader
 from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
+from ui.icon_manager import IconManager
 from ui.theme_manager import ThemeManager
 from utils.ftp_client import FTPClient
 from utils.github import check_for_update, update
@@ -82,6 +83,7 @@ class XboxBackupManager(QMainWindow):
         self.settings_manager = SettingsManager()
         self.theme_manager = ThemeManager()
         self.database_loader = TitleDatabaseLoader()
+        self.icon_manager = IconManager(self.theme_manager)
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
@@ -111,9 +113,9 @@ class XboxBackupManager(QMainWindow):
         palette = self.theme_manager.get_palette()
 
         # Extract colors from the palette for different states
-        self.normal_color = palette.COLOR_TEXT_1  # Primary text color
-        self.active_color = palette.COLOR_TEXT_1  # Accent color for hover/active
-        self.disabled_color = palette.COLOR_TEXT_4  # Disabled/muted text color
+        self.normal_color = palette.COLOR_BACKGROUND_6
+        self.active_color = palette.COLOR_BACKGROUND_6
+        self.disabled_color = palette.COLOR_DISABLED
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -134,9 +136,58 @@ class XboxBackupManager(QMainWindow):
         self.load_settings()
         self.load_title_database()
 
+        self.setup_colors()
+        self.setup_ui()
+
         self._check_for_updates()
 
         QTimer.singleShot(100, self._check_required_tools)
+
+    def setup_colors(self):
+        """Setup color properties from theme"""
+        palette = self.theme_manager.get_palette()
+
+        self.normal_color = palette.COLOR_TEXT_1
+        self.active_color = palette.COLOR_TEXT_1
+        self.disabled_color = palette.COLOR_DISABLED
+
+    def setup_ui(self):
+        """Setup UI with themed icons"""
+        self.icon_manager.register_widget_icon(
+            self.scan_button, "fa6s.magnifying-glass"
+        )
+        self.icon_manager.register_widget_icon(self.transfer_button, "fa6s.download")
+        self.icon_manager.register_widget_icon(self.remove_button, "fa6s.trash")
+        self.icon_manager.register_widget_icon(self.browse_action, "fa6s.folder-open")
+        self.icon_manager.register_widget_icon(
+            self.browse_target_action, "fa6s.bullseye"
+        )
+        self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
+        self.icon_manager.register_widget_icon(self.exit_action, "fa6s.xmark")
+        self.icon_manager.register_widget_icon(
+            self.ftp_mode_action, "fa6s.network-wired"
+        )
+        self.icon_manager.register_widget_icon(self.usb_mode_action, "fa6s.hard-drive")
+        self.icon_manager.register_widget_icon(
+            self.ftp_mode_action, "fa6s.network-wired"
+        )
+        self.icon_manager.register_widget_icon(
+            self.extract_iso_action, "fa6s.file-zipper"
+        )
+        self.icon_manager.register_widget_icon(
+            self.create_god_action, "fa6s.compact-disc"
+        )
+        self.icon_manager.register_widget_icon(self.theme_menu, "fa6s.palette")
+        self.icon_manager.register_widget_icon(
+            self.auto_theme_action, "fa6s.circle-half-stroke"
+        )
+        self.icon_manager.register_widget_icon(self.light_theme_action, "fa6s.sun")
+        self.icon_manager.register_widget_icon(self.dark_theme_action, "fa6s.moon")
+        self.icon_manager.register_widget_icon(self.about_action, "fa6s.circle-info")
+        self.icon_manager.register_widget_icon(self.check_updates_action, "fa6s.rotate")
+        self.icon_manager.register_widget_icon(
+            self.licenses_action, "fa6s.file-contract"
+        )
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -365,11 +416,11 @@ class XboxBackupManager(QMainWindow):
 
         file_menu.addSeparator()
 
-        exit_action = QAction("E&xit", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.setIcon(qta.icon("fa6s.xmark", color=self.normal_color))
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self.exit_action = QAction("E&xit", self)
+        self.exit_action.setShortcut("Ctrl+Q")
+        self.exit_action.setIcon(qta.icon("fa6s.xmark", color=self.normal_color))
+        self.exit_action.triggered.connect(self.close)
+        file_menu.addAction(self.exit_action)
 
     # Menu to select between FTP or USB mode
     def create_mode_menu(self, menubar):
@@ -418,20 +469,20 @@ class XboxBackupManager(QMainWindow):
         tools_menu = menubar.addMenu("&Tools")
 
         # Extract ISO action
-        extract_iso_action = QAction("&Extract ISO...", self)
-        extract_iso_action.setIcon(
+        self.extract_iso_action = QAction("&Extract ISO...", self)
+        self.extract_iso_action.setIcon(
             qta.icon("fa6s.file-zipper", color=self.normal_color)
         )
-        extract_iso_action.triggered.connect(self.browse_for_iso)
-        tools_menu.addAction(extract_iso_action)
+        self.extract_iso_action.triggered.connect(self.browse_for_iso)
+        tools_menu.addAction(self.extract_iso_action)
 
         # Create GOD action
-        create_god_action = QAction("&Create GOD...", self)
-        create_god_action.setIcon(
+        self.create_god_action = QAction("&Create GOD...", self)
+        self.create_god_action.setIcon(
             qta.icon("fa6s.compact-disc", color=self.normal_color)
         )
-        create_god_action.triggered.connect(self.browse_for_god_creation)
-        tools_menu.addAction(create_god_action)
+        self.create_god_action.triggered.connect(self.browse_for_god_creation)
+        tools_menu.addAction(self.create_god_action)
 
     def create_platform_menu(self, menubar):
         """Create the Platform menu"""
@@ -462,8 +513,8 @@ class XboxBackupManager(QMainWindow):
         view_menu = menubar.addMenu("&View")
         view_menu.setTitle("View")
 
-        theme_menu = view_menu.addMenu("&Theme")
-        theme_menu.setIcon(
+        self.theme_menu = view_menu.addMenu("&Theme")
+        self.theme_menu.setIcon(
             qta.icon(
                 "fa6s.palette",
                 color=self.normal_color,
@@ -486,7 +537,7 @@ class XboxBackupManager(QMainWindow):
         )
         self.auto_theme_action.triggered.connect(lambda: self.set_theme_override(None))
         self.theme_action_group.addAction(self.auto_theme_action)
-        theme_menu.addAction(self.auto_theme_action)
+        self.theme_menu.addAction(self.auto_theme_action)
 
         self.light_theme_action = QAction("&Light", self)
         self.light_theme_action.setCheckable(True)
@@ -502,7 +553,7 @@ class XboxBackupManager(QMainWindow):
             lambda: self.set_theme_override(False)
         )
         self.theme_action_group.addAction(self.light_theme_action)
-        theme_menu.addAction(self.light_theme_action)
+        self.theme_menu.addAction(self.light_theme_action)
 
         self.dark_theme_action = QAction("&Dark", self)
         self.dark_theme_action.setCheckable(True)
@@ -516,14 +567,14 @@ class XboxBackupManager(QMainWindow):
         )
         self.dark_theme_action.triggered.connect(lambda: self.set_theme_override(True))
         self.theme_action_group.addAction(self.dark_theme_action)
-        theme_menu.addAction(self.dark_theme_action)
+        self.theme_menu.addAction(self.dark_theme_action)
 
     def create_help_menu(self, menubar):
         """Create the Help menu"""
         help_menu = menubar.addMenu("&Help")
 
-        about_action = QAction("&About", self)
-        about_action.setIcon(
+        self.about_action = QAction("&About", self)
+        self.about_action.setIcon(
             qta.icon(
                 "fa6s.circle-info",
                 color=self.normal_color,
@@ -531,11 +582,11 @@ class XboxBackupManager(QMainWindow):
                 color_disabled=self.disabled_color,
             )
         )
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        self.about_action.triggered.connect(self.show_about)
+        help_menu.addAction(self.about_action)
 
-        check_updates_action = QAction("&Check for Updates...", self)
-        check_updates_action.setIcon(
+        self.check_updates_action = QAction("&Check for Updates...", self)
+        self.check_updates_action.setIcon(
             qta.icon(
                 "fa6s.rotate",
                 color=self.normal_color,
@@ -543,11 +594,11 @@ class XboxBackupManager(QMainWindow):
                 color_disabled=self.disabled_color,
             )
         )
-        check_updates_action.triggered.connect(self._check_for_updates)
-        help_menu.addAction(check_updates_action)
+        self.check_updates_action.triggered.connect(self._check_for_updates)
+        help_menu.addAction(self.check_updates_action)
 
-        licenses_action = QAction("&Licenses", self)
-        licenses_action.setIcon(
+        self.licenses_action = QAction("&Licenses", self)
+        self.licenses_action.setIcon(
             qta.icon(
                 "fa6s.file-contract",
                 color=self.normal_color,
@@ -555,8 +606,8 @@ class XboxBackupManager(QMainWindow):
                 color_disabled=self.disabled_color,
             )
         )
-        licenses_action.triggered.connect(self.show_licenses)
-        help_menu.addAction(licenses_action)
+        self.licenses_action.triggered.connect(self.show_licenses)
+        help_menu.addAction(self.licenses_action)
 
     def _source_directory_clicked(self, event):
         """Handle source directory label click to open folder"""
@@ -1395,46 +1446,9 @@ class XboxBackupManager(QMainWindow):
             # User cancelled - handle appropriately
             self._handle_cancelled_usb_directory_selection()
 
-    def update_icon_colors(self):
-        """Update icon colors based on current theme"""
-        palette = self.theme_manager.get_palette()
-
-        self.normal_color = palette.COLOR_TEXT_1
-        self.active_color = palette.COLOR_ACCENT_3
-        self.disabled_color = palette.COLOR_TEXT_4
-
-        # Re-apply icons with new colors
-        self.scan_button.setIcon(
-            qta.icon(
-                "fa6s.magnifying-glass",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
-
-        self.transfer_button.setIcon(
-            qta.icon(
-                "fa6s.download",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
-
-        self.remove_button.setIcon(
-            qta.icon(
-                "fa6s.trash",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
-            )
-        )
-
     def set_theme_override(self, override_value):
         """Set theme override and apply theme"""
         self.theme_manager.set_override(override_value)
-        self.update_icon_colors()
         self.apply_theme()
         self.settings_manager.save_theme_preference(override_value)
 
@@ -1486,6 +1500,20 @@ class XboxBackupManager(QMainWindow):
         self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
+        palette = self.theme_manager.get_palette()
+
+        # Update colours
+        if self.theme_manager.should_use_dark_mode():
+            self.normal_color = palette.COLOR_TEXT_1
+            self.active_color = palette.COLOR_TEXT_1
+            self.disabled_color = palette.COLOR_DISABLED
+        else:
+            self.normal_color = palette.COLOR_BACKGROUND_6
+            self.active_color = palette.COLOR_BACKGROUND_6
+            self.disabled_color = palette.COLOR_DISABLED
+
+        self.icon_manager.update_all_icons()
+
     def update_theme_menu_state(self):
         """Update theme menu state based on current override"""
         if self.theme_manager.dark_mode_override is None:
@@ -1503,7 +1531,6 @@ class XboxBackupManager(QMainWindow):
         # Restore theme preference
         theme_override = self.settings_manager.load_theme_preference()
         self.theme_manager.set_override(theme_override)
-        self.update_icon_colors()
 
         # Restore current platform
         self.current_platform = self.settings_manager.load_current_platform()
