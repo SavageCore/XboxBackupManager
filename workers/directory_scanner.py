@@ -109,6 +109,7 @@ class DirectoryScanner(QThread):
                 name=name,
                 folder_path=folder_path,
                 size_bytes=size_bytes,
+                size_formatted=self._format_size(size_bytes),
             )
 
             return game_info
@@ -137,6 +138,7 @@ class DirectoryScanner(QThread):
                 name=name,
                 folder_path=folder_path,
                 size_bytes=size_bytes,
+                size_formatted=self._format_size(size_bytes),
             )
 
             return game_info

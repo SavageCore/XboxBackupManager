@@ -9,9 +9,12 @@ class GameInfo:
     name: str
     size_bytes: int
     folder_path: str
+    size_formatted: str
+    transferred: bool = False
+    last_modified: float = 0.0
 
     @property
-    def size_formatted(self) -> str:
+    def _size_formatted(self) -> str:
         """Return formatted file size"""
         size = float(self.size_bytes)
         for unit in ["B", "KB", "MB", "GB", "TB"]:

@@ -5,10 +5,13 @@ Refactored main window class using modular components
 """
 
 import ctypes
+import hashlib
+import json
 import os
 import platform
 import shutil
 import sys
+import time
 import zipfile
 from pathlib import Path
 from typing import Dict, List
@@ -78,6 +81,13 @@ class XboxBackupManager(QMainWindow):
         app = QApplication.instance()
         if app is None:
             app = QApplication(sys.argv)
+
+        # Initialize cache
+        self._cache_dir = Path("cache")
+        self._cache_dir.mkdir(exist_ok=True)
+
+        # Clean up old cache files
+        self._cleanup_old_cache_files()
 
         # Initialize managers
         self.settings_manager = SettingsManager()
@@ -1252,6 +1262,9 @@ class XboxBackupManager(QMainWindow):
             # Stop watching old directory
             self.stop_watching_directory()
 
+            # Clear cache for old directory
+            self._clear_cache_for_directory()
+
             # Normalize the path for consistent display and usage
             normalized_directory = os.path.normpath(directory)
 
@@ -1767,6 +1780,8 @@ class XboxBackupManager(QMainWindow):
     def on_directory_changed(self, path: str):
         """Handle directory changes detected by file system watcher"""
         if path == self.current_directory:
+            # Clear cache when directory changes
+            self._clear_cache_for_directory()
             # Use timer to debounce rapid file system events
             self.scan_timer.stop()
             self.scan_timer.start(self.scan_delay)
@@ -1808,6 +1823,15 @@ class XboxBackupManager(QMainWindow):
         except TypeError:
             # Signal wasn't connected, which is fine
             pass
+
+        # Try to load from cache first
+        if self._load_scan_cache():
+            self._is_scanning = False
+            self.status_manager.show_games_status()
+
+            # Update transferred states in background
+            QTimer.singleShot(100, self._rescan_transferred_state)
+            return
 
         # Store current sort settings before clearing table
         if hasattr(self.games_table, "horizontalHeader"):
@@ -2041,6 +2065,10 @@ class XboxBackupManager(QMainWindow):
 
         # Update transfer button state
         self._update_transfer_button_state()
+
+        # Save scan results to cache
+        if game_count > 0:
+            self._save_scan_cache()
 
         # Download icons for games that don't have them cached
         if game_count > 0:
@@ -3717,6 +3745,221 @@ class XboxBackupManager(QMainWindow):
         # Rescan directory if we have one
         if self.current_directory:
             self.scan_directory()
+
+    def _get_cache_file_path(self) -> Path:
+        """Get the cache file path for current platform and directory"""
+        if not self.current_directory:
+            print("No current directory set.")
+            return None
+
+        # Create a safe filename from directory path
+        dir_hash = hashlib.md5(
+            self.current_directory.lower().encode("utf-8")
+        ).hexdigest()[:10]
+        cache_filename = f"scan_cache_{self.current_platform}_{dir_hash}.json"
+        return self._cache_dir / cache_filename
+
+    def _save_scan_cache(self):
+        """Save current scan results to cache"""
+        if not self.games or not self.current_directory:
+            return
+
+        cache_file = self._get_cache_file_path()
+        if not cache_file:
+            return
+
+        try:
+            cache_data = {
+                "version": VERSION,
+                "platform": self.current_platform,
+                "directory": self.current_directory,
+                "scan_time": time.time(),
+                "games": [],
+            }
+
+            # Convert games to serializable format
+            for game in self.games:
+                game_data = {
+                    "title_id": game.title_id,
+                    "name": game.name,
+                    "folder_path": game.folder_path,
+                    "size_bytes": game.size_bytes,
+                    "size_formatted": game.size_formatted,
+                    "transferred": game.transferred,
+                    "last_modified": getattr(game, "last_modified", 0),
+                }
+                cache_data["games"].append(game_data)
+
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f, indent=2)
+
+        except Exception as e:
+            print(f"Error saving scan cache: {e}")
+
+    def _load_scan_cache(self) -> bool:
+        """Load scan results from cache if valid"""
+        if not self.current_directory:
+            print("No current directory set.")
+            return False
+
+        cache_file = self._get_cache_file_path()
+        if not cache_file or not cache_file.exists():
+            return False
+
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+
+            # Validate cache
+            if not self._is_cache_valid(cache_data):
+                print("Scan cache is invalid or outdated.")
+                return False
+
+            # Load games from cache
+            self.games.clear()
+            self.games_table.setRowCount(0)
+
+            # Disable sorting during bulk insertion
+            self.games_table.setSortingEnabled(False)
+
+            for game_data in cache_data["games"]:
+                game_info = GameInfo(
+                    title_id=game_data["title_id"],
+                    name=game_data["name"],
+                    folder_path=game_data["folder_path"],
+                    size_bytes=game_data["size_bytes"],
+                    size_formatted=game_data["size_formatted"],
+                )
+                game_info.transferred = game_data.get("transferred", False)
+                game_info.last_modified = game_data.get("last_modified", 0)
+
+                self.games.append(game_info)
+
+                # Add to table
+                row = self.games_table.rowCount()
+                self.games_table.insertRow(row)
+                self.games_table.setRowHeight(row, 72)
+
+                show_dlcs = self.current_platform in ["xbla"]
+                self._create_table_items(row, game_info, show_dlcs)
+
+            # Re-enable sorting
+            self.games_table.setSortingEnabled(True)
+
+            # Connect checkbox signal
+            self.games_table.itemChanged.connect(self._on_checkbox_changed)
+
+            # Apply default sort
+            self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
+
+            # Update status
+            game_count = len(self.games)
+            self.status_manager.show_message(f"Loaded {game_count} games from cache")
+
+            # Download missing icons
+            if game_count > 0:
+                self.download_missing_icons()
+
+            # Update transfer button state
+            self._update_transfer_button_state()
+            return True
+
+        except Exception as e:
+            print(f"Error loading scan cache: {e}")
+            # # If cache is corrupted, delete it
+            # try:
+            #     cache_file.unlink()
+            # except Exception:
+            #     pass
+            return False
+
+    def _is_cache_valid(self, cache_data: dict) -> bool:
+        """Check if cache data is valid and up-to-date"""
+        try:
+            # Check version compatibility
+            if cache_data.get("version") != VERSION:
+                print("Cache version is incompatible.")
+                return False
+
+            # Check platform match
+            if cache_data.get("platform") != self.current_platform:
+                print("Cache platform is incompatible.")
+                return False
+
+            # Check directory match
+            if cache_data.get("directory") != self.current_directory:
+                print("Cache directory is incompatible.")
+                return False
+
+            # Check if directory still exists
+            if not os.path.exists(self.current_directory):
+                print("Cache directory does not exist.")
+                return False
+
+            # Check cache age (invalidate if older than 24 hours)
+            cache_time = cache_data.get("scan_time", 0)
+            if time.time() - cache_time > 86400:  # 24 hours
+                print("Cache is stale.")
+                return False
+
+            # Check if directory was modified since cache
+            dir_modified = os.path.getmtime(self.current_directory)
+            if dir_modified > cache_time:
+                print("Cache directory was modified.")
+                return False
+
+            # Validate that cached games still exist
+            games_data = cache_data.get("games", [])
+            if not games_data:
+                print("Cache is empty.")
+                return False
+
+            # Quick validation - check if some of the games still exist
+            sample_size = min(5, len(games_data))
+            for i in range(0, len(games_data), max(1, len(games_data) // sample_size)):
+                game_path = games_data[i]["folder_path"]
+                if not os.path.exists(game_path):
+                    print(f"Cached game folder does not exist: {game_path}")
+                    return False
+
+                # # Check if game folder was modified
+                # game_modified = os.path.getmtime(game_path)
+                # cached_modified = games_data[i].get("last_modified", 0)
+                # if game_modified > cached_modified:
+                #     print(f"Cached game folder was modified: {game_path}")
+                #     return False
+
+            return True
+
+        except Exception as e:
+            print(f"Error validating cache: {e}")
+            return False
+
+    def _clear_cache_for_directory(self):
+        """Clear cache for current directory"""
+        cache_file = self._get_cache_file_path()
+        if cache_file and cache_file.exists():
+            try:
+                cache_file.unlink()
+            except Exception as e:
+                print(f"Error clearing cache: {e}")
+
+    def _cleanup_old_cache_files(self):
+        """Clean up old cache files on startup"""
+        try:
+            cache_files = list(self._cache_dir.glob("scan_cache_*.json"))
+            current_time = time.time()
+
+            for cache_file in cache_files:
+                try:
+                    # Remove cache files older than 7 days
+                    if current_time - cache_file.stat().st_mtime > 604800:  # 7 days
+                        cache_file.unlink()
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"Error cleaning up cache files: {e}")
 
 
 class NonSortableHeaderView(QHeaderView):
