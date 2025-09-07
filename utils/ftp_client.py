@@ -164,9 +164,11 @@ class FTPClient(QObject):
             self._ftp.mkd(path)
             return True, "Directory created successfully"
         except ftplib.error_perm as e:
-            if "exists" in str(e).lower():
+            # Check if directory already exists
+            if self.directory_exists(path):
                 return True, "Directory already exists"
-            return False, f"Failed to create directory: {str(e)}"
+            else:
+                return False, f"Failed to create directory: {str(e)}"
         except Exception as e:
             return False, f"Failed to create directory: {str(e)}"
 

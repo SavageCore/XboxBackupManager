@@ -81,32 +81,42 @@ class FTPTransferWorker(QThread):
                 f"Failed to create game directory {target_ftp_path}: {message}"
             )
 
-        # Calculate total size for progress
+        # Calculate total size for progress (only for files that need to be transferred)
         total_size = 0
-        file_list = []
+        files_to_transfer = []
 
         for file_path in source_path.rglob("*"):
             if file_path.is_file():
-                file_list.append(file_path)
-                total_size += file_path.stat().st_size
+                # Calculate relative path for FTP
+                rel_path = file_path.relative_to(source_path)
+                ftp_file_path = (
+                    f"{target_ftp_path}/{str(rel_path).replace(os.sep, '/')}"
+                )
 
-        if not file_list:
+                # Check if file already exists on FTP server
+                file_exists = self._check_ftp_file_exists(
+                    ftp_client, ftp_file_path, file_path
+                )
+
+                if not file_exists:
+                    files_to_transfer.append((file_path, ftp_file_path))
+                    total_size += file_path.stat().st_size
+
+        if not files_to_transfer:
+            # All files already exist, emit 100% progress and return
+            self.file_progress.emit(game.name, 100)
             return
 
         # Keep track of created directories to avoid redundant creation
         created_dirs = set()
         created_dirs.add(target_ftp_path)
 
-        # Upload files
+        # Upload files that don't exist
         uploaded_size = 0
 
-        for file_path in file_list:
+        for file_path, ftp_file_path in files_to_transfer:
             if self.should_stop:
                 break
-
-            # Calculate relative path for FTP
-            rel_path = file_path.relative_to(source_path)
-            ftp_file_path = f"{target_ftp_path}/{str(rel_path).replace(os.sep, '/')}"
 
             # Create parent directories on FTP server if needed
             ftp_dir = "/".join(ftp_file_path.split("/")[:-1])
@@ -137,6 +147,27 @@ class FTPTransferWorker(QThread):
 
             except Exception as e:
                 raise Exception(f"Failed to upload {file_path}: {str(e)}")
+
+    def _check_ftp_file_exists(
+        self, ftp_client: FTPClient, ftp_file_path: str, local_file_path: Path
+    ) -> bool:
+        """Check if a file exists on the FTP server and optionally compare size"""
+        try:
+            # Try to get file size from FTP server
+            ftp_client._ftp.voidcmd("TYPE I")  # Set binary mode for size command
+            ftp_size = ftp_client._ftp.size(ftp_file_path)
+
+            if ftp_size is not None:
+                # Compare with local file size
+                local_size = local_file_path.stat().st_size
+                return ftp_size == local_size
+
+            return False
+
+        except Exception:
+            # If any error occurs (file doesn't exist, size command not supported, etc.)
+            # assume file doesn't exist or needs to be re-uploaded
+            return False
 
     def _create_ftp_directories_recursive(
         self, ftp_client: FTPClient, ftp_path: str, created_dirs: set
