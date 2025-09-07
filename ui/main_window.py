@@ -802,39 +802,49 @@ class XboxBackupManager(QMainWindow):
                 )
 
     def _update_transfer_button_state(self):
-        """Update transfer button enabled state based on conditions"""
+        """Update transfer and remove button enabled state based on conditions"""
         has_games = len(self.games) > 0
-        if self.current_mode == "ftp":
-            ftp_client = FTPClient()
+        has_selected = self._get_selected_games_count() > 0
 
-            has_target = ftp_client.directory_exists(
-                self.ftp_target_directories[self.current_platform]
+        if self.current_mode == "ftp":
+            # For FTP mode, check if we can connect and directory exists
+            has_target = bool(
+                self.ftp_settings
+                and self.ftp_settings.get("host")
+                and self.ftp_target_directories[self.current_platform]
             )
+
+            if has_target:
+                # Quick validation - don't actually connect here as it's called frequently
+                ftp_client = FTPClient()
+                try:
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+                    if success:
+                        has_target = ftp_client.directory_exists(
+                            self.ftp_target_directories[self.current_platform]
+                        )
+                    else:
+                        has_target = False
+                except Exception:
+                    has_target = False
+                finally:
+                    ftp_client.disconnect()
         else:
+            # USB mode
             has_target = bool(
                 self.usb_target_directories[self.current_platform]
                 and os.path.exists(self.usb_target_directories[self.current_platform])
             )
-        has_selected = self._get_selected_games_count() > 0
 
         is_enabled = has_games and has_target and has_selected
 
-        # Enable if we have games, target directory, and at least one game is selected
-        self.toolbar_transfer_action.setEnabled(is_enabled)
-        self.toolbar_remove_action.setEnabled(is_enabled)
-
-    def _update_remove_button_state(self):
-        """Update remove button enabled state based on conditions"""
-        has_games = len(self.games) > 0
-        has_target = bool(
-            self.current_target_directory
-            and os.path.exists(self.current_target_directory)
-        )
-        has_selected = self._get_selected_games_count() > 0
-
-        is_enabled = has_games and has_target and has_selected
-
-        # Enable if we have games, target directory, and at least one game is selected
+        # Update both toolbar actions
         self.toolbar_transfer_action.setEnabled(is_enabled)
         self.toolbar_remove_action.setEnabled(is_enabled)
 
@@ -1904,8 +1914,7 @@ class XboxBackupManager(QMainWindow):
     def _on_checkbox_changed(self, item):
         """Handle checkbox state changes"""
         if item.column() == 0:  # Only handle checkbox column
-            self._update_transfer_button_state()
-            self._update_remove_button_state()
+            self._update_transfer_button_state()  # Only call this once
 
             # Update status bar with amount of selected games
             selected_games = 0
