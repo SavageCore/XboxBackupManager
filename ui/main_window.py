@@ -5092,8 +5092,13 @@ class NonSortableHeaderView(QHeaderView):
         # Fill the header background first
         painter.fillRect(rect, self.palette().button())
 
-        # Draw border if needed
+        # Draw the same borders as other sections
         painter.setPen(self.palette().mid().color())
+
+        # Draw right border (column divider)
+        painter.drawLine(rect.topRight(), rect.bottomRight())
+
+        # Draw bottom border
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
         opt = QStyleOptionButton()
