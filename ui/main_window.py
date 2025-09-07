@@ -1227,19 +1227,21 @@ class XboxBackupManager(QMainWindow):
         if self.current_mode == "ftp":
             ftp_client = FTPClient()
 
+            # Are we connected? If not connect
+            if not ftp_client.is_connected():
+                ftp_client.connect(
+                    self.ftp_settings["host"],
+                    self.ftp_settings["username"],
+                    self.ftp_settings["password"],
+                    self.ftp_settings.get("port", 21),
+                )
+
             try:
                 target_path = f"{self.current_target_directory.rstrip('/')}/{Path(game.folder_path).name}"
                 return ftp_client.directory_exists(target_path)
 
-            except Exception as e:
-                print(f"FTP error checking transferred state: {e}")
+            except Exception:
                 return False
-            finally:
-                # Ensure disconnection even if there's an exception
-                try:
-                    ftp_client.disconnect()
-                except Exception:
-                    pass
         else:
             target_path = (
                 Path(self.current_target_directory) / Path(game.folder_path).name
