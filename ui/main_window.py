@@ -19,13 +19,23 @@ from typing import Dict, List
 import qt_themes
 import qtawesome as qta
 import requests
-from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
+from PyQt6.QtCore import (
+    QFileSystemWatcher,
+    QPoint,
+    QProcess,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+    QUrl,
+)
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
     QDesktopServices,
     QIcon,
     QPainter,
+    QPen,
     QPixmap,
 )
 from PyQt6.QtWidgets import (
@@ -43,8 +53,6 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QPushButton,
-    QStyle,
-    QStyleOptionButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -2229,18 +2237,16 @@ class XboxBackupManager(QMainWindow):
         col_index = 0
 
         # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")  # Empty text is important
+        checkbox_item = QTableWidgetItem("")
         checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        # Center the checkbox both horizontally and vertically
+
+        # Only use setTextAlignment for centering - avoid setData with TextAlignmentRole
         checkbox_item.setTextAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
-        checkbox_item.setData(
-            Qt.ItemDataRole.TextAlignmentRole,
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-        )
+
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2478,12 +2484,11 @@ class XboxBackupManager(QMainWindow):
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""
         header = self.games_table.horizontalHeader()
-
         header.installEventFilter(self)
 
-        # Select column - fixed width, narrow for checkbox only
+        # Select column - fixed width for checkbox only, slightly wider for better alignment
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 25)  # More reasonable size for checkbox
+        header.resizeSection(0, 30)  # Increased from 25 to 30 for better alignment
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -5007,24 +5012,61 @@ class XboxBackupManager(QMainWindow):
     def fix_checkbox_stylesheet(self):
         self.games_table.setStyleSheet(
             """
+            QTableWidget {
+                gridline-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
+                outline: 0;
+                alternate-background-color: palette(alternate-base);
+                background-color: palette(base);
+            }
+
             QTableWidget::item {
+                border-bottom: 1px solid palette(mid);
                 padding: 4px;
+                outline: 0;
             }
 
             QTableWidget::item:selected {
                 background-color: transparent;
                 color: palette(text);
             }
+
             QTableWidget::item:focus {
                 background-color: transparent;
                 border: none;
                 outline: 0;
             }
 
-            /* Force checkbox alignment */
+            /* Force checkbox column to have consistent background and centering */
             QTableWidget::item:first-child {
+                background-color: palette(base);
                 text-align: center;
-                padding: 0px;
+                padding: 2px;
+            }
+
+            QTableWidget::item:first-child:alternate {
+                background-color: palette(base);
+            }
+
+            /* Ensure consistent checkbox indicator styling */
+            QTableWidget::indicator {
+                width: 16px;
+                height: 16px;
+            }
+
+            QTableWidget::indicator:unchecked {
+                border: 2px solid palette(mid);
+                border-radius: 3px;
+                background-color: palette(base);
+            }
+
+            QTableWidget::indicator:checked {
+                border: 2px solid palette(highlight);
+                border-radius: 3px;
+                background-color: palette(highlight);
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEwIDNMNC41IDguNUwyIDYiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=);
             }
 
             QHeaderView {
@@ -5055,7 +5097,7 @@ class XboxBackupManager(QMainWindow):
                 height: 12px;
                 right: 4px;
             }
-        """
+            """
         )
 
 
@@ -5101,25 +5143,64 @@ class NonSortableHeaderView(QHeaderView):
         # Draw bottom border
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
-        opt = QStyleOptionButton()
-        indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
-        indicator_height = self.style().pixelMetric(
-            QStyle.PixelMetric.PM_IndicatorHeight
-        )
-
-        # Center the checkbox in the header
-        x = rect.x() + (rect.width() - indicator_width) // 2
-        y = rect.y() + (rect.height() - indicator_height) // 2
-        opt.rect = QRect(x, y, indicator_width, indicator_height)
-        opt.state = QStyle.StateFlag.State_Enabled
-
+        # Get the check state
         check_state = self._get_header_check_state()
-        if check_state == Qt.CheckState.Checked:
-            opt.state |= QStyle.StateFlag.State_On
-        elif check_state == Qt.CheckState.PartiallyChecked:
-            opt.state |= QStyle.StateFlag.State_NoChange
 
-        self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
+        # Draw custom checkbox to match table styling
+        checkbox_size = 16
+        x = rect.x() + (rect.width() - checkbox_size) // 2
+        y = rect.y() + (rect.height() - checkbox_size) // 2
+        checkbox_rect = QRect(x, y, checkbox_size, checkbox_size)
+
+        # Draw checkbox background
+        painter.fillRect(checkbox_rect, self.palette().base())
+
+        # Draw checkbox border
+        if check_state == Qt.CheckState.Checked:
+            painter.setPen(QPen(self.palette().highlight().color(), 2))
+            painter.setBrush(self.palette().highlight())
+        else:
+            painter.setPen(QPen(self.palette().mid().color(), 2))
+            painter.setBrush(self.palette().base())
+
+        # Draw rounded rectangle
+        painter.drawRoundedRect(checkbox_rect, 3, 3)
+
+        # Draw checkmark if checked
+        if check_state == Qt.CheckState.Checked:
+            painter.setPen(
+                QPen(
+                    self.palette().highlightedText().color(),
+                    2,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                    Qt.PenJoinStyle.RoundJoin,
+                )
+            )
+
+            # Draw checkmark path (similar to the SVG in your stylesheet)
+            checkmark_points = [
+                QPoint(x + 4, y + 8),  # Start point
+                QPoint(x + 7, y + 11),  # Middle point
+                QPoint(x + 12, y + 5),  # End point
+            ]
+
+            # Draw the checkmark as connected lines
+            painter.drawLine(checkmark_points[0], checkmark_points[1])
+            painter.drawLine(checkmark_points[1], checkmark_points[2])
+
+        elif check_state == Qt.CheckState.PartiallyChecked:
+            # Draw partial state (dash)
+            painter.setPen(
+                QPen(
+                    self.palette().highlight().color(),
+                    2,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                )
+            )
+            painter.drawLine(QPoint(x + 4, y + 8), QPoint(x + 12, y + 8))
+
         painter.restore()
 
     def mousePressEvent(self, event):
