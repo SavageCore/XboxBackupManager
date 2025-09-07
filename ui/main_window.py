@@ -2307,7 +2307,7 @@ class XboxBackupManager(QMainWindow):
                     header.resizeSection(column_index, width)
 
             # Restore sort settings
-            self.games_table.sortItems(sort_column - 1, Qt.SortOrder(sort_order))
+            self.games_table.sortItems(sort_column, Qt.SortOrder(sort_order))
 
         except Exception as e:
             print(f"Error loading table settings: {e}")
@@ -3876,9 +3876,6 @@ class XboxBackupManager(QMainWindow):
 
             # Connect checkbox signal
             self.games_table.itemChanged.connect(self._on_checkbox_changed)
-
-            # Apply default sort
-            self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
 
             # Update status
             game_count = len(self.games)
