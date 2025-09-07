@@ -1610,10 +1610,14 @@ class XboxBackupManager(QMainWindow):
 
         # Set current target directory based on mode
         if self.current_mode == "ftp":
+            # Don't try to connect immediately on startup - just set the labels
             ftp_target = self.ftp_target_directories[self.current_platform]
             self.current_target_directory = ftp_target
             self.target_directory_label.setText(f"FTP: {ftp_target}")
-            self._update_target_space_label(ftp_target)
+            self.target_space_label.setText("(FTP)")  # Don't try to get space info yet
+
+            # Test connection in background without blocking startup
+            QTimer.singleShot(1000, self._test_ftp_connection_on_startup)
 
         # Set current target directory based on mode and check availability
         if self.current_mode == "usb":
@@ -2620,8 +2624,28 @@ class XboxBackupManager(QMainWindow):
             # Handle FTP mode
             if self.current_mode == "ftp":
                 ftp_client = FTPClient()
-                return ftp_client.directory_exists(target_path)
+                try:
+                    # Try to connect first
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
 
+                    if not success:
+                        print(f"FTP connection failed: {message}")
+                        return False
+
+                    # Check if directory exists
+                    return ftp_client.directory_exists(target_path)
+
+                except Exception as e:
+                    print(f"FTP error checking target directory: {e}")
+                    return False
+                finally:
+                    ftp_client.disconnect()
             else:
                 # USB/local mode - existing logic
                 if not os.path.exists(target_path):
@@ -3961,6 +3985,46 @@ class XboxBackupManager(QMainWindow):
 
         except Exception as e:
             print(f"Error cleaning up cache files: {e}")
+
+    def _test_ftp_connection_on_startup(self):
+        """Test FTP connection on startup without blocking UI"""
+        if not self.ftp_settings or not self.ftp_settings.get("host"):
+            self.status_manager.show_message("FTP settings not configured")
+            return
+
+        # Test connection without changing modes
+        self.status_manager.show_message("Testing FTP connection...")
+
+        self.startup_ftp_tester = FTPConnectionTester(
+            self.ftp_settings["host"], self.ftp_settings.get("port", 21), timeout=5
+        )
+        self.startup_ftp_tester.connection_result.connect(
+            self._on_startup_ftp_connection_tested
+        )
+        self.startup_ftp_tester.start()
+
+    def _on_startup_ftp_connection_tested(self, success: bool, message: str):
+        """Handle startup FTP connection test result"""
+        if success:
+            self.status_manager.show_message("FTP connection ready")
+            # Now it's safe to check target directory availability
+            if self.current_target_directory:
+                is_available = self._check_target_directory_availability(
+                    self.current_target_directory
+                )
+                if not is_available:
+                    self.status_manager.show_message(
+                        "FTP target directory not accessible"
+                    )
+        else:
+            self.status_manager.show_message(f"FTP connection failed: {message}")
+            # Optionally switch to USB mode or show warning
+            QMessageBox.warning(
+                self,
+                "FTP Connection Failed",
+                f"Cannot connect to FTP server on startup:\n{message}\n\n"
+                "FTP operations will not be available until connection is restored.",
+            )
 
 
 class NonSortableHeaderView(QHeaderView):
