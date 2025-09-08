@@ -118,6 +118,10 @@ class XboxBackupManager(QMainWindow):
         self.icon_cache: Dict[str, QPixmap] = {}
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
+
+        # Transfer state
+        self._current_transfer_speed = ""
+        self._current_transfer_file = ""
         self._current_transfer_speed = ""  # For storing current transfer speed
 
         # Get the current palette from your theme manager
@@ -1062,6 +1066,8 @@ class XboxBackupManager(QMainWindow):
         # Connect signals (same for both transfer types)
         self.transfer_worker.progress.connect(self._update_transfer_progress)
         self.transfer_worker.file_progress.connect(self._update_file_progress)
+        if hasattr(self.transfer_worker, "current_file"):
+            self.transfer_worker.current_file.connect(self._update_current_file)
         if hasattr(self.transfer_worker, "transfer_speed"):
             self.transfer_worker.transfer_speed.connect(self._update_transfer_speed)
         self.transfer_worker.game_transferred.connect(self._on_game_transferred)
@@ -1071,6 +1077,7 @@ class XboxBackupManager(QMainWindow):
 
         # Clear any previous transfer speed
         self._current_transfer_speed = ""
+        self._current_transfer_file = ""
 
         mode_text = "via FTP" if self.current_mode == "ftp" else "to USB"
         self.status_manager.show_permanent_message(
@@ -1180,8 +1187,12 @@ class XboxBackupManager(QMainWindow):
             speed_text = getattr(self, "_current_transfer_speed", "")
             speed_suffix = f" at {speed_text}" if speed_text else ""
 
+            # Get current file if available
+            current_file = getattr(self, "_current_transfer_file", "")
+            file_suffix = f" - {current_file}" if current_file else ""
+
             self.status_manager.show_permanent_message(
-                f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games}){speed_suffix}"
+                f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games}){speed_suffix}{file_suffix}"
             )
 
     def _update_transfer_speed(self, game_name: str, speed_bps: float):
@@ -1193,6 +1204,10 @@ class XboxBackupManager(QMainWindow):
             self._current_transfer_speed = f"{speed_bps / 1024:.1f} KB/s"
         else:  # B/s
             self._current_transfer_speed = f"{speed_bps:.0f} B/s"
+
+    def _update_current_file(self, game_name: str, filename: str):
+        """Update current file being transferred"""
+        self._current_transfer_file = filename
 
     def _on_game_transferred(self, title_id: str):
         """Handle successful game transfer"""

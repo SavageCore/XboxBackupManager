@@ -10,6 +10,7 @@ from utils.ftp_client import FTPClient
 class FTPTransferWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current_game, total_games, game_name
     file_progress = pyqtSignal(str, int)  # game_name, percentage
+    current_file = pyqtSignal(str, str)  # game_name, filename
     transfer_speed = pyqtSignal(str, float)  # game_name, speed_in_bytes_per_sec
     game_transferred = pyqtSignal(str)  # title_id
     transfer_complete = pyqtSignal()
@@ -132,6 +133,10 @@ class FTPTransferWorker(QThread):
                 self._create_ftp_directories_recursive(
                     ftp_client, ftp_dir, created_dirs
                 )
+
+            # Emit current file being transferred
+            filename = file_path.name
+            self.current_file.emit(game.name, filename)
 
             try:
                 with open(file_path, "rb") as local_file:
