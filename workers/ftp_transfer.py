@@ -141,8 +141,20 @@ class FTPTransferWorker(QThread):
                             progress_percent = int((uploaded_size / total_size) * 100)
                             self.file_progress.emit(game.name, progress_percent)
 
+                    # Change working directory to the correct path before upload
+                    try:
+                        ftp_client._ftp.cwd(ftp_dir)
+                    except Exception:
+                        # Try to create the directory again
+                        self._create_ftp_directories_recursive(
+                            ftp_client, ftp_dir, created_dirs
+                        )
+                        ftp_client._ftp.cwd(ftp_dir)
+
+                    # Upload file using just the filename (since we're in the correct directory)
+                    filename = ftp_file_path.split("/")[-1]
                     ftp_client._ftp.storbinary(
-                        f"STOR {ftp_file_path}", local_file, callback=upload_callback
+                        f"STOR {filename}", local_file, callback=upload_callback
                     )
 
             except Exception as e:
