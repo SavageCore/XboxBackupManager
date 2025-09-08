@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -9,6 +10,7 @@ from utils.ftp_client import FTPClient
 class FTPTransferWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current_game, total_games, game_name
     file_progress = pyqtSignal(str, int)  # game_name, percentage
+    transfer_speed = pyqtSignal(str, float)  # game_name, speed_in_bytes_per_sec
     game_transferred = pyqtSignal(str)  # title_id
     transfer_complete = pyqtSignal()
     transfer_error = pyqtSignal(str)
@@ -72,6 +74,10 @@ class FTPTransferWorker(QThread):
     def _transfer_game_via_ftp(self, ftp_client: FTPClient, game):
         """Transfer a single game via FTP"""
         source_path = Path(game.folder_path)
+
+        # Initialize timing variables for speed tracking
+        self._transfer_start_time = time.time()
+        self._last_speed_update = time.time()
 
         # Create target directory on FTP server
         target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{source_path.name}"
@@ -140,6 +146,17 @@ class FTPTransferWorker(QThread):
                         if total_size > 0:
                             progress_percent = int((uploaded_size / total_size) * 100)
                             self.file_progress.emit(game.name, progress_percent)
+
+                            # Calculate and emit transfer speed every second
+                            current_time = time.time()
+                            if (
+                                current_time - self._last_speed_update >= 1.0
+                            ):  # Update every second
+                                elapsed_time = current_time - self._transfer_start_time
+                                if elapsed_time > 0:
+                                    speed_bps = uploaded_size / elapsed_time
+                                    self.transfer_speed.emit(game.name, speed_bps)
+                                self._last_speed_update = current_time
 
                     # Change working directory to the correct path before upload
                     try:

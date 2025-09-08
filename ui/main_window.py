@@ -118,6 +118,7 @@ class XboxBackupManager(QMainWindow):
         self.icon_cache: Dict[str, QPixmap] = {}
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
+        self._current_transfer_speed = ""  # For storing current transfer speed
 
         # Get the current palette from your theme manager
         palette = self.theme_manager.get_palette()
@@ -1061,10 +1062,15 @@ class XboxBackupManager(QMainWindow):
         # Connect signals (same for both transfer types)
         self.transfer_worker.progress.connect(self._update_transfer_progress)
         self.transfer_worker.file_progress.connect(self._update_file_progress)
+        if hasattr(self.transfer_worker, "transfer_speed"):
+            self.transfer_worker.transfer_speed.connect(self._update_transfer_speed)
         self.transfer_worker.game_transferred.connect(self._on_game_transferred)
         self.transfer_worker.transfer_complete.connect(self._on_transfer_complete)
         self.transfer_worker.transfer_error.connect(self._on_transfer_error)
         self.transfer_worker.start()
+
+        # Clear any previous transfer speed
+        self._current_transfer_speed = ""
 
         mode_text = "via FTP" if self.current_mode == "ftp" else "to USB"
         self.status_manager.show_permanent_message(
@@ -1170,9 +1176,23 @@ class XboxBackupManager(QMainWindow):
             ) / total_games
             self.progress_bar.setValue(int(overall_progress))
 
+            # Get current speed if available
+            speed_text = getattr(self, "_current_transfer_speed", "")
+            speed_suffix = f" at {speed_text}" if speed_text else ""
+
             self.status_manager.show_permanent_message(
-                f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games})"
+                f"Transferring: {game_name} - {file_progress}% ({current_game_index + 1}/{total_games}){speed_suffix}"
             )
+
+    def _update_transfer_speed(self, game_name: str, speed_bps: float):
+        """Update transfer speed in status bar"""
+        # Format speed for display
+        if speed_bps >= 1024 * 1024:  # MB/s
+            self._current_transfer_speed = f"{speed_bps / (1024 * 1024):.1f} MB/s"
+        elif speed_bps >= 1024:  # KB/s
+            self._current_transfer_speed = f"{speed_bps / 1024:.1f} KB/s"
+        else:  # B/s
+            self._current_transfer_speed = f"{speed_bps:.0f} B/s"
 
     def _on_game_transferred(self, title_id: str):
         """Handle successful game transfer"""
@@ -1203,6 +1223,9 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
+        # Clear transfer speed
+        self._current_transfer_speed = ""
+
         self._remove_cancel_button()
 
         self.start_watching_directory()
@@ -1217,6 +1240,11 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        # Clear transfer speed
+        self._current_transfer_speed = ""
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
