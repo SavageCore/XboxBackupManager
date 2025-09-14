@@ -1,0 +1,468 @@
+import os
+import re
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import requests
+
+# API Configuration
+BASE_URL = "https://xboxunity.net/Api"
+WEB_BASE_URL = "https://xboxunity.net"
+RESOURCES_URL = "https://xboxunity.net/Resources/Lib"
+
+# Reuse a single session to keep connections alive and improve performance
+_session = requests.Session()
+
+# Set default timeout for all requests
+_session.timeout = 30
+
+
+class XboxUnityError(Exception):
+    """Custom exception for XboxUnity API errors"""
+
+    pass
+
+
+class XboxUnity:
+    """
+    Class to interact with XboxUnity API for title updates.
+    This class provides methods to search for title updates, login, and download updates.
+    """
+
+    def __init__(self):
+        self.session = _session
+
+    @staticmethod
+    def test_connectivity() -> bool:
+        """
+        Test basic connectivity with XboxUnity.
+
+        Returns:
+            bool: True if connection successful, False otherwise
+        """
+        try:
+            print("[INFO] Testing connectivity with XboxUnity...")
+            response = _session.get("https://xboxunity.net", timeout=10)
+
+            if response.status_code == 200:
+                print("[INFO] Connectivity with XboxUnity: OK")
+                return True, None
+            else:
+                print(f"[ERROR] XboxUnity responded with code: {response.status_code}")
+                return False, f"Unexpected status code: {response.status_code}"
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Cannot connect to XboxUnity: {e}")
+            return False, str(e)
+
+    # TODO: Currently the wrong endpoint is used for login. Not sure what the correct one is.
+    def login_xboxunity(self, username: str, password: str) -> Optional[str]:
+        """
+        Login using username/password and return authentication token.
+
+        Args:
+            username (str): XboxUnity username
+            password (str): XboxUnity password
+
+        Returns:
+            Optional[str]: Authentication token if successful, None otherwise
+        """
+        url = f"{BASE_URL}/Auth/Login"
+        headers = {
+            "User-Agent": "UnityApp/1.0",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        data = {"username": username, "password": password}
+
+        try:
+            print(f"[INFO] Attempting to connect to XboxUnity: {url}")
+            response = _session.post(url, data=data, headers=headers, timeout=30)
+            print(f"[INFO] Server response: {response.status_code}")
+
+            if response.status_code == 200:
+                try:
+                    json_data = response.json()
+                    print(f"[INFO] JSON response received: {json_data}")
+
+                    if "token" in json_data:
+                        print("[INFO] Token obtained successfully")
+                        return json_data["token"]
+                    else:
+                        print("[ERROR] Token not found in response")
+                        return None
+
+                except ValueError as e:
+                    print(f"[ERROR] Failed to parse login response JSON: {e}")
+                    print(f"[ERROR] Response content: {response.text[:500]}")
+                    return None
+            else:
+                print(f"[ERROR] HTTP status code: {response.status_code}")
+                print(f"[ERROR] Server response: {response.text[:500]}")
+                return None
+
+        except requests.exceptions.Timeout:
+            print("[ERROR] Timeout connecting to XboxUnity")
+            return None
+        except requests.exceptions.ConnectionError:
+            print("[ERROR] Connection error with XboxUnity")
+            return None
+        except Exception as e:
+            print(f"[ERROR] Unexpected error in login: {e}")
+            return None
+
+    def _parse_title_updates_type1(
+        self, data: Dict[str, Any], title_id: str, media_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Parse Type 1 response (with MediaIDS structure).
+
+        Args:
+            data: JSON response data
+            title_id: Title ID
+            media_id: Optional Media ID filter
+
+        Returns:
+            List of title update information dictionaries
+        """
+        title_updates = []
+        print("[INFO] Response type 1 - with MediaIDS")
+
+        if media_id:
+            print(f"[INFO] Filtering TUs only for specific MediaID: {media_id}")
+
+        for media_item in data.get("MediaIDS", []):
+            item_media_id = media_item.get("MediaID", "")
+            updates = media_item.get("Updates", [])
+
+            # Filter by Media ID if specified
+            if media_id and item_media_id != media_id:
+                print(
+                    f"[INFO] Skipping MediaID {item_media_id} (doesn't match {media_id})"
+                )
+                continue
+
+            print(
+                f"[INFO] Processing MediaID: {item_media_id} ({len(updates)} updates)"
+            )
+
+            for update in updates:
+                title_updates.append(
+                    self._create_title_update_info(update, title_id, item_media_id)
+                )
+
+        return title_updates
+
+    def _parse_title_updates_type2(
+        self, data: Dict[str, Any], title_id: str, media_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Parse Type 2 response (with direct Updates structure).
+
+        Args:
+            data: JSON response data
+            title_id: Title ID
+            media_id: Optional Media ID filter
+
+        Returns:
+            List of title update information dictionaries
+        """
+        title_updates = []
+        print("[INFO] Response type 2 - with direct Updates")
+
+        for update in data.get("Updates", []):
+            update_media_id = update.get("MediaID", "")
+
+            # Filter by Media ID if specified
+            if media_id and update_media_id != media_id:
+                print(
+                    f"[INFO] Skipping TU with MediaID {update_media_id} (doesn't match {media_id})"
+                )
+                continue
+
+            title_updates.append(
+                self._create_title_update_info(update, title_id, update_media_id)
+            )
+
+        return title_updates
+
+    def _create_title_update_info(
+        update: Dict[str, Any], title_id: str, media_id: str
+    ) -> Dict[str, Any]:
+        """
+        Create a standardized title update information dictionary.
+
+        Args:
+            update: Update data from API response
+            title_id: Title ID
+            media_id: Media ID
+
+        Returns:
+            Dictionary with title update information
+        """
+        # Use temporary filename - will be updated with real name during download
+        file_name = f"{title_id}_{update.get('Version', '1')}.tu"
+
+        title_update_info = {
+            "fileName": file_name,
+            "downloadUrl": f"{RESOURCES_URL}/TitleUpdate.php?tuid={update.get('TitleUpdateID', '')}",
+            "titleUpdateId": update.get("TitleUpdateID", ""),
+            "version": update.get("Version", ""),
+            "mediaId": media_id,
+            "titleId": title_id,
+            "titleName": update.get("Name", ""),
+            "size": update.get("Size", 0),
+            "uploadDate": update.get("UploadDate", ""),
+            "hash": update.get("hash", ""),
+            "baseVersion": update.get("BaseVersion", ""),
+        }
+
+        print(
+            f"[INFO] TU found: {title_update_info['fileName']} "
+            f"(MediaID: {title_update_info['mediaId']}, Version: {title_update_info['version']})"
+        )
+
+        return title_update_info
+
+    def search_title_updates_with_real_endpoint(
+        self,
+        title_id: str,
+        media_id: Optional[str] = None,
+        token: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Use the real XboxUnity endpoint found in page analysis.
+        Resources/Lib/TitleUpdateInfo.php - FILTERS BY SPECIFIC MEDIAID
+
+        Args:
+            title_id (str): Xbox 360 Title ID
+            media_id (Optional[str]): Media ID to filter results
+            token (Optional[str]): Authentication token (unused in current implementation)
+            api_key (Optional[str]): API key (unused in current implementation)
+
+        Returns:
+            List[Dict[str, Any]]: List of title update information dictionaries
+        """
+        print(f"[INFO] Using real TitleUpdateInfo endpoint for TitleID: {title_id}")
+        if media_id:
+            print(f"[INFO] Filtering TUs only for MediaID: {media_id}")
+
+        try:
+            url = f"{RESOURCES_URL}/TitleUpdateInfo.php"
+
+            # Headers to simulate web AJAX request
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "en-US,en;q=0.5",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://xboxunity.net/",
+            }
+
+            params = {"titleid": title_id}
+
+            print(f"[INFO] Querying: {url} with TitleID: {title_id}")
+            response = _session.get(url, params=params, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                print(f"[ERROR] Error in TitleUpdateInfo: {response.status_code}")
+                print(f"[ERROR] Response: {response.text[:200]}")
+                return []
+
+            try:
+                data = response.json()
+                print(f"[INFO] TitleUpdateInfo response received: {type(data)}")
+
+                if not isinstance(data, dict):
+                    if isinstance(data, list) and len(data) == 0:
+                        print(f"[INFO] No TUs available for TitleID {title_id}")
+                        return []
+                    else:
+                        print(f"[INFO] Unexpected response from real endpoint: {data}")
+                        return []
+
+                response_type = data.get("Type")
+                title_updates = []
+
+                if response_type == 1 and "MediaIDS" in data:
+                    title_updates = self._parse_title_updates_type1(
+                        data, title_id, media_id
+                    )
+                elif response_type == 2 and "Updates" in data:
+                    title_updates = self._parse_title_updates_type2(
+                        data, title_id, media_id
+                    )
+                else:
+                    print(f"[INFO] Unrecognized response type: {response_type}")
+                    print(f"[INFO] Complete structure: {data}")
+
+                if title_updates:
+                    print(
+                        f"[INFO] Total TUs found with real endpoint: {len(title_updates)}"
+                    )
+                    return title_updates
+                else:
+                    print(
+                        f"[INFO] No TUs available for TitleID {title_id} with MediaID {media_id}"
+                    )
+                    return []
+
+            except ValueError as e:
+                print(f"[ERROR] Error parsing TitleUpdateInfo response: {e}")
+                print(f"[ERROR] Content: {response.text[:500]}")
+                return []
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Error querying TitleUpdateInfo: {e}")
+            return []
+
+    def search_title_updates(
+        self,
+        media_id: Optional[str] = None,
+        title_id: Optional[str] = None,
+        token: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Main function to search for title updates.
+        Only uses the endpoint that actually works.
+
+        Args:
+            media_id (Optional[str]): Media ID to filter results
+            title_id (Optional[str]): Xbox 360 Title ID (required)
+            token (Optional[str]): Authentication token (unused)
+            api_key (Optional[str]): API key (unused)
+
+        Returns:
+            List[Dict[str, Any]]: List of title update information dictionaries
+
+        Raises:
+            XboxUnityError: If title_id is not provided
+        """
+        print("[INFO] Starting TU search...")
+
+        if media_id:
+            print(f"[INFO] MediaID: {media_id}")
+        if title_id:
+            print(f"[INFO] TitleID: {title_id}")
+
+        if not title_id:
+            error_msg = "TitleID is required to search for title updates"
+            print(f"[ERROR] {error_msg}")
+            raise XboxUnityError(error_msg)
+
+        # Use the real TitleUpdateInfo.php endpoint (based on web analysis)
+        print("[INFO] Testing real TitleUpdateInfo endpoint...")
+        title_updates = self.search_title_updates_with_real_endpoint(
+            title_id, media_id=media_id, token=token, api_key=api_key
+        )
+
+        if title_updates:
+            return title_updates
+        else:
+            print(f"[WARNING] No TUs found for TitleID: {title_id}")
+            if media_id:
+                print(f"[WARNING] With specific MediaID: {media_id}")
+            return []
+
+    def _extract_filename_from_headers(self, content_disposition: str) -> Optional[str]:
+        """
+        Extract filename from Content-Disposition header.
+
+        Args:
+            content_disposition (str): Content-Disposition header value
+
+        Returns:
+            Optional[str]: Extracted filename or None
+        """
+        filename_match = re.search(
+            r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition
+        )
+        if filename_match:
+            filename = filename_match.group(1).strip("'\"")
+            print(f"[INFO] Original filename from headers: {filename}")
+            return filename
+        return None
+
+    def download_title_update(
+        self,
+        url: str,
+        destination: str,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Download a title update from the specified URL.
+
+        Args:
+            url (str): Download URL
+            destination (str): Local file destination path
+            progress_callback (Optional[Callable[[int, int], None]]): Progress callback function
+
+        Returns:
+            Tuple[bool, Optional[str]]: (Success status, Original filename)
+        """
+        try:
+            print(f"[INFO] Downloading from: {url}")
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Referer": "https://xboxunity.net/",
+            }
+
+            # Create directory if it doesn't exist
+            directory = os.path.dirname(destination)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+
+            response = _session.get(url, headers=headers, stream=True, timeout=60)
+
+            if response.status_code != 200:
+                print(f"[ERROR] Download error: {response.status_code}")
+                print(f"[ERROR] Response: {response.text[:200]}")
+                return False, None
+
+            # Try to get original filename from Content-Disposition header
+            original_filename = None
+            content_disposition = response.headers.get("content-disposition", "")
+
+            if content_disposition:
+                original_filename = self._extract_filename_from_headers(
+                    content_disposition
+                )
+
+            # If no filename in headers, use the provided destination filename
+            if not original_filename:
+                original_filename = os.path.basename(destination)
+
+            # Update destination with original filename if we found a different one
+            if original_filename and original_filename != os.path.basename(destination):
+                destination_dir = os.path.dirname(destination)
+                destination = os.path.join(destination_dir, original_filename)
+                print(f"[INFO] Using original filename: {destination}")
+
+            total_size = int(response.headers.get("content-length", 0))
+            print(f"[INFO] File size: {total_size} bytes")
+
+            downloaded = 0
+            with open(destination, "wb") as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        file.write(chunk)
+                        downloaded += len(chunk)
+
+                        if progress_callback and total_size > 0:
+                            progress_callback(downloaded, total_size)
+
+            print(f"[INFO] Download completed: {destination}")
+            return True, original_filename
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Network error downloading TU: {e}")
+            return False, None
+        except IOError as e:
+            print(f"[ERROR] File I/O error: {e}")
+            return False, None
+        except Exception as e:
+            print(f"[ERROR] Unexpected error downloading TU: {e}")
+            return False, None

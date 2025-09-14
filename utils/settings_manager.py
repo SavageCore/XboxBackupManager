@@ -147,6 +147,19 @@ class SettingsManager:
             "password": self.settings.value("ftp_password", ""),
         }
 
+    def save_xboxunity_settings(self, xboxunity_settings: dict):
+        """Save Xbox Unity settings"""
+        for key, value in xboxunity_settings.items():
+            self.settings.setValue(f"xboxunity_{key}", value)
+
+    def load_xboxunity_settings(self) -> dict:
+        """Load Xbox Unity settings"""
+        return {
+            "username": self.settings.value("xboxunity_username", ""),
+            "password": self.settings.value("xboxunity_password", ""),
+            "api_key": self.settings.value("xboxunity_api_key", ""),
+        }
+
     def save_ftp_target_directories(self, ftp_target_directories: dict):
         """Save FTP target directories for all platforms"""
         for platform, directory in ftp_target_directories.items():

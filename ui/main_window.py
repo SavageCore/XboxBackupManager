@@ -56,6 +56,7 @@ from database.xbox_title_database import XboxTitleDatabaseLoader
 from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
+from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.icon_manager import IconManager
 from ui.theme_manager import ThemeManager
 from utils.ftp_client import FTPClient
@@ -119,6 +120,8 @@ class XboxBackupManager(QMainWindow):
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
 
+        self.xboxunity_settings = {}
+
         # Transfer state
         self._current_transfer_speed = ""
         self._current_transfer_file = ""
@@ -173,6 +176,9 @@ class XboxBackupManager(QMainWindow):
             self.browse_target_action, "fa6s.bullseye"
         )
         self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
+        self.icon_manager.register_widget_icon(
+            self.xbox_unity_settings_action, "fa6s.gear"
+        )
         self.icon_manager.register_widget_icon(self.exit_action, "fa6s.xmark")
         self.icon_manager.register_widget_icon(
             self.ftp_mode_action, "fa6s.network-wired"
@@ -444,6 +450,15 @@ class XboxBackupManager(QMainWindow):
         self.ftp_settings_action.setIcon(qta.icon("fa6s.gear", color=self.normal_color))
         self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
         file_menu.addAction(self.ftp_settings_action)
+
+        # Add Xbox Unity settings action
+        self.xbox_unity_settings_action = QAction("&Xbox Unity Settings...", self)
+        self.xbox_unity_settings_action.setIcon(
+            qta.icon("fa6s.gear", color=self.normal_color)
+        )
+        self.xbox_unity_settings_action.setEnabled(True)
+        self.xbox_unity_settings_action.triggered.connect(self.show_xboxunity_settings)
+        file_menu.addAction(self.xbox_unity_settings_action)
 
         file_menu.addSeparator()
 
@@ -1663,6 +1678,8 @@ class XboxBackupManager(QMainWindow):
             self.settings_manager.load_ftp_target_directories()
         )
 
+        self.xboxunity_settings = self.settings_manager.load_xboxunity_settings()
+
         # Set current target directory based on mode
         if self.current_mode == "ftp":
             # Don't try to connect immediately on startup - just set the labels
@@ -2875,6 +2892,14 @@ class XboxBackupManager(QMainWindow):
             self.ftp_settings = dialog.get_settings()
             self.settings_manager.save_ftp_settings(self.ftp_settings)
             self.status_manager.show_message("FTP settings saved")
+
+    def show_xboxunity_settings(self):
+        """Show XboxUnity settings dialog"""
+        dialog = XboxUnitySettingsDialog(self, self.xboxunity_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.xboxunity_settings = dialog.get_settings()
+            self.settings_manager.save_xboxunity_settings(self.xboxunity_settings)
+            self.status_manager.show_message("XboxUnity settings saved")
 
     def browse_ftp_target_directory(self):
         """Browse FTP server for target directory"""
