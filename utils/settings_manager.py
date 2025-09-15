@@ -133,6 +133,22 @@ class SettingsManager:
             directories[platform] = directory
         return directories
 
+    def save_usb_cache_directory(self, directory: str):
+        """Save USB cache directory"""
+        self.settings.setValue("usb_cache_directory", directory)
+
+    def load_usb_cache_directory(self) -> str:
+        """Load USB cache directory"""
+        return self.settings.value("usb_cache_directory", "")
+
+    def save_usb_content_directory(self, directory: str):
+        """Save USB content directory"""
+        self.settings.setValue("usb_content_directory", directory)
+
+    def load_usb_content_directory(self) -> str:
+        """Load USB content directory"""
+        return self.settings.value("usb_content_directory", "")
+
     def save_ftp_settings(self, ftp_settings: dict):
         """Save FTP connection settings"""
         for key, value in ftp_settings.items():
@@ -147,6 +163,19 @@ class SettingsManager:
             "password": self.settings.value("ftp_password", ""),
         }
 
+    def save_xboxunity_settings(self, xboxunity_settings: dict):
+        """Save Xbox Unity settings"""
+        for key, value in xboxunity_settings.items():
+            self.settings.setValue(f"xboxunity_{key}", value)
+
+    def load_xboxunity_settings(self) -> dict:
+        """Load Xbox Unity settings"""
+        return {
+            "username": self.settings.value("xboxunity_username", ""),
+            "password": self.settings.value("xboxunity_password", ""),
+            "api_key": self.settings.value("xboxunity_api_key", ""),
+        }
+
     def save_ftp_target_directories(self, ftp_target_directories: dict):
         """Save FTP target directories for all platforms"""
         for platform, directory in ftp_target_directories.items():
@@ -159,3 +188,19 @@ class SettingsManager:
             directory = self.settings.value(f"ftp_target_{platform}_directory", "/")
             directories[platform] = directory
         return directories
+
+    def save_ftp_cache_directory(self, directory: str):
+        """Save FTP cache directory"""
+        self.settings.setValue("ftp_cache_directory", directory)
+
+    def load_ftp_cache_directory(self) -> str:
+        """Load FTP cache directory"""
+        return self.settings.value("ftp_cache_directory", "")
+
+    def save_ftp_content_directory(self, directory: str):
+        """Save FTP content directory"""
+        self.settings.setValue("ftp_content_directory", directory)
+
+    def load_ftp_content_directory(self) -> str:
+        """Load FTP content directory"""
+        return self.settings.value("ftp_content_directory", "")

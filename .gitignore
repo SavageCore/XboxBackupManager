@@ -6,3 +6,5 @@ dist/
 *.spec
 extract-xiso.exe
 iso2god-x86_64-windows.exe
+xextool.exe
+batch_tu_download_log.txt

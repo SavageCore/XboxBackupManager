@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import qtawesome as qta
+import requests
 from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
@@ -39,6 +40,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QProgressBar,
+    QProgressDialog,
     QPushButton,
     QStyle,
     QStyleOptionButton,
@@ -58,11 +60,14 @@ from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.icon_manager import IconManager
 from ui.theme_manager import ThemeManager
+from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
+from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
 from utils.ftp_client import FTPClient
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
+from utils.xboxunity import XboxUnity
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
@@ -94,6 +99,7 @@ class XboxBackupManager(QMainWindow):
         self.theme_manager = ThemeManager()
         self.database_loader = TitleDatabaseLoader()
         self.icon_manager = IconManager(self.theme_manager)
+        self.xboxunity = XboxUnity()
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
@@ -106,10 +112,14 @@ class XboxBackupManager(QMainWindow):
         self.games: List[GameInfo] = []
         self.current_directory = ""
         self.current_target_directory = ""
+        self.current_cache_directory = ""
+        self.current_content_directory = ""
         self.current_mode = "usb"
         self.current_platform = "xbox360"  # Default platform
         self.platform_directories = {"xbox": "", "xbox360": "", "xbla": ""}
         self.usb_target_directories = {"xbox": "", "xbox360": "", "xbla": ""}
+        self.usb_cache_directory = ""
+        self.usb_content_directory = ""
         self.platform_names = {
             "xbox": "Xbox",
             "xbox360": "Xbox 360",
@@ -118,6 +128,8 @@ class XboxBackupManager(QMainWindow):
         self.icon_cache: Dict[str, QPixmap] = {}
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
+
+        self.xboxunity_settings = {}
 
         # Transfer state
         self._current_transfer_speed = ""
@@ -173,6 +185,9 @@ class XboxBackupManager(QMainWindow):
             self.browse_target_action, "fa6s.bullseye"
         )
         self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
+        self.icon_manager.register_widget_icon(
+            self.xbox_unity_settings_action, "fa6s.gear"
+        )
         self.icon_manager.register_widget_icon(self.exit_action, "fa6s.xmark")
         self.icon_manager.register_widget_icon(
             self.ftp_mode_action, "fa6s.network-wired"
@@ -285,11 +300,26 @@ class XboxBackupManager(QMainWindow):
         self.toolbar_remove_action.setEnabled(False)
         toolbar.addAction(self.toolbar_remove_action)
 
+        # Batch Title Updater
+        self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
+        self.toolbar_batch_tu_action.setIcon(
+            qta.icon("fa6s.download", color=self.normal_color)
+        )
+        self.toolbar_batch_tu_action.setToolTip(
+            "Download missing title updates for all transferred games"
+        )
+        self.toolbar_batch_tu_action.triggered.connect(
+            self.batch_download_title_updates
+        )
+        self.toolbar_batch_tu_action.setEnabled(False)
+        toolbar.addAction(self.toolbar_batch_tu_action)
+
         # Store references for icon updates
         self.toolbar_actions = [
             self.toolbar_scan_action,
             self.toolbar_transfer_action,
             self.toolbar_remove_action,
+            self.toolbar_batch_tu_action,
         ]
 
     def create_top_section(self, main_layout):
@@ -421,6 +451,7 @@ class XboxBackupManager(QMainWindow):
         """Create the File menu"""
         file_menu = menubar.addMenu("&File")
 
+        # Set Source directory action
         self.browse_action = QAction("&Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
         self.browse_action.setIcon(
@@ -429,6 +460,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
 
+        # Set Target directory action
         self.browse_target_action = QAction("&Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.setIcon(
@@ -437,6 +469,26 @@ class XboxBackupManager(QMainWindow):
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
 
+        # Set Cache directory action
+        self.browse_cache_action = QAction("&Set Cache Directory...", self)
+        self.browse_cache_action.setShortcut("Ctrl+K")
+        self.browse_cache_action.setIcon(
+            qta.icon("fa6s.folder-open", color=self.normal_color)
+        )
+        self.browse_cache_action.setEnabled(True)
+        self.browse_cache_action.triggered.connect(self.browse_cache_directory)
+        file_menu.addAction(self.browse_cache_action)
+
+        # Set Content directory action
+        self.browse_content_action = QAction("&Set Content Directory...", self)
+        self.browse_content_action.setShortcut("Ctrl+N")
+        self.browse_content_action.setIcon(
+            qta.icon("fa6s.folder-open", color=self.normal_color)
+        )
+        self.browse_content_action.setEnabled(True)
+        self.browse_content_action.triggered.connect(self.browse_content_directory)
+        file_menu.addAction(self.browse_content_action)
+
         file_menu.addSeparator()
 
         # FTP settings action
@@ -444,6 +496,15 @@ class XboxBackupManager(QMainWindow):
         self.ftp_settings_action.setIcon(qta.icon("fa6s.gear", color=self.normal_color))
         self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
         file_menu.addAction(self.ftp_settings_action)
+
+        # Add Xbox Unity settings action
+        self.xbox_unity_settings_action = QAction("&Xbox Unity Settings...", self)
+        self.xbox_unity_settings_action.setIcon(
+            qta.icon("fa6s.gear", color=self.normal_color)
+        )
+        self.xbox_unity_settings_action.setEnabled(True)
+        self.xbox_unity_settings_action.triggered.connect(self.show_xboxunity_settings)
+        file_menu.addAction(self.xbox_unity_settings_action)
 
         file_menu.addSeparator()
 
@@ -806,6 +867,102 @@ class XboxBackupManager(QMainWindow):
                     "Selected directory is not accessible", 5000
                 )
 
+    def browse_cache_directory(self):
+        """Open cache directory selection dialog"""
+        if self.current_mode == "ftp":
+            self.browse_ftp_cache_directory()
+            return
+
+        # Start at existing cache directory if set, if not target directory, else home
+        start_dir = (
+            self.usb_cache_directory
+            if self.usb_cache_directory and os.path.exists(self.usb_cache_directory)
+            else (
+                self.current_target_directory
+                if self.current_target_directory
+                and os.path.exists(self.current_target_directory)
+                else os.path.expanduser("~")
+            )
+        )
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select Cache Directory",
+            start_dir,
+        )
+
+        if directory:
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            # Verify the selected directory is accessible
+            if self._check_cache_directory_availability(normalized_directory):
+                self.current_cache_directory = normalized_directory
+                self.usb_cache_directory = normalized_directory
+
+                self.status_manager.show_message(
+                    f"Selected cache directory: {normalized_directory}"
+                )
+            else:
+                # Selected directory is not accessible
+                QMessageBox.warning(
+                    self,
+                    "Directory Not Accessible",
+                    f"The selected directory is not accessible:\n{normalized_directory}\n\n"
+                    "Please ensure the device is properly connected and try again.",
+                )
+                self.status_manager.show_message(
+                    "Selected directory is not accessible", 5000
+                )
+
+    def browse_content_directory(self):
+        """Open content directory selection dialog"""
+        if self.current_mode == "ftp":
+            self.browse_ftp_content_directory()
+            return
+
+        # Start at existing content directory if set, if not target directory, else home
+        start_dir = (
+            self.usb_content_directory
+            if self.usb_content_directory and os.path.exists(self.usb_content_directory)
+            else (
+                self.current_target_directory
+                if self.current_target_directory
+                and os.path.exists(self.current_target_directory)
+                else os.path.expanduser("~")
+            )
+        )
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select Content Directory",
+            start_dir,
+        )
+
+        if directory:
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            # Verify the selected directory is accessible
+            if self._check_content_directory_availability(normalized_directory):
+                self.current_content_directory = normalized_directory
+                self.usb_content_directory = normalized_directory
+
+                self.status_manager.show_message(
+                    f"Selected content directory: {normalized_directory}"
+                )
+            else:
+                # Selected directory is not accessible
+                QMessageBox.warning(
+                    self,
+                    "Directory Not Accessible",
+                    f"The selected directory is not accessible:\n{normalized_directory}\n\n"
+                    "Please ensure the device is properly connected and try again.",
+                )
+                self.status_manager.show_message(
+                    "Selected directory is not accessible", 5000
+                )
+
     def _update_transfer_button_state(self):
         """Update transfer and remove button enabled state based on conditions"""
         has_games = len(self.games) > 0
@@ -849,9 +1006,11 @@ class XboxBackupManager(QMainWindow):
 
         is_enabled = has_games and has_target and has_selected
 
-        # Update both toolbar actions
+        # Update toolbar actions
         self.toolbar_transfer_action.setEnabled(is_enabled)
         self.toolbar_remove_action.setEnabled(is_enabled)
+        # Enable batch TU when we have games and target (regardless of selection)
+        self.toolbar_batch_tu_action.setEnabled(has_games and has_target)
 
     def _get_selected_games_count(self):
         """Get count of selected games (checked in checkbox column)"""
@@ -1035,6 +1194,7 @@ class XboxBackupManager(QMainWindow):
         # Disable UI elements during transfer
         self.toolbar_transfer_action.setEnabled(False)
         self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
@@ -1141,6 +1301,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1235,6 +1396,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1255,6 +1417,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1266,6 +1429,38 @@ class XboxBackupManager(QMainWindow):
         self._remove_cancel_button()
 
         self.start_watching_directory()
+
+    def _on_tu_download_started(self, update_name: str):
+        """Handle title update download started"""
+        self.status_manager.show_message(f"Downloading title update: {update_name}")
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+
+    def _on_tu_download_progress(self, update_name: str, progress: int):
+        """Handle title update download progress"""
+        self.status_manager.show_message(
+            f"Downloading title update: {update_name} ({progress}%)"
+        )
+        self.progress_bar.setValue(progress)
+
+    def _on_tu_download_complete(
+        self, update_name: str, success: bool, filename: str, local_path: str
+    ):
+        """Handle title update download completion"""
+        self.progress_bar.setVisible(False)
+        if success:
+            self.status_manager.show_message(f"Title update installed: {update_name}")
+        else:
+            self.status_manager.show_message(
+                f"Title update installation failed: {update_name}"
+            )
+
+    def _on_tu_download_error(self, update_name: str, error_message: str):
+        """Handle title update download error"""
+        self.progress_bar.setVisible(False)
+        self.status_manager.show_message(
+            f"Title update download failed: {update_name} - {error_message}"
+        )
 
         QMessageBox.critical(
             self, "Transfer Error", f"Transfer failed:\n{error_message}"
@@ -1652,6 +1847,12 @@ class XboxBackupManager(QMainWindow):
             self.settings_manager.load_usb_target_directories()
         )
 
+        # Load USB cache directory
+        self.usb_cache_directory = self.settings_manager.load_usb_cache_directory()
+
+        # Load USB content directory
+        self.usb_content_directory = self.settings_manager.load_usb_content_directory()
+
         # Set current source directory
         if self.platform_directories[self.current_platform]:
             self.current_directory = self.platform_directories[self.current_platform]
@@ -1662,6 +1863,10 @@ class XboxBackupManager(QMainWindow):
         self.ftp_target_directories = (
             self.settings_manager.load_ftp_target_directories()
         )
+        self.ftp_cache_directory = self.settings_manager.load_ftp_cache_directory()
+        self.ftp_content_directory = self.settings_manager.load_ftp_content_directory()
+
+        self.xboxunity_settings = self.settings_manager.load_xboxunity_settings()
 
         # Set current target directory based on mode
         if self.current_mode == "ftp":
@@ -1744,6 +1949,12 @@ class XboxBackupManager(QMainWindow):
 
         # Save USB target directories
         self.settings_manager.save_usb_target_directories(self.usb_target_directories)
+
+        # Save USB cache directory
+        self.settings_manager.save_usb_cache_directory(self.usb_cache_directory)
+
+        # Save USB content directory
+        self.settings_manager.save_usb_content_directory(self.usb_content_directory)
 
         # Save FTP target directories
         self.settings_manager.save_ftp_target_directories(self.ftp_target_directories)
@@ -2422,6 +2633,12 @@ class XboxBackupManager(QMainWindow):
             lambda: SystemUtils.copy_to_clipboard(title_id)
         )
 
+        # Add "Title Updates" action
+        title_updates_action = menu.addAction("Title Updates")
+        title_updates_action.triggered.connect(
+            lambda: self._show_title_updates_dialog(folder_path, title_id)
+        )
+
         # Add separator
         menu.addSeparator()
 
@@ -2435,6 +2652,283 @@ class XboxBackupManager(QMainWindow):
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
+
+    def _show_title_updates_dialog(self, folder_path: str, title_id: str):
+        """Show dialog with title updates information"""
+        if not title_id:
+            return
+
+        # Get header path for GoD parsing
+        # Example path:
+        # {folder_path}\00007000\55892AEF852D69B4EF51
+        god_header_path = Path(folder_path) / "00007000"
+        print(f"Looking for GoD headers in: {god_header_path}")
+        header_files = list(god_header_path.glob("*"))
+        print(f"Found header files: {header_files}")
+        if not header_files:
+            QMessageBox.information(
+                self,
+                "Title Updates",
+                f"No header files found for Title ID: {title_id}",
+            )
+            return
+
+        god_header_path = str(header_files[0])
+        print(f"Using header file: {god_header_path}")
+
+        media_id = XboxUnity.get_media_id(self, god_header_path)
+
+        print(f"Media ID for Title ID {title_id}: {media_id}")
+
+        updates = self.xboxunity.search_title_updates(
+            media_id=media_id, title_id=title_id
+        )
+        if not updates:
+            QMessageBox.information(
+                self,
+                "Title Updates",
+                f"No title updates found for Title ID: {title_id}",
+            )
+            return
+
+        print(f"Found {len(updates)} updates for Title ID {title_id}")
+        print(updates)
+
+        dialog = XboxUnityTitleUpdatesDialog(self, title_id, updates)
+
+        # Connect download signals to main window progress display
+        dialog.download_started.connect(self._on_tu_download_started)
+        dialog.download_progress.connect(self._on_tu_download_progress)
+        dialog.download_complete.connect(self._on_tu_download_complete)
+        dialog.download_error.connect(self._on_tu_download_error)
+
+        dialog.exec()
+
+    def batch_download_title_updates(self):
+        """Batch download missing title updates for all games in target"""
+        from workers.batch_tu_processor import BatchTitleUpdateProcessor
+
+        # Get all games in target directory
+        target_games = self._get_all_target_games()
+
+        if not target_games:
+            QMessageBox.information(
+                self,
+                "Batch Title Updates",
+                "No games found in target directory.",
+            )
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Batch Title Updates",
+            f"This will check for missing title updates for {len(target_games)} games.\n"
+            "Only the latest missing update for each game will be downloaded.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Create progress dialog
+        self.batch_progress_dialog = QProgressDialog(
+            "Initializing batch title update download...",
+            "Cancel",
+            0,
+            len(target_games),
+            self,
+        )
+        self.batch_progress_dialog.setWindowTitle("Batch Title Updates")
+        self.batch_progress_dialog.setModal(True)
+        self.batch_progress_dialog.show()
+
+        # Create and setup worker
+        self.batch_tu_processor = BatchTitleUpdateProcessor()
+        self.batch_tu_processor.setup_batch(target_games, self.current_mode)
+
+        # Connect signals
+        self.batch_tu_processor.progress_update.connect(self._on_batch_progress)
+        self.batch_tu_processor.game_started.connect(self._on_batch_game_started)
+        self.batch_tu_processor.game_completed.connect(self._on_batch_game_completed)
+        self.batch_tu_processor.update_downloaded.connect(
+            self._on_batch_update_downloaded
+        )
+        self.batch_tu_processor.batch_complete.connect(self._on_batch_complete)
+        self.batch_tu_processor.error_occurred.connect(self._on_batch_error)
+
+        # Connect cancel button
+        self.batch_progress_dialog.canceled.connect(
+            self.batch_tu_processor.stop_processing
+        )
+        self.batch_progress_dialog.canceled.connect(self._on_batch_cancelled)
+
+        # Disable toolbar actions during batch processing
+        self.toolbar_transfer_action.setEnabled(False)
+        self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Start processing
+        self.batch_tu_processor.start()
+
+    def _get_all_target_games(self):
+        """Get all games in the target directory"""
+        games = []
+
+        if not self.current_target_directory or not os.path.exists(
+            self.current_target_directory
+        ):
+            return games
+
+        try:
+            # List all directories in the target directory
+            for item in os.listdir(self.current_target_directory):
+                item_path = os.path.join(self.current_target_directory, item)
+
+                # Only process directories
+                if os.path.isdir(item_path):
+                    folder_name = item
+                    folder_path = item_path
+
+                    # Try to get title ID and game name from the folder
+                    title_id = self._extract_title_id(folder_name, folder_path)
+                    if title_id:
+                        game_name = self._get_game_display_name(folder_name, title_id)
+                        games.append(
+                            {
+                                "name": game_name,
+                                "title_id": title_id,
+                                "folder_path": folder_path,
+                                "folder_name": folder_name,
+                            }
+                        )
+        except Exception as e:
+            print(f"[ERROR] Failed to scan target directory: {e}")
+
+        return games
+
+    def _extract_title_id(self, folder_name: str, folder_path: str):
+        """Extract title ID from folder name or path"""
+        # For Xbox 360, folder name is the title ID
+        if self.current_platform == "xbox360":
+            return folder_name.upper()
+
+        # For Xbox, need to extract from internal structure
+        elif self.current_platform == "xbox":
+            try:
+                # Look for default.xbe or header files
+                from pathlib import Path
+
+                # Check for GoD structure
+                god_header_path = Path(folder_path) / "00007000"
+                if god_header_path.exists():
+                    header_files = list(god_header_path.glob("*"))
+                    if header_files:
+                        # Extract title ID from header file name or content
+                        # This is a simplified approach - might need enhancement
+                        header_name = header_files[0].name
+                        if len(header_name) == 8:  # Title ID length
+                            return header_name.upper()
+
+                # Check for default.xbe
+                xbe_path = Path(folder_path) / "default.xbe"
+                if xbe_path.exists():
+                    # Would need to parse XBE file for title ID
+                    # For now, use folder name if it looks like a title ID
+                    if len(folder_name) == 8 and folder_name.isalnum():
+                        return folder_name.upper()
+
+            except Exception:
+                pass
+
+        return None
+
+    def _get_game_display_name(self, folder_name: str, title_id: str) -> str:
+        """Get display name for a game based on folder name and title ID"""
+        # Try to get name from loaded database
+        try:
+            if hasattr(self, "database_loader") and self.database_loader:
+                game_name = self.database_loader.title_database.get(
+                    title_id, folder_name
+                )
+                if game_name != folder_name:  # Found in database
+                    return game_name
+        except Exception:
+            pass
+
+        # Fallback to folder name
+        return folder_name
+
+    def _on_batch_progress(self, current: int, total: int):
+        """Handle batch processing progress"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.setValue(current)
+
+    def _on_batch_game_started(self, game_name: str):
+        """Handle batch game processing started"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.setLabelText(f"Processing: {game_name}")
+
+    def _on_batch_game_completed(self, game_name: str, updates_found: int):
+        """Handle batch game processing completed"""
+        return
+
+    def _on_batch_update_downloaded(self, game_name: str, version: str, file_path: str):
+        """Handle successful update download"""
+
+    def _on_batch_complete(self, total_games: int, total_updates: int):
+        """Handle batch processing completion"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.close()
+
+        # Re-enable toolbar actions
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        # Show completion message
+        QMessageBox.information(
+            self,
+            "Batch Title Updates Complete",
+            f"Processed {total_games} games.\n"
+            f"Downloaded {total_updates} title updates.\n\n"
+            f"See 'batch_tu_download_log.txt' for detailed results.",
+        )
+
+    def _on_batch_error(self, error_message: str):
+        """Handle batch processing error"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.close()
+
+        # Re-enable toolbar actions
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        QMessageBox.critical(
+            self,
+            "Batch Processing Error",
+            f"An error occurred during batch processing:\n\n{error_message}",
+        )
+
+    def _on_batch_cancelled(self):
+        """Handle batch processing cancellation"""
+        # Re-enable toolbar actions
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.status_manager.show_message("Batch title update download cancelled")
 
     def remove_game_from_target(
         self, title_id: str, game_name: str, folder_name: str = ""
@@ -2715,6 +3209,98 @@ class XboxBackupManager(QMainWindow):
         except Exception:
             return False
 
+    def _check_cache_directory_availability(self, target_path: str) -> bool:
+        """Check if cache directory is available/mounted"""
+        try:
+            if not target_path:
+                return False
+
+            # Handle FTP mode
+            if self.current_mode == "ftp":
+                ftp_client = FTPClient()
+                try:
+                    # Try to connect first
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        print(f"FTP connection failed: {message}")
+                        return False
+
+                    # Check if directory exists
+                    return ftp_client.directory_exists(target_path)
+
+                except Exception as e:
+                    print(f"FTP error checking cache directory: {e}")
+                    return False
+                finally:
+                    ftp_client.disconnect()
+            else:
+                # USB/local mode - existing logic
+                if not os.path.exists(target_path):
+                    return False
+
+                # Try to access the directory to ensure it's mounted and readable
+                try:
+                    os.listdir(target_path)
+                    return True
+                except (OSError, PermissionError):
+                    return False
+
+        except Exception:
+            return False
+
+    def _check_content_directory_availability(self, target_path: str) -> bool:
+        """Check if content directory is available/mounted"""
+        try:
+            if not target_path:
+                return False
+
+            # Handle FTP mode
+            if self.current_mode == "ftp":
+                ftp_client = FTPClient()
+                try:
+                    # Try to connect first
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        print(f"FTP connection failed: {message}")
+                        return False
+
+                    # Check if directory exists
+                    return ftp_client.directory_exists(target_path)
+
+                except Exception as e:
+                    print(f"FTP error checking cache directory: {e}")
+                    return False
+                finally:
+                    ftp_client.disconnect()
+            else:
+                # USB/local mode - existing logic
+                if not os.path.exists(target_path):
+                    return False
+
+                # Try to access the directory to ensure it's mounted and readable
+                try:
+                    os.listdir(target_path)
+                    return True
+                except (OSError, PermissionError):
+                    return False
+
+        except Exception:
+            return False
+
     def _handle_unavailable_target_directory(self, target_path: str):
         """Handle when target directory is not available on startup"""
         platform_name = self.platform_names[self.current_platform]
@@ -2876,6 +3462,14 @@ class XboxBackupManager(QMainWindow):
             self.settings_manager.save_ftp_settings(self.ftp_settings)
             self.status_manager.show_message("FTP settings saved")
 
+    def show_xboxunity_settings(self):
+        """Show XboxUnity settings dialog"""
+        dialog = XboxUnitySettingsDialog(self, self.xboxunity_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.xboxunity_settings = dialog.get_settings()
+            self.settings_manager.save_xboxunity_settings(self.xboxunity_settings)
+            self.status_manager.show_message("XboxUnity settings saved")
+
     def browse_ftp_target_directory(self):
         """Browse FTP server for target directory"""
         if not self.ftp_settings or not self.ftp_settings.get("host"):
@@ -2902,6 +3496,52 @@ class XboxBackupManager(QMainWindow):
 
             self.status_manager.show_message(
                 f"FTP target directory set: {selected_path}"
+            )
+
+    def browse_ftp_cache_directory(self):
+        """Browse FTP server for cache directory"""
+        if not self.ftp_settings or not self.ftp_settings.get("host"):
+            QMessageBox.warning(
+                self,
+                "FTP Settings Required",
+                "Please configure FTP settings first (File → FTP Settings).",
+            )
+            self.show_ftp_settings()
+            return
+
+        dialog = FTPBrowserDialog(self, self.ftp_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_path = dialog.get_selected_path()
+            self.ftp_cache_directory = selected_path
+            self.current_cache_directory = selected_path
+
+            self.settings_manager.save_ftp_cache_directory(self.ftp_cache_directory)
+
+            self.status_manager.show_message(
+                f"FTP cache directory set: {selected_path}"
+            )
+
+    def browse_ftp_content_directory(self):
+        """Browse FTP server for content directory"""
+        if not self.ftp_settings or not self.ftp_settings.get("host"):
+            QMessageBox.warning(
+                self,
+                "FTP Settings Required",
+                "Please configure FTP settings first (File → FTP Settings).",
+            )
+            self.show_ftp_settings()
+            return
+
+        dialog = FTPBrowserDialog(self, self.ftp_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_path = dialog.get_selected_path()
+            self.ftp_content_directory = selected_path
+            self.current_content_directory = selected_path
+
+            self.settings_manager.save_ftp_content_directory(self.ftp_content_directory)
+
+            self.status_manager.show_message(
+                f"FTP content directory set: {selected_path}"
             )
 
     def browse_for_iso(self):
@@ -3482,7 +4122,7 @@ class XboxBackupManager(QMainWindow):
         god_process = QProcess(self)
         god_process.setProgram("iso2god-x86_64-windows.exe")
 
-        god_process.setArguments([iso_path, dest_dir])
+        god_process.setArguments(["--trim", iso_path, dest_dir])
 
         # Connect appropriate finished handler based on batch mode
         if hasattr(self, "current_god_batch"):
@@ -3554,15 +4194,17 @@ class XboxBackupManager(QMainWindow):
         """Check for required executables and set up watchers"""
         self.extract_xiso_path = os.path.join(os.getcwd(), "extract-xiso.exe")
         self.iso2god_path = os.path.join(os.getcwd(), "iso2god-x86_64-windows.exe")
+        self.xextool_path = os.path.join(os.getcwd(), "XexTool.exe")
 
         self.extract_xiso_found = os.path.exists(self.extract_xiso_path)
         self.iso2god_found = os.path.exists(self.iso2god_path)
+        self.xextool_found = os.path.exists(self.xextool_path)
 
         # Update status bar
         self._update_tools_status()
 
-        # If both tools are found, no need for dialog
-        if self.extract_xiso_found and self.iso2god_found:
+        # If all tools are found, no need for dialog
+        if self.extract_xiso_found and self.iso2god_found and self.xextool_found:
             return
 
         # Set up file system watchers
@@ -3575,18 +4217,24 @@ class XboxBackupManager(QMainWindow):
         """Update status bar with tools status"""
         extract_status = "✔️" if self.extract_xiso_found else "❌"
         iso2god_status = "✔️" if self.iso2god_found else "❌"
+        xextool_status = "✔️" if self.xextool_found else "❌"
 
         # Update download button
         if self.extract_xiso_found:
             xiso_button = self.findChild(QPushButton, "extract_xiso_download_button")
             if xiso_button:
                 xiso_button.setEnabled(False)
-                xiso_button.setText("✔️ Downloaded")
         if self.iso2god_found:
             iso2god_button = self.findChild(QPushButton, "iso2god_download_button")
             if iso2god_button:
                 iso2god_button.setEnabled(False)
                 iso2god_button.setText("✔️ Downloaded")
+                xiso_button.setText("✔️ Downloaded")
+        if self.xextool_found:
+            xextool_button = self.findChild(QPushButton, "xextool_download_button")
+            if xextool_button:
+                xextool_button.setEnabled(False)
+                xextool_button.setText("✔️ Downloaded")
 
         # If both tools are now found, close the dialog and update status bar
         if self.extract_xiso_found and self.iso2god_found:
@@ -3597,7 +4245,7 @@ class XboxBackupManager(QMainWindow):
             self.status_manager.show_message("✔️ Required tools are ready for use")
             return
 
-        status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status}"
+        status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status} | xextool: {xextool_status}"
         self.status_manager.show_message(status_text)
 
     def _show_tools_download_dialog(self):
@@ -3645,11 +4293,40 @@ class XboxBackupManager(QMainWindow):
             iso2god_layout.addWidget(iso2god_button)
             layout.addLayout(iso2god_layout)
 
+        # XexTool download
+        if not self.xextool_found:
+            api_url = "https://api.github.com/repos/mLoaDs/XexTool/releases/latest"
+            try:
+                response = requests.get(api_url, timeout=5)
+                response.raise_for_status()
+                release_info = response.json()
+                assets = release_info.get("assets", [])
+                download_url = None
+                for asset in assets:
+                    if asset.get("name", "").endswith(".zip"):
+                        download_url = asset.get("browser_download_url")
+                        break
+                if not download_url:
+                    download_url = "https://github.com/mLoaDs/XexTool/releases/download/v6.6/xextool_v6.6.zip"
+
+                xextool_layout = QHBoxLayout()
+                xextool_label = QLabel("XexTool.exe:")
+                xextool_button = QPushButton("Download")
+                xextool_button.setObjectName("xextool_download_button")
+                xextool_button.clicked.connect(
+                    lambda: QDesktopServices.openUrl(QUrl(download_url))
+                )
+                xextool_layout.addWidget(xextool_label)
+                xextool_layout.addWidget(xextool_button)
+                layout.addLayout(xextool_layout)
+            except requests.RequestException as e:
+                print(f"Error fetching XexTool download URL: {e}")
+
         instructions = QLabel(
             "After downloading:\n"
             "• Place files next to the application executable or your Downloads folder\n"
             "• The app will automatically detect and move them if required\n"
-            "• extract-xiso will be extracted from the ZIP automatically"
+            "• extract-xiso and XexTool will be extracted from the ZIP automatically"
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
@@ -3718,6 +4395,21 @@ class XboxBackupManager(QMainWindow):
                         self.iso2god_found = True
                         self._update_tools_status()
 
+                # Handle XexTool ZIP
+                elif (
+                    filename.startswith("xextool_v")
+                    and filename.endswith(".zip")
+                    and not self.xextool_found
+                ):
+                    if is_downloads:
+                        # Move ZIP to current directory
+                        dest_path = os.path.join(os.getcwd(), filename)
+                        shutil.move(file_path, dest_path)
+                        self._extract_xextool_zip(dest_path)
+                    else:
+                        # Already in current directory, extract it
+                        self._extract_xextool_zip(file_path)
+
         except Exception as e:
             print(f"Error handling file change: {e}")
 
@@ -3742,6 +4434,28 @@ class XboxBackupManager(QMainWindow):
 
         except Exception as e:
             print(f"Error extracting extract-xiso: {e}")
+
+    def _extract_xextool_zip(self, zip_path):
+        """Extract XexTool.exe from the ZIP file"""
+        try:
+            extracted = False
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                # Look for the exe file in the ZIP
+                for zip_info in zip_ref.infolist():
+                    if zip_info.filename.endswith("xextool.exe"):
+                        zip_info.filename = os.path.basename(zip_info.filename)
+                        zip_ref.extract(zip_info, os.getcwd())
+                        extracted = True
+                        break
+
+            if extracted:
+                self.xextool_found = True
+                self._update_tools_status()
+
+                os.remove(zip_path)
+
+        except Exception as e:
+            print(f"Error extracting XexTool: {e}")
 
     def _test_ftp_connection_for_switch(self):
         """Test FTP connection before switching modes"""
