@@ -111,10 +111,14 @@ class XboxBackupManager(QMainWindow):
         self.games: List[GameInfo] = []
         self.current_directory = ""
         self.current_target_directory = ""
+        self.current_cache_directory = ""
+        self.current_content_directory = ""
         self.current_mode = "usb"
         self.current_platform = "xbox360"  # Default platform
         self.platform_directories = {"xbox": "", "xbox360": "", "xbla": ""}
         self.usb_target_directories = {"xbox": "", "xbox360": "", "xbla": ""}
+        self.usb_cache_directory = ""
+        self.usb_content_directory = ""
         self.platform_names = {
             "xbox": "Xbox",
             "xbox360": "Xbox 360",
@@ -431,6 +435,7 @@ class XboxBackupManager(QMainWindow):
         """Create the File menu"""
         file_menu = menubar.addMenu("&File")
 
+        # Set Source directory action
         self.browse_action = QAction("&Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
         self.browse_action.setIcon(
@@ -439,6 +444,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
 
+        # Set Target directory action
         self.browse_target_action = QAction("&Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.setIcon(
@@ -446,6 +452,26 @@ class XboxBackupManager(QMainWindow):
         )
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
+
+        # Set Cache directory action
+        self.browse_cache_action = QAction("&Set Cache Directory...", self)
+        self.browse_cache_action.setShortcut("Ctrl+K")
+        self.browse_cache_action.setIcon(
+            qta.icon("fa6s.folder-open", color=self.normal_color)
+        )
+        self.browse_cache_action.setEnabled(True)
+        self.browse_cache_action.triggered.connect(self.browse_cache_directory)
+        file_menu.addAction(self.browse_cache_action)
+
+        # Set Content directory action
+        self.browse_content_action = QAction("&Set Content Directory...", self)
+        self.browse_content_action.setShortcut("Ctrl+N")
+        self.browse_content_action.setIcon(
+            qta.icon("fa6s.folder-open", color=self.normal_color)
+        )
+        self.browse_content_action.setEnabled(True)
+        self.browse_content_action.triggered.connect(self.browse_content_directory)
+        file_menu.addAction(self.browse_content_action)
 
         file_menu.addSeparator()
 
@@ -813,6 +839,102 @@ class XboxBackupManager(QMainWindow):
 
                 # Now rescan to update transferred state
                 self._rescan_transferred_state()
+            else:
+                # Selected directory is not accessible
+                QMessageBox.warning(
+                    self,
+                    "Directory Not Accessible",
+                    f"The selected directory is not accessible:\n{normalized_directory}\n\n"
+                    "Please ensure the device is properly connected and try again.",
+                )
+                self.status_manager.show_message(
+                    "Selected directory is not accessible", 5000
+                )
+
+    def browse_cache_directory(self):
+        """Open cache directory selection dialog"""
+        if self.current_mode == "ftp":
+            self.browse_ftp_cache_directory()
+            return
+
+        # Start at existing cache directory if set, if not target directory, else home
+        start_dir = (
+            self.usb_cache_directory
+            if self.usb_cache_directory and os.path.exists(self.usb_cache_directory)
+            else (
+                self.current_target_directory
+                if self.current_target_directory
+                and os.path.exists(self.current_target_directory)
+                else os.path.expanduser("~")
+            )
+        )
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select Cache Directory",
+            start_dir,
+        )
+
+        if directory:
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            # Verify the selected directory is accessible
+            if self._check_cache_directory_availability(normalized_directory):
+                self.current_cache_directory = normalized_directory
+                self.usb_cache_directory = normalized_directory
+
+                self.status_manager.show_message(
+                    f"Selected cache directory: {normalized_directory}"
+                )
+            else:
+                # Selected directory is not accessible
+                QMessageBox.warning(
+                    self,
+                    "Directory Not Accessible",
+                    f"The selected directory is not accessible:\n{normalized_directory}\n\n"
+                    "Please ensure the device is properly connected and try again.",
+                )
+                self.status_manager.show_message(
+                    "Selected directory is not accessible", 5000
+                )
+
+    def browse_content_directory(self):
+        """Open content directory selection dialog"""
+        if self.current_mode == "ftp":
+            self.browse_ftp_content_directory()
+            return
+
+        # Start at existing content directory if set, if not target directory, else home
+        start_dir = (
+            self.usb_content_directory
+            if self.usb_content_directory and os.path.exists(self.usb_content_directory)
+            else (
+                self.current_target_directory
+                if self.current_target_directory
+                and os.path.exists(self.current_target_directory)
+                else os.path.expanduser("~")
+            )
+        )
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select Content Directory",
+            start_dir,
+        )
+
+        if directory:
+            # Normalize the path for consistent display and usage
+            normalized_directory = os.path.normpath(directory)
+
+            # Verify the selected directory is accessible
+            if self._check_content_directory_availability(normalized_directory):
+                self.current_content_directory = normalized_directory
+                self.usb_content_directory = normalized_directory
+
+                self.status_manager.show_message(
+                    f"Selected content directory: {normalized_directory}"
+                )
             else:
                 # Selected directory is not accessible
                 QMessageBox.warning(
@@ -1671,6 +1793,12 @@ class XboxBackupManager(QMainWindow):
             self.settings_manager.load_usb_target_directories()
         )
 
+        # Load USB cache directory
+        self.usb_cache_directory = self.settings_manager.load_usb_cache_directory()
+
+        # Load USB content directory
+        self.usb_content_directory = self.settings_manager.load_usb_content_directory()
+
         # Set current source directory
         if self.platform_directories[self.current_platform]:
             self.current_directory = self.platform_directories[self.current_platform]
@@ -1681,6 +1809,8 @@ class XboxBackupManager(QMainWindow):
         self.ftp_target_directories = (
             self.settings_manager.load_ftp_target_directories()
         )
+        self.ftp_cache_directory = self.settings_manager.load_ftp_cache_directory()
+        self.ftp_content_directory = self.settings_manager.load_ftp_content_directory()
 
         self.xboxunity_settings = self.settings_manager.load_xboxunity_settings()
 
@@ -1765,6 +1895,12 @@ class XboxBackupManager(QMainWindow):
 
         # Save USB target directories
         self.settings_manager.save_usb_target_directories(self.usb_target_directories)
+
+        # Save USB cache directory
+        self.settings_manager.save_usb_cache_directory(self.usb_cache_directory)
+
+        # Save USB content directory
+        self.settings_manager.save_usb_content_directory(self.usb_content_directory)
 
         # Save FTP target directories
         self.settings_manager.save_ftp_target_directories(self.ftp_target_directories)
@@ -2786,6 +2922,98 @@ class XboxBackupManager(QMainWindow):
         except Exception:
             return False
 
+    def _check_cache_directory_availability(self, target_path: str) -> bool:
+        """Check if cache directory is available/mounted"""
+        try:
+            if not target_path:
+                return False
+
+            # Handle FTP mode
+            if self.current_mode == "ftp":
+                ftp_client = FTPClient()
+                try:
+                    # Try to connect first
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        print(f"FTP connection failed: {message}")
+                        return False
+
+                    # Check if directory exists
+                    return ftp_client.directory_exists(target_path)
+
+                except Exception as e:
+                    print(f"FTP error checking cache directory: {e}")
+                    return False
+                finally:
+                    ftp_client.disconnect()
+            else:
+                # USB/local mode - existing logic
+                if not os.path.exists(target_path):
+                    return False
+
+                # Try to access the directory to ensure it's mounted and readable
+                try:
+                    os.listdir(target_path)
+                    return True
+                except (OSError, PermissionError):
+                    return False
+
+        except Exception:
+            return False
+
+    def _check_content_directory_availability(self, target_path: str) -> bool:
+        """Check if content directory is available/mounted"""
+        try:
+            if not target_path:
+                return False
+
+            # Handle FTP mode
+            if self.current_mode == "ftp":
+                ftp_client = FTPClient()
+                try:
+                    # Try to connect first
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        print(f"FTP connection failed: {message}")
+                        return False
+
+                    # Check if directory exists
+                    return ftp_client.directory_exists(target_path)
+
+                except Exception as e:
+                    print(f"FTP error checking cache directory: {e}")
+                    return False
+                finally:
+                    ftp_client.disconnect()
+            else:
+                # USB/local mode - existing logic
+                if not os.path.exists(target_path):
+                    return False
+
+                # Try to access the directory to ensure it's mounted and readable
+                try:
+                    os.listdir(target_path)
+                    return True
+                except (OSError, PermissionError):
+                    return False
+
+        except Exception:
+            return False
+
     def _handle_unavailable_target_directory(self, target_path: str):
         """Handle when target directory is not available on startup"""
         platform_name = self.platform_names[self.current_platform]
@@ -2981,6 +3209,52 @@ class XboxBackupManager(QMainWindow):
 
             self.status_manager.show_message(
                 f"FTP target directory set: {selected_path}"
+            )
+
+    def browse_ftp_cache_directory(self):
+        """Browse FTP server for cache directory"""
+        if not self.ftp_settings or not self.ftp_settings.get("host"):
+            QMessageBox.warning(
+                self,
+                "FTP Settings Required",
+                "Please configure FTP settings first (File → FTP Settings).",
+            )
+            self.show_ftp_settings()
+            return
+
+        dialog = FTPBrowserDialog(self, self.ftp_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_path = dialog.get_selected_path()
+            self.ftp_cache_directory = selected_path
+            self.current_cache_directory = selected_path
+
+            self.settings_manager.save_ftp_cache_directory(self.ftp_cache_directory)
+
+            self.status_manager.show_message(
+                f"FTP cache directory set: {selected_path}"
+            )
+
+    def browse_ftp_content_directory(self):
+        """Browse FTP server for content directory"""
+        if not self.ftp_settings or not self.ftp_settings.get("host"):
+            QMessageBox.warning(
+                self,
+                "FTP Settings Required",
+                "Please configure FTP settings first (File → FTP Settings).",
+            )
+            self.show_ftp_settings()
+            return
+
+        dialog = FTPBrowserDialog(self, self.ftp_settings)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_path = dialog.get_selected_path()
+            self.ftp_content_directory = selected_path
+            self.current_content_directory = selected_path
+
+            self.settings_manager.save_ftp_content_directory(self.ftp_content_directory)
+
+            self.status_manager.show_message(
+                f"FTP content directory set: {selected_path}"
             )
 
     def browse_for_iso(self):

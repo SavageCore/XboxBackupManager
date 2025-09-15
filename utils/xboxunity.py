@@ -1,10 +1,13 @@
 import os
 import re
+import shutil
 import struct
 import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
+
+from utils.settings_manager import SettingsManager
 
 # API Configuration
 BASE_URL = "https://xboxunity.net/Api"
@@ -32,6 +35,7 @@ class XboxUnity:
 
     def __init__(self):
         self.session = _session
+        self.settings_manager = SettingsManager()
 
     @staticmethod
     def test_connectivity() -> bool:
@@ -404,6 +408,10 @@ class XboxUnity:
             Tuple[bool, Optional[str]]: (Success status, Original filename)
         """
         try:
+            # Skip download if file already exists
+            if os.path.isfile(destination):
+                print(f"[INFO] File already exists, skipping download: {destination}")
+                return True, os.path.basename(destination)
             print(f"[INFO] Downloading from: {url}")
 
             headers = {
@@ -469,7 +477,50 @@ class XboxUnity:
             print(f"[ERROR] Unexpected error downloading TU: {e}")
             return False, None
 
-    def install_title_update(self, tu_path: str) -> bool:
+    def get_title_update_information(self, url: str) -> Optional[dict]:
+        """
+        Return a dict of the original filename of a title update and the size from its download URL.
+
+        Args:
+            url (str): Download URL
+        Returns:
+            Optional[dict]: Original filename and size if found, None otherwise
+        """
+
+        try:
+            print(f"[INFO] Fetching information from URL: {url}")
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Referer": "https://xboxunity.net/",
+            }
+
+            response = _session.head(url, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                print(f"[ERROR] Error fetching headers: {response.status_code}")
+                return None
+
+            size = int(response.headers.get("content-length", 0))
+            original_filename = None
+
+            content_disposition = response.headers.get("content-disposition", "")
+            if content_disposition:
+                original_filename = self._extract_filename_from_headers(
+                    content_disposition
+                )
+
+            return {"fileName": original_filename, "size": size}
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Network error fetching filename: {e}")
+            return None
+        except Exception as e:
+            print(f"[ERROR] Unexpected error fetching filename: {e}")
+            return None
+
+    def install_title_update(self, tu_path: str, title_id: str = None) -> bool:
         """
         Install a title update
 
@@ -490,8 +541,36 @@ class XboxUnity:
             print(
                 "[INFO] Detected lowercase TU filename - installing to Content folder"
             )
+            # Move to Content folder
+            # Example path: Hdd1/Content/0000000000000000/{TITLE_ID}/000B0000
+            content_folder = self.settings_manager.load_usb_content_directory()
+            if content_folder:
+                # Ensure we're set to Content/0000000000000000/, user probably just choose Content folder so we need to append the 16 zeros part
+                if not content_folder.endswith("0000000000000000"):
+                    content_folder = os.path.join(content_folder, "0000000000000000")
+                destination = os.path.join(content_folder, title_id, "000B0000")
+
+                # The folder may not exist yet, so create it
+                os.makedirs(destination, exist_ok=True)
+
+                print(f"[INFO] Moving TU to Content folder: {destination}")
+                shutil.move(tu_path, destination)
+                return True
+            else:
+                print("[ERROR] Content folder not found in settings.")
+                return False
         elif filename.isupper():
             print("[INFO] Detected uppercase TU filename - installing to Cache folder")
+            # Move to Cache folder
+            cache_folder = self.settings_manager.load_usb_cache_directory()
+            if cache_folder:
+                destination = os.path.join(cache_folder, filename)
+                print(f"[INFO] Moving TU to Cache folder: {destination}")
+                shutil.move(tu_path, destination)
+                return True
+            else:
+                print("[ERROR] Cache folder not found in settings.")
+                return False
 
     def get_media_id(self, god_header_path):
         try:
