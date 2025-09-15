@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QProgressBar,
+    QProgressDialog,
     QPushButton,
     QStyle,
     QStyleOptionButton,
@@ -299,11 +300,26 @@ class XboxBackupManager(QMainWindow):
         self.toolbar_remove_action.setEnabled(False)
         toolbar.addAction(self.toolbar_remove_action)
 
+        # Batch Title Updater
+        self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
+        self.toolbar_batch_tu_action.setIcon(
+            qta.icon("fa6s.download", color=self.normal_color)
+        )
+        self.toolbar_batch_tu_action.setToolTip(
+            "Download missing title updates for all transferred games"
+        )
+        self.toolbar_batch_tu_action.triggered.connect(
+            self.batch_download_title_updates
+        )
+        self.toolbar_batch_tu_action.setEnabled(False)
+        toolbar.addAction(self.toolbar_batch_tu_action)
+
         # Store references for icon updates
         self.toolbar_actions = [
             self.toolbar_scan_action,
             self.toolbar_transfer_action,
             self.toolbar_remove_action,
+            self.toolbar_batch_tu_action,
         ]
 
     def create_top_section(self, main_layout):
@@ -990,9 +1006,11 @@ class XboxBackupManager(QMainWindow):
 
         is_enabled = has_games and has_target and has_selected
 
-        # Update both toolbar actions
+        # Update toolbar actions
         self.toolbar_transfer_action.setEnabled(is_enabled)
         self.toolbar_remove_action.setEnabled(is_enabled)
+        # Enable batch TU when we have games and target (regardless of selection)
+        self.toolbar_batch_tu_action.setEnabled(has_games and has_target)
 
     def _get_selected_games_count(self):
         """Get count of selected games (checked in checkbox column)"""
@@ -1176,6 +1194,7 @@ class XboxBackupManager(QMainWindow):
         # Disable UI elements during transfer
         self.toolbar_transfer_action.setEnabled(False)
         self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
@@ -1282,6 +1301,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1376,6 +1396,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -1396,6 +1417,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
         self.browse_action.setEnabled(True)
         self.browse_target_action.setEnabled(True)
 
@@ -2681,6 +2703,232 @@ class XboxBackupManager(QMainWindow):
         dialog.download_error.connect(self._on_tu_download_error)
 
         dialog.exec()
+
+    def batch_download_title_updates(self):
+        """Batch download missing title updates for all games in target"""
+        from workers.batch_tu_processor import BatchTitleUpdateProcessor
+
+        # Get all games in target directory
+        target_games = self._get_all_target_games()
+
+        if not target_games:
+            QMessageBox.information(
+                self,
+                "Batch Title Updates",
+                "No games found in target directory.",
+            )
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Batch Title Updates",
+            f"This will check for missing title updates for {len(target_games)} games.\n"
+            "Only the latest missing update for each game will be downloaded.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Create progress dialog
+        self.batch_progress_dialog = QProgressDialog(
+            "Initializing batch title update download...",
+            "Cancel",
+            0,
+            len(target_games),
+            self,
+        )
+        self.batch_progress_dialog.setWindowTitle("Batch Title Updates")
+        self.batch_progress_dialog.setModal(True)
+        self.batch_progress_dialog.show()
+
+        # Create and setup worker
+        self.batch_tu_processor = BatchTitleUpdateProcessor()
+        self.batch_tu_processor.setup_batch(target_games, self.current_mode)
+
+        # Connect signals
+        self.batch_tu_processor.progress_update.connect(self._on_batch_progress)
+        self.batch_tu_processor.game_started.connect(self._on_batch_game_started)
+        self.batch_tu_processor.game_completed.connect(self._on_batch_game_completed)
+        self.batch_tu_processor.update_downloaded.connect(
+            self._on_batch_update_downloaded
+        )
+        self.batch_tu_processor.batch_complete.connect(self._on_batch_complete)
+        self.batch_tu_processor.error_occurred.connect(self._on_batch_error)
+
+        # Connect cancel button
+        self.batch_progress_dialog.canceled.connect(
+            self.batch_tu_processor.stop_processing
+        )
+        self.batch_progress_dialog.canceled.connect(self._on_batch_cancelled)
+
+        # Disable toolbar actions during batch processing
+        self.toolbar_transfer_action.setEnabled(False)
+        self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Start processing
+        self.batch_tu_processor.start()
+
+    def _get_all_target_games(self):
+        """Get all games in the target directory"""
+        games = []
+
+        if not self.current_target_directory or not os.path.exists(
+            self.current_target_directory
+        ):
+            return games
+
+        try:
+            # List all directories in the target directory
+            for item in os.listdir(self.current_target_directory):
+                item_path = os.path.join(self.current_target_directory, item)
+
+                # Only process directories
+                if os.path.isdir(item_path):
+                    folder_name = item
+                    folder_path = item_path
+
+                    # Try to get title ID and game name from the folder
+                    title_id = self._extract_title_id(folder_name, folder_path)
+                    if title_id:
+                        game_name = self._get_game_display_name(folder_name, title_id)
+                        games.append(
+                            {
+                                "name": game_name,
+                                "title_id": title_id,
+                                "folder_path": folder_path,
+                                "folder_name": folder_name,
+                            }
+                        )
+        except Exception as e:
+            print(f"[ERROR] Failed to scan target directory: {e}")
+
+        return games
+
+    def _extract_title_id(self, folder_name: str, folder_path: str):
+        """Extract title ID from folder name or path"""
+        # For Xbox 360, folder name is the title ID
+        if self.current_platform == "xbox360":
+            return folder_name.upper()
+
+        # For Xbox, need to extract from internal structure
+        elif self.current_platform == "xbox":
+            try:
+                # Look for default.xbe or header files
+                from pathlib import Path
+
+                # Check for GoD structure
+                god_header_path = Path(folder_path) / "00007000"
+                if god_header_path.exists():
+                    header_files = list(god_header_path.glob("*"))
+                    if header_files:
+                        # Extract title ID from header file name or content
+                        # This is a simplified approach - might need enhancement
+                        header_name = header_files[0].name
+                        if len(header_name) == 8:  # Title ID length
+                            return header_name.upper()
+
+                # Check for default.xbe
+                xbe_path = Path(folder_path) / "default.xbe"
+                if xbe_path.exists():
+                    # Would need to parse XBE file for title ID
+                    # For now, use folder name if it looks like a title ID
+                    if len(folder_name) == 8 and folder_name.isalnum():
+                        return folder_name.upper()
+
+            except Exception:
+                pass
+
+        return None
+
+    def _get_game_display_name(self, folder_name: str, title_id: str) -> str:
+        """Get display name for a game based on folder name and title ID"""
+        # Try to get name from loaded database
+        try:
+            if hasattr(self, "database_loader") and self.database_loader:
+                game_name = self.database_loader.title_database.get(
+                    title_id, folder_name
+                )
+                if game_name != folder_name:  # Found in database
+                    return game_name
+        except Exception:
+            pass
+
+        # Fallback to folder name
+        return folder_name
+
+    def _on_batch_progress(self, current: int, total: int):
+        """Handle batch processing progress"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.setValue(current)
+
+    def _on_batch_game_started(self, game_name: str):
+        """Handle batch game processing started"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.setLabelText(f"Processing: {game_name}")
+
+    def _on_batch_game_completed(self, game_name: str, updates_found: int):
+        """Handle batch game processing completed"""
+        return
+
+    def _on_batch_update_downloaded(self, game_name: str, version: str, file_path: str):
+        """Handle successful update download"""
+
+    def _on_batch_complete(self, total_games: int, total_updates: int):
+        """Handle batch processing completion"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.close()
+
+        # Re-enable toolbar actions
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        # Show completion message
+        QMessageBox.information(
+            self,
+            "Batch Title Updates Complete",
+            f"Processed {total_games} games.\n"
+            f"Downloaded {total_updates} title updates.\n\n"
+            f"See 'batch_tu_download_log.txt' for detailed results.",
+        )
+
+    def _on_batch_error(self, error_message: str):
+        """Handle batch processing error"""
+        if hasattr(self, "batch_progress_dialog"):
+            self.batch_progress_dialog.close()
+
+        # Re-enable toolbar actions
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        QMessageBox.critical(
+            self,
+            "Batch Processing Error",
+            f"An error occurred during batch processing:\n\n{error_message}",
+        )
+
+    def _on_batch_cancelled(self):
+        """Handle batch processing cancellation"""
+        # Re-enable toolbar actions
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.status_manager.show_message("Batch title update download cancelled")
 
     def remove_game_from_target(
         self, title_id: str, game_name: str, folder_name: str = ""

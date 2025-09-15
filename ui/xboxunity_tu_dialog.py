@@ -158,11 +158,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             # Try to create the directory
             success, message = ftp_client.create_directory(current_path)
             if success:
-                print(f"[INFO] Created FTP directory: {current_path}")
-            elif (
-                "already exists" in message.lower() or "file exists" in message.lower()
-            ):
-                print(f"[DEBUG] FTP directory already exists: {current_path}")
+                return True
             else:
                 print(
                     f"[ERROR] Failed to create FTP directory {current_path}: {message}"
@@ -173,10 +169,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _is_title_update_installed(self, title_id: str, update) -> bool:
         """Check if a title update is installed by looking in Content and Cache folders"""
-        print(
-            f"[INFO] Checking if title update {update.get('fileName')} is installed..."
-        )
-
         if self.current_mode == "ftp":
             return self._is_title_update_installed_ftp(title_id, update)
         else:
@@ -200,7 +192,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
         title_update_info = update.get("cached_info")
         if not title_update_info:
-            print("[INFO] No cached title update info available.")
             return False
 
         for base_path in possible_paths:
@@ -214,9 +205,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                         ) == title_update_info.get(
                             "size", 0
                         ):
-                            print(
-                                f"[INFO] Found installed title update file: {file} in {root}"
-                            )
                             return True
         return False
 
@@ -240,7 +228,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
             title_update_info = update.get("cached_info")
             if not title_update_info:
-                print("[INFO] No cached title update info available.")
                 return False
 
             expected_filename = title_update_info.get("fileName", "")
@@ -258,9 +245,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                         filename.upper() == expected_filename.upper()
                         and file_size == expected_size
                     ):
-                        print(
-                            f"[INFO] Found installed title update file: {filename} at {file_path} (size: {file_size})"
-                        )
                         return True
 
             return False
@@ -310,7 +294,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
         title_update_info = update.get("cached_info")
         if not title_update_info:
-            print("[INFO] No cached title update info available.")
             return
 
         for base_path in possible_paths:
@@ -327,9 +310,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                             try:
                                 os.remove(os.path.join(root, file))
                                 removed_files.append(os.path.join(root, file))
-                                print(
-                                    f"[INFO] Removed file: {os.path.join(root, file)}"
-                                )
                             except Exception as e:
                                 print(f"Error removing file {file}: {e}")
 
@@ -378,7 +358,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
             title_update_info = update.get("cached_info")
             if not title_update_info:
-                print("[INFO] No cached title update info available.")
                 return
 
             expected_filename = title_update_info.get("fileName", "")
@@ -395,7 +374,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                         success, message = ftp_client.remove_file(file_path)
                         if success:
                             removed_files.append(file_path)
-                            print(f"[INFO] Removed file: {file_path}")
                         else:
                             print(
                                 f"[ERROR] Failed to remove file {file_path}: {message}"
@@ -431,9 +409,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         try:
             # Determine destination based on filename case (same logic as USB)
             if filename.islower():
-                print(
-                    "[INFO] Detected lowercase TU filename - installing to Content folder"
-                )
                 content_folder = self.settings_manager.load_ftp_content_directory()
                 if content_folder:
                     if not content_folder.endswith("0000000000000000"):
@@ -443,9 +418,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     print("[ERROR] FTP Content folder not configured")
                     return False
             elif filename.isupper():
-                print(
-                    "[INFO] Detected uppercase TU filename - installing to Cache folder"
-                )
                 cache_folder = self.settings_manager.load_ftp_cache_directory()
                 if cache_folder:
                     remote_path = f"{cache_folder}/{filename}"
@@ -463,17 +435,12 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             self._create_ftp_directory_recursive(ftp_client, remote_dir)
 
             # Upload the file
-            print(f"[INFO] Uploading TU to FTP: {remote_path}")
-
-            # Use the FTP client's built-in upload method if available
-            # If not, we'll need to implement manual upload
             try:
                 # Manual FTP upload since our FTPClient doesn't have upload method exposed
                 with open(local_tu_path, "rb") as f:
                     # Get the internal FTP connection
                     if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
                         ftp_client._ftp.storbinary(f"STOR {remote_path}", f)
-                        print(f"[INFO] Successfully uploaded TU to FTP: {remote_path}")
                         return True
                     else:
                         print("[ERROR] FTP connection not available")

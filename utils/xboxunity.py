@@ -46,11 +46,9 @@ class XboxUnity:
             bool: True if connection successful, False otherwise
         """
         try:
-            print("[INFO] Testing connectivity with XboxUnity...")
             response = _session.get("https://xboxunity.net", timeout=10)
 
             if response.status_code == 200:
-                print("[INFO] Connectivity with XboxUnity: OK")
                 return True, None
             else:
                 print(f"[ERROR] XboxUnity responded with code: {response.status_code}")
@@ -80,17 +78,12 @@ class XboxUnity:
         data = {"username": username, "password": password}
 
         try:
-            print(f"[INFO] Attempting to connect to XboxUnity: {url}")
             response = _session.post(url, data=data, headers=headers, timeout=30)
-            print(f"[INFO] Server response: {response.status_code}")
 
             if response.status_code == 200:
                 try:
                     json_data = response.json()
-                    print(f"[INFO] JSON response received: {json_data}")
-
                     if "token" in json_data:
-                        print("[INFO] Token obtained successfully")
                         return json_data["token"]
                     else:
                         print("[ERROR] Token not found in response")
@@ -130,10 +123,6 @@ class XboxUnity:
             List of title update information dictionaries
         """
         title_updates = []
-        print("[INFO] Response type 1 - with MediaIDS")
-
-        if media_id:
-            print(f"[INFO] Filtering TUs only for specific MediaID: {media_id}")
 
         for media_item in data.get("MediaIDS", []):
             item_media_id = media_item.get("MediaID", "")
@@ -141,14 +130,7 @@ class XboxUnity:
 
             # Filter by Media ID if specified
             if media_id and item_media_id != media_id:
-                print(
-                    f"[INFO] Skipping MediaID {item_media_id} (doesn't match {media_id})"
-                )
                 continue
-
-            print(
-                f"[INFO] Processing MediaID: {item_media_id} ({len(updates)} updates)"
-            )
 
             for update in updates:
                 title_updates.append(
@@ -172,16 +154,11 @@ class XboxUnity:
             List of title update information dictionaries
         """
         title_updates = []
-        print("[INFO] Response type 2 - with direct Updates")
-
         for update in data.get("Updates", []):
             update_media_id = update.get("MediaID", "")
 
             # Filter by Media ID if specified
             if media_id and update_media_id != media_id:
-                print(
-                    f"[INFO] Skipping TU with MediaID {update_media_id} (doesn't match {media_id})"
-                )
                 continue
 
             title_updates.append(
@@ -221,11 +198,6 @@ class XboxUnity:
             "baseVersion": update.get("BaseVersion", ""),
         }
 
-        print(
-            f"[INFO] TU found: {title_update_info['fileName']} "
-            f"(MediaID: {title_update_info['mediaId']}, Version: {title_update_info['version']})"
-        )
-
         return title_update_info
 
     def search_title_updates_with_real_endpoint(
@@ -248,10 +220,6 @@ class XboxUnity:
         Returns:
             List[Dict[str, Any]]: List of title update information dictionaries
         """
-        print(f"[INFO] Using real TitleUpdateInfo endpoint for TitleID: {title_id}")
-        if media_id:
-            print(f"[INFO] Filtering TUs only for MediaID: {media_id}")
-
         try:
             url = f"{RESOURCES_URL}/TitleUpdateInfo.php"
 
@@ -267,7 +235,6 @@ class XboxUnity:
 
             params = {"titleid": title_id}
 
-            print(f"[INFO] Querying: {url} with TitleID: {title_id}")
             response = _session.get(url, params=params, headers=headers, timeout=30)
 
             if response.status_code != 200:
@@ -277,14 +244,11 @@ class XboxUnity:
 
             try:
                 data = response.json()
-                print(f"[INFO] TitleUpdateInfo response received: {type(data)}")
 
                 if not isinstance(data, dict):
                     if isinstance(data, list) and len(data) == 0:
-                        print(f"[INFO] No TUs available for TitleID {title_id}")
                         return []
                     else:
-                        print(f"[INFO] Unexpected response from real endpoint: {data}")
                         return []
 
                 response_type = data.get("Type")
@@ -298,19 +262,10 @@ class XboxUnity:
                     title_updates = self._parse_title_updates_type2(
                         data, title_id, media_id
                     )
-                else:
-                    print(f"[INFO] Unrecognized response type: {response_type}")
-                    print(f"[INFO] Complete structure: {data}")
 
                 if title_updates:
-                    print(
-                        f"[INFO] Total TUs found with real endpoint: {len(title_updates)}"
-                    )
                     return title_updates
                 else:
-                    print(
-                        f"[INFO] No TUs available for TitleID {title_id} with MediaID {media_id}"
-                    )
                     return []
 
             except ValueError as e:
@@ -345,20 +300,12 @@ class XboxUnity:
         Raises:
             XboxUnityError: If title_id is not provided
         """
-        print("[INFO] Starting TU search...")
-
-        if media_id:
-            print(f"[INFO] MediaID: {media_id}")
-        if title_id:
-            print(f"[INFO] TitleID: {title_id}")
-
         if not title_id:
             error_msg = "TitleID is required to search for title updates"
             print(f"[ERROR] {error_msg}")
             raise XboxUnityError(error_msg)
 
         # Use the real TitleUpdateInfo.php endpoint (based on web analysis)
-        print("[INFO] Testing real TitleUpdateInfo endpoint...")
         title_updates = self.search_title_updates_with_real_endpoint(
             title_id, media_id=media_id, token=token, api_key=api_key
         )
@@ -386,7 +333,6 @@ class XboxUnity:
         )
         if filename_match:
             filename = filename_match.group(1).strip("'\"")
-            print(f"[INFO] Original filename from headers: {filename}")
             return filename
         return None
 
@@ -408,8 +354,6 @@ class XboxUnity:
             Tuple[bool, Optional[str]]: (Success status, Original filename)
         """
         try:
-            print(f"[INFO] Downloading from: {url}")
-
             # First, get the original filename from server headers without downloading
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -438,9 +382,6 @@ class XboxUnity:
                 final_destination = os.path.join(destination_dir, original_filename)
 
                 if os.path.isfile(final_destination):
-                    print(
-                        f"[INFO] File already exists, skipping download: {final_destination}"
-                    )
                     return True, original_filename
 
             # Create directory if it doesn't exist
@@ -472,12 +413,10 @@ class XboxUnity:
             # Set final destination with original filename
             destination_dir = os.path.dirname(destination)
             final_destination = os.path.join(destination_dir, original_filename)
-            print(f"[INFO] Downloading to: {final_destination}")
 
             total_size = int(response.headers.get("content-length", 0))
-            print(f"[INFO] File size: {total_size} bytes")
-
             downloaded = 0
+
             with open(final_destination, "wb") as file:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
@@ -487,17 +426,14 @@ class XboxUnity:
                         if progress_callback and total_size > 0:
                             progress_callback(downloaded, total_size)
 
-            print(f"[INFO] Download completed: {final_destination}")
             return True, original_filename
 
         except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Network error downloading TU: {e}")
             return False, None
         except IOError as e:
             print(f"[ERROR] File I/O error: {e}")
             return False, None
-        except Exception as e:
-            print(f"[ERROR] Unexpected error downloading TU: {e}")
+        except Exception:
             return False, None
 
     def get_title_update_information(self, url: str) -> Optional[dict]:
@@ -511,8 +447,6 @@ class XboxUnity:
         """
 
         try:
-            print(f"[INFO] Fetching information from URL: {url}")
-
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -552,18 +486,13 @@ class XboxUnity:
         Returns:
             bool: True if installation successful, False otherwise
         """
-        print(f"[INFO] Installing title update from: {tu_path}")
         if not os.path.isfile(tu_path):
-            print(f"[ERROR] TU file does not exist: {tu_path}")
             return False
 
         # Title updates that are in lowercase (for example tu00000002_00000000) go inside the Hdd1/Content/0000000000000000/{TITLE_ID}/000B0000 folder
         # Title updates that are in uppercase (for example TU_16L61V6_0000008000000.00000000000O2) go inside Hdd1/Cache folder
         filename = os.path.basename(tu_path)
         if filename.islower():
-            print(
-                "[INFO] Detected lowercase TU filename - installing to Content folder"
-            )
             # Move to Content folder
             # Example path: Hdd1/Content/0000000000000000/{TITLE_ID}/000B0000
             content_folder = self.settings_manager.load_usb_content_directory()
@@ -576,19 +505,16 @@ class XboxUnity:
                 # The folder may not exist yet, so create it
                 os.makedirs(destination, exist_ok=True)
 
-                print(f"[INFO] Moving TU to Content folder: {destination}")
                 shutil.move(tu_path, destination)
                 return True
             else:
                 print("[ERROR] Content folder not found in settings.")
                 return False
         elif filename.isupper():
-            print("[INFO] Detected uppercase TU filename - installing to Cache folder")
             # Move to Cache folder
             cache_folder = self.settings_manager.load_usb_cache_directory()
             if cache_folder:
                 destination = os.path.join(cache_folder, filename)
-                print(f"[INFO] Moving TU to Cache folder: {destination}")
                 shutil.move(tu_path, destination)
                 return True
             else:
