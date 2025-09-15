@@ -1408,6 +1408,38 @@ class XboxBackupManager(QMainWindow):
 
         self.start_watching_directory()
 
+    def _on_tu_download_started(self, update_name: str):
+        """Handle title update download started"""
+        self.status_manager.show_message(f"Downloading title update: {update_name}")
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+
+    def _on_tu_download_progress(self, update_name: str, progress: int):
+        """Handle title update download progress"""
+        self.status_manager.show_message(
+            f"Downloading title update: {update_name} ({progress}%)"
+        )
+        self.progress_bar.setValue(progress)
+
+    def _on_tu_download_complete(
+        self, update_name: str, success: bool, filename: str, local_path: str
+    ):
+        """Handle title update download completion"""
+        self.progress_bar.setVisible(False)
+        if success:
+            self.status_manager.show_message(f"Title update installed: {update_name}")
+        else:
+            self.status_manager.show_message(
+                f"Title update installation failed: {update_name}"
+            )
+
+    def _on_tu_download_error(self, update_name: str, error_message: str):
+        """Handle title update download error"""
+        self.progress_bar.setVisible(False)
+        self.status_manager.show_message(
+            f"Title update download failed: {update_name} - {error_message}"
+        )
+
         QMessageBox.critical(
             self, "Transfer Error", f"Transfer failed:\n{error_message}"
         )
@@ -2641,6 +2673,13 @@ class XboxBackupManager(QMainWindow):
         print(updates)
 
         dialog = XboxUnityTitleUpdatesDialog(self, title_id, updates)
+
+        # Connect download signals to main window progress display
+        dialog.download_started.connect(self._on_tu_download_started)
+        dialog.download_progress.connect(self._on_tu_download_progress)
+        dialog.download_complete.connect(self._on_tu_download_complete)
+        dialog.download_error.connect(self._on_tu_download_error)
+
         dialog.exec()
 
     def remove_game_from_target(

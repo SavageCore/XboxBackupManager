@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -14,10 +15,19 @@ from PyQt6.QtWidgets import (
 from utils.ftp_client import FTPClient
 from utils.settings_manager import SettingsManager
 from utils.xboxunity import XboxUnity
+from workers.title_update_downloader import TitleUpdateDownloadWorker
 
 
 class XboxUnityTitleUpdatesDialog(QDialog):
     """Dialog for viewing Xbox Unity title updates"""
+
+    # Signals to communicate with main window
+    download_started = pyqtSignal(str)  # title_update_name
+    download_progress = pyqtSignal(str, int)  # title_update_name, percentage
+    download_complete = pyqtSignal(
+        str, bool, str, str
+    )  # title_update_name, success, filename, local_path
+    download_error = pyqtSignal(str, str)  # title_update_name, error_message
 
     def __init__(self, parent=None, title_id=None, updates=None):
         super().__init__(parent)
@@ -30,6 +40,13 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             self.updates, key=lambda x: int(x.get("version", 0)), reverse=True
         )
         self.current_mode = parent.current_mode if parent else "usb"
+
+        # Initialize download worker
+        self.download_worker = TitleUpdateDownloadWorker()
+        self.download_worker.download_progress.connect(self.download_progress.emit)
+        self.download_worker.download_complete.connect(self._on_download_complete)
+        self.download_worker.download_error.connect(self.download_error.emit)
+
         self._init_ui()
 
     def _get_ftp_connection(self):
@@ -542,22 +559,58 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         media_id: str,
         update: dict,
     ) -> None:
-        """Download and install a title update, then update button state"""
+        """Download and install a title update using background worker"""
         button.setText("Downloading...")
         button.setEnabled(False)
 
-        success, tu_filename = self.xbox_unity.download_title_update(url, destination)
+        # Store button and update info for later use
+        update_name = f"{title_id}_v{version}"
+        self._pending_installs = getattr(self, "_pending_installs", {})
+        self._pending_installs[update_name] = {
+            "button": button,
+            "title_id": title_id,
+            "version": version,
+            "media_id": media_id,
+            "update": update,
+            "destination": destination,
+        }
+
+        # Emit signal to main window to show progress
+        self.download_started.emit(update_name)
+
+        # Add download to worker queue and start
+        self.download_worker.add_download(update_name, url, destination)
+        if not self.download_worker.isRunning():
+            self.download_worker.start()
+
+    def _on_download_complete(
+        self, update_name: str, success: bool, filename: str, local_path: str
+    ):
+        """Handle download completion and proceed with installation"""
+        if (
+            not hasattr(self, "_pending_installs")
+            or update_name not in self._pending_installs
+        ):
+            return
+
+        install_info = self._pending_installs[update_name]
+        button = install_info["button"]
+        title_id = install_info["title_id"]
+        version = install_info["version"]
+        media_id = install_info["media_id"]
+        update = install_info["update"]
+
         if success:
-            local_tu_path = destination + tu_filename
+            button.setText("Installing...")
 
             # Install based on current mode
             if self.current_mode == "ftp":
                 install_success = self._install_title_update_ftp(
-                    local_tu_path, title_id, tu_filename
+                    local_path, title_id, filename
                 )
             else:
                 install_success = self.xbox_unity.install_title_update(
-                    local_tu_path, title_id
+                    local_path, title_id
                 )
 
             if install_success:
@@ -569,11 +622,18 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                         title_id, version, media_id, button, upd
                     )
                 )
+
+                # Emit success signal to main window
+                self.download_complete.emit(update_name, True, filename, local_path)
             else:
                 button.setText("Download")
                 button.setEnabled(True)
                 print("Failed to install title update")
+                self.download_error.emit(update_name, "Installation failed")
         else:
             button.setText("Download")
             button.setEnabled(True)
             print("Failed to download title update")
+
+        # Clean up pending install info
+        del self._pending_installs[update_name]
