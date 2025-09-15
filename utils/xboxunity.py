@@ -428,7 +428,7 @@ class XboxUnity:
 
             return True, original_filename
 
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             return False, None
         except IOError as e:
             print(f"[ERROR] File I/O error: {e}")

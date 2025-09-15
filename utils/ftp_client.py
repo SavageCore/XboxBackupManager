@@ -271,3 +271,33 @@ class FTPClient(QObject):
             return False
         except Exception:
             return False
+
+    def download_file(self, remote_path: str, local_path: str) -> Tuple[bool, str]:
+        """Download a file from FTP server to local path"""
+        if not self.is_connected():
+            return False, "Not connected to FTP server"
+
+        try:
+            with open(local_path, "wb") as local_file:
+                self._ftp.retrbinary(f"RETR {remote_path}", local_file.write)
+            return True, "File downloaded successfully"
+        except ftplib.error_perm as e:
+            return False, f"Permission error: {str(e)}"
+        except Exception as e:
+            return False, f"Failed to download file: {str(e)}"
+
+    def upload_file(self, local_path: str, remote_path: str) -> Tuple[bool, str]:
+        """Upload a file from local path to FTP server"""
+        if not self.is_connected():
+            return False, "Not connected to FTP server"
+
+        try:
+            with open(local_path, "rb") as local_file:
+                self._ftp.storbinary(f"STOR {remote_path}", local_file)
+            return True, "File uploaded successfully"
+        except ftplib.error_perm as e:
+            return False, f"Permission error: {str(e)}"
+        except FileNotFoundError:
+            return False, f"Local file not found: {local_path}"
+        except Exception as e:
+            return False, f"Failed to upload file: {str(e)}"

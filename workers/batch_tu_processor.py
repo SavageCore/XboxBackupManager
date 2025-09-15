@@ -183,18 +183,145 @@ class BatchTitleUpdateProcessor(QThread):
         self.batch_complete.emit(total_games, total_updates_downloaded)
 
     def _get_media_id_for_game(self, folder_path: str, title_id: str) -> str:
-        """Get media ID for a game from its folder"""
+        """Get media ID for a game from its folder, handling both FTP and local modes"""
         try:
-            # Get header path for GoD parsing
-            god_header_path = Path(folder_path) / "00007000"
-            header_files = list(god_header_path.glob("*"))
+            if self.current_mode == "ftp":
+                # Handle FTP mode
+                ftp_client = self._get_ftp_connection()
+                if not ftp_client:
+                    return None
 
-            if not header_files:
-                return None
+                try:
+                    # First check if this is a GoD game (no .xex file in root)
+                    success, items, error_msg = ftp_client.list_directory(folder_path)
+                    if not success:
+                        self._log_message(
+                            f"    Failed to list game directory: {error_msg}"
+                        )
+                        return None
 
-            god_header_path = str(header_files[0])
-            media_id = XboxUnity.get_media_id(self.xbox_unity, god_header_path)
-            return media_id
+                    # Check for .xex files
+                    has_xex = any(
+                        not item["is_directory"]
+                        and item["name"].lower().endswith(".xex")
+                        for item in items
+                    )
+
+                    if has_xex:
+                        self._log_message(
+                            "    Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
+                        )
+                        return None
+
+                    self._log_message(
+                        "    Game appears to be GoD format (no .xex found), extracting media ID"
+                    )
+
+                    # Check for GoD structure on FTP
+                    god_header_path = f"{folder_path.rstrip('/')}/00007000"
+                    if not ftp_client.directory_exists(god_header_path):
+                        self._log_message(
+                            f"    GoD header directory not found: {god_header_path}"
+                        )
+                        return None
+
+                    # List contents of 00007000 directory to find header files
+                    success, items, error_msg = ftp_client.list_directory(
+                        god_header_path
+                    )
+                    if not success or not items:
+                        self._log_message(
+                            f"    Failed to list GoD directory or no files found: {error_msg}"
+                        )
+                        return None
+
+                    # Log all found files for debugging
+                    self._log_message(f"    Found {len(items)} items in GoD directory:")
+                    for item in items:
+                        self._log_message(
+                            f"      {'DIR' if item['is_directory'] else 'FILE'}: {item['name']}"
+                        )
+
+                    # Find header file (should be hex filename, can be 8-20 characters)
+                    header_file = None
+                    for item in items:
+                        if not item["is_directory"]:
+                            header_name = item["name"]
+                            # Check for hex filename (8-20 characters for various formats)
+                            if (
+                                len(header_name) >= 8
+                                and len(header_name) <= 20
+                                and all(
+                                    c in "0123456789ABCDEFabcdef" for c in header_name
+                                )
+                            ):
+                                header_file = item["full_path"]
+                                self._log_message(
+                                    f"    Using header file: {header_name}"
+                                )
+                                break
+
+                    if not header_file:
+                        self._log_message("    No header file found in GoD directory")
+                        return None
+
+                    # Download header file temporarily to extract media ID
+                    import tempfile
+                    import os
+
+                    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                        temp_path = temp_file.name
+
+                    try:
+                        success, message = ftp_client.download_file(
+                            header_file, temp_path
+                        )
+                        if success:
+                            media_id = XboxUnity.get_media_id(
+                                self.xbox_unity, temp_path
+                            )
+                            return media_id
+                        else:
+                            self._log_message(
+                                f"    Failed to download header file: {message}"
+                            )
+                            return None
+                    finally:
+                        # Clean up temporary file
+                        if os.path.exists(temp_path):
+                            os.unlink(temp_path)
+
+                except Exception as e:
+                    self._log_message(f"    FTP media ID extraction failed: {e}")
+                    return None
+                finally:
+                    ftp_client.disconnect()
+            else:
+                # Handle local mode
+                # First check if this is a GoD game (no .xex file in root)
+                folder_path_obj = Path(folder_path)
+                xex_files = list(folder_path_obj.glob("*.xex"))
+
+                if xex_files:
+                    self._log_message(
+                        "    Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
+                    )
+                    return None
+
+                self._log_message(
+                    "    Game appears to be GoD format (no .xex found), extracting media ID"
+                )
+
+                god_header_path = folder_path_obj / "00007000"
+                header_files = list(god_header_path.glob("*"))
+
+                if not header_files:
+                    return None
+
+                god_header_path = str(header_files[0])
+                media_id = XboxUnity.get_media_id(self.xbox_unity, god_header_path)
+                return media_id
+
         except Exception as e:
             self._log_message(f"    Error getting media ID: {str(e)}")
             return None
@@ -405,14 +532,100 @@ class BatchTitleUpdateProcessor(QThread):
         """Install the downloaded update"""
         try:
             if self.current_mode == "ftp":
-                # FTP installation logic would go here
-                # For now, just return True as a placeholder
-                return True
+                # FTP installation logic
+                return self._install_update_ftp(local_path, title_id, filename)
             else:
                 # USB installation
                 return self.xbox_unity.install_title_update(local_path, title_id)
         except Exception as e:
             self._log_message(f"    Error installing update: {str(e)}")
+            return False
+
+    def _install_update_ftp(
+        self, local_path: str, title_id: str, filename: str
+    ) -> bool:
+        """Install title update to FTP server"""
+        try:
+            ftp_client = self._get_ftp_connection()
+            if not ftp_client:
+                return False
+
+            try:
+                # Determine destination based on filename case (same logic as USB)
+                if filename.islower():
+                    # Move to Content folder
+                    # Example path: Content/0000000000000000/{TITLE_ID}/000B0000
+                    content_folder = self.settings_manager.load_ftp_content_directory()
+                    if not content_folder:
+                        self._log_message(
+                            "    [ERROR] FTP Content folder not found in settings."
+                        )
+                        return False
+
+                    # Ensure we're set to Content/0000000000000000/
+                    if not content_folder.endswith("0000000000000000"):
+                        content_folder = (
+                            f"{content_folder.rstrip('/')}/0000000000000000"
+                        )
+
+                    destination_dir = (
+                        f"{content_folder.rstrip('/')}/{title_id}/000B0000"
+                    )
+                    destination_file = f"{destination_dir}/{filename}"
+
+                    # Create directory structure if it doesn't exist
+                    success, message = ftp_client.create_directory(destination_dir)
+                    if not success:
+                        self._log_message(
+                            f"    Failed to create FTP directory {destination_dir}: {message}"
+                        )
+                        return False
+
+                    # Upload the file
+                    success, message = ftp_client.upload_file(
+                        local_path, destination_file
+                    )
+                    if success:
+                        self._log_message(
+                            f"    Installed title update to Content: {destination_file}"
+                        )
+                        return True
+                    else:
+                        self._log_message(f"    Failed to upload to Content: {message}")
+                        return False
+
+                elif filename.isupper():
+                    # Move to Cache folder
+                    cache_folder = self.settings_manager.load_ftp_cache_directory()
+                    if not cache_folder:
+                        self._log_message(
+                            "    [ERROR] FTP Cache folder not found in settings."
+                        )
+                        return False
+
+                    destination_file = f"{cache_folder.rstrip('/')}/{filename}"
+
+                    # Upload the file
+                    success, message = ftp_client.upload_file(
+                        local_path, destination_file
+                    )
+                    if success:
+                        self._log_message(
+                            f"    Installed title update to Cache: {destination_file}"
+                        )
+                        return True
+                    else:
+                        self._log_message(f"    Failed to upload to Cache: {message}")
+                        return False
+                else:
+                    self._log_message(f"    Unknown filename format: {filename}")
+                    return False
+
+            finally:
+                ftp_client.disconnect()
+
+        except Exception as e:
+            self._log_message(f"    Error during FTP installation: {str(e)}")
             return False
 
     def _log_message(self, message: str):

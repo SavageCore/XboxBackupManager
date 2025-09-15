@@ -2658,25 +2658,15 @@ class XboxBackupManager(QMainWindow):
         if not title_id:
             return
 
-        # Get header path for GoD parsing
-        # Example path:
-        # {folder_path}\00007000\55892AEF852D69B4EF51
-        god_header_path = Path(folder_path) / "00007000"
-        print(f"Looking for GoD headers in: {god_header_path}")
-        header_files = list(god_header_path.glob("*"))
-        print(f"Found header files: {header_files}")
-        if not header_files:
+        media_id = self._get_media_id_for_game(folder_path, title_id)
+
+        if not media_id:
             QMessageBox.information(
                 self,
                 "Title Updates",
-                f"No header files found for Title ID: {title_id}",
+                f"No media ID found for Title ID: {title_id}",
             )
             return
-
-        god_header_path = str(header_files[0])
-        print(f"Using header file: {god_header_path}")
-
-        media_id = XboxUnity.get_media_id(self, god_header_path)
 
         print(f"Media ID for Title ID {title_id}: {media_id}")
 
@@ -2779,35 +2769,93 @@ class XboxBackupManager(QMainWindow):
         """Get all games in the target directory"""
         games = []
 
-        if not self.current_target_directory or not os.path.exists(
-            self.current_target_directory
-        ):
+        if not self.current_target_directory:
             return games
 
-        try:
-            # List all directories in the target directory
-            for item in os.listdir(self.current_target_directory):
-                item_path = os.path.join(self.current_target_directory, item)
+        if self.current_mode == "ftp":
+            # Handle FTP directory listing
+            ftp_client = FTPClient()
 
-                # Only process directories
-                if os.path.isdir(item_path):
-                    folder_name = item
-                    folder_path = item_path
+            try:
+                success, message = ftp_client.connect(
+                    self.ftp_settings["host"],
+                    self.ftp_settings["username"],
+                    self.ftp_settings["password"],
+                    self.ftp_settings.get("port", 21),
+                    self.ftp_settings.get("use_tls", False),
+                )
 
-                    # Try to get title ID and game name from the folder
-                    title_id = self._extract_title_id(folder_name, folder_path)
-                    if title_id:
-                        game_name = self._get_game_display_name(folder_name, title_id)
-                        games.append(
-                            {
-                                "name": game_name,
-                                "title_id": title_id,
-                                "folder_path": folder_path,
-                                "folder_name": folder_name,
-                            }
+                if not success:
+                    print(f"[ERROR] Failed to connect to FTP server: {message}")
+                    return games
+
+                # List all directories in the target directory
+                success, items, error_msg = ftp_client.list_directory(
+                    self.current_target_directory
+                )
+
+                if not success:
+                    print(f"[ERROR] Failed to list FTP directory: {error_msg}")
+                    return games
+
+                for item in items:
+                    # Only process directories
+                    if item["is_directory"]:
+                        folder_name = item["name"]
+                        folder_path = item["full_path"]
+
+                        # Try to get title ID and game name from the folder
+                        title_id = self._extract_title_id_ftp(
+                            folder_name, folder_path, ftp_client
                         )
-        except Exception as e:
-            print(f"[ERROR] Failed to scan target directory: {e}")
+                        if title_id:
+                            game_name = self._get_game_display_name(
+                                folder_name, title_id
+                            )
+                            games.append(
+                                {
+                                    "name": game_name,
+                                    "title_id": title_id,
+                                    "folder_path": folder_path,
+                                    "folder_name": folder_name,
+                                }
+                            )
+
+            except Exception as e:
+                print(f"[ERROR] Failed to scan FTP target directory: {e}")
+            finally:
+                ftp_client.disconnect()
+        else:
+            # Handle local directory listing (USB mode)
+            if not os.path.exists(self.current_target_directory):
+                return games
+
+            try:
+                # List all directories in the target directory
+                for item in os.listdir(self.current_target_directory):
+                    item_path = os.path.join(self.current_target_directory, item)
+
+                    # Only process directories
+                    if os.path.isdir(item_path):
+                        folder_name = item
+                        folder_path = item_path
+
+                        # Try to get title ID and game name from the folder
+                        title_id = self._extract_title_id(folder_name, folder_path)
+                        if title_id:
+                            game_name = self._get_game_display_name(
+                                folder_name, title_id
+                            )
+                            games.append(
+                                {
+                                    "name": game_name,
+                                    "title_id": title_id,
+                                    "folder_path": folder_path,
+                                    "folder_name": folder_name,
+                                }
+                            )
+            except Exception as e:
+                print(f"[ERROR] Failed to scan target directory: {e}")
 
         return games
 
@@ -2847,6 +2895,55 @@ class XboxBackupManager(QMainWindow):
 
         return None
 
+    def _extract_title_id_ftp(
+        self, folder_name: str, folder_path: str, ftp_client: FTPClient
+    ):
+        """Extract title ID from folder name or path for FTP connections"""
+        # For Xbox 360, folder name is the title ID
+        if self.current_platform == "xbox360":
+            return folder_name.upper()
+
+        # For Xbox, need to extract from internal structure
+        elif self.current_platform == "xbox":
+            try:
+                # Check for GoD structure
+                god_header_path = f"{folder_path.rstrip('/')}/00007000"
+                if ftp_client.directory_exists(god_header_path):
+                    # List contents of 00007000 directory to find header files
+                    success, items, error_msg = ftp_client.list_directory(
+                        god_header_path
+                    )
+                    if success and items:
+                        # Look for header files (should be hex filename)
+                        for item in items:
+                            if not item["is_directory"]:
+                                header_name = item["name"]
+                                if len(header_name) == 8:  # Title ID length
+                                    return header_name.upper()
+
+                # Check for default.xbe
+                try:
+                    # Try to check if file exists by listing directory contents
+                    success, items, error_msg = ftp_client.list_directory(folder_path)
+                    if success:
+                        for item in items:
+                            if (
+                                not item["is_directory"]
+                                and item["name"].lower() == "default.xbe"
+                            ):
+                                # Would need to parse XBE file for title ID
+                                # For now, use folder name if it looks like a title ID
+                                if len(folder_name) == 8 and folder_name.isalnum():
+                                    return folder_name.upper()
+                                break
+                except Exception:
+                    pass
+
+            except Exception:
+                pass
+
+        return None
+
     def _get_game_display_name(self, folder_name: str, title_id: str) -> str:
         """Get display name for a game based on folder name and title ID"""
         # Try to get name from loaded database
@@ -2862,6 +2959,155 @@ class XboxBackupManager(QMainWindow):
 
         # Fallback to folder name
         return folder_name
+
+    def _get_media_id_for_game(self, folder_path: str, title_id: str) -> str:
+        """Get media ID for a game from its folder, handling both FTP and local modes"""
+        try:
+            if self.current_mode == "ftp":
+                # Handle FTP mode
+                ftp_client = FTPClient()
+
+                try:
+                    success, message = ftp_client.connect(
+                        self.ftp_settings["host"],
+                        self.ftp_settings["username"],
+                        self.ftp_settings["password"],
+                        self.ftp_settings.get("port", 21),
+                        self.ftp_settings.get("use_tls", False),
+                    )
+
+                    if not success:
+                        print(f"[ERROR] Failed to connect to FTP server: {message}")
+                        return None
+
+                    # First check if this is a GoD game (no .xex file in root)
+                    success, items, error_msg = ftp_client.list_directory(folder_path)
+                    if not success:
+                        print(f"[DEBUG] Failed to list game directory: {error_msg}")
+                        return None
+
+                    # Check for .xex files
+                    has_xex = any(
+                        not item["is_directory"]
+                        and item["name"].lower().endswith(".xex")
+                        for item in items
+                    )
+
+                    if has_xex:
+                        print(
+                            "[DEBUG] Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
+                        )
+                        return None
+
+                    print(
+                        "[DEBUG] Game appears to be GoD format (no .xex found), extracting media ID"
+                    )
+
+                    # Check for GoD structure on FTP
+                    god_header_path = f"{folder_path.rstrip('/')}/00007000"
+                    if not ftp_client.directory_exists(god_header_path):
+                        print(
+                            f"[DEBUG] GoD header directory not found: {god_header_path}"
+                        )
+                        return None
+
+                    # List contents of 00007000 directory to find header files
+                    success, items, error_msg = ftp_client.list_directory(
+                        god_header_path
+                    )
+                    if not success or not items:
+                        print(
+                            f"[DEBUG] Failed to list GoD directory or no files found: {error_msg}"
+                        )
+                        return None
+
+                    # Log all found files for debugging
+                    print(f"[DEBUG] Found {len(items)} items in GoD directory:")
+                    for item in items:
+                        print(
+                            f"[DEBUG]   {'DIR' if item['is_directory'] else 'FILE'}: {item['name']}"
+                        )
+
+                    # Find header file (should be hex filename, can be 8-20 characters)
+                    header_file = None
+                    for item in items:
+                        if not item["is_directory"]:
+                            header_name = item["name"]
+                            # Check for hex filename (8-20 characters for various formats)
+                            if (
+                                len(header_name) >= 8
+                                and len(header_name) <= 20
+                                and all(
+                                    c in "0123456789ABCDEFabcdef" for c in header_name
+                                )
+                            ):
+                                header_file = item["full_path"]
+                                print(f"[DEBUG] Using header file: {header_name}")
+                                break
+
+                    if not header_file:
+                        print("[DEBUG] No header file found in GoD directory")
+                        return None
+
+                    # Download header file temporarily to extract media ID
+                    import tempfile
+                    import os
+
+                    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                        temp_path = temp_file.name
+
+                    try:
+                        success, message = ftp_client.download_file(
+                            header_file, temp_path
+                        )
+                        if success:
+                            media_id = XboxUnity.get_media_id(self.xboxunity, temp_path)
+                            return media_id
+                        else:
+                            print(f"[ERROR] Failed to download header file: {message}")
+                            return None
+                    finally:
+                        # Clean up temporary file
+                        if os.path.exists(temp_path):
+                            os.unlink(temp_path)
+
+                except Exception as e:
+                    print(f"[ERROR] FTP media ID extraction failed: {e}")
+                    return None
+                finally:
+                    ftp_client.disconnect()
+            else:
+                # Handle local mode
+                # First check if this is a GoD game (no .xex file in root)
+                folder_path_obj = Path(folder_path)
+                xex_files = list(folder_path_obj.glob("*.xex"))
+
+                if xex_files:
+                    print(
+                        "[DEBUG] Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
+                    )
+                    return None
+
+                print(
+                    "[DEBUG] Game appears to be GoD format (no .xex found), extracting media ID"
+                )
+
+                god_header_path = folder_path_obj / "00007000"
+                print(f"Looking for GoD headers in: {god_header_path}")
+                header_files = list(god_header_path.glob("*"))
+                print(f"Found header files: {header_files}")
+
+                if not header_files:
+                    return None
+
+                god_header_path = str(header_files[0])
+                print(f"Using header file: {god_header_path}")
+                media_id = XboxUnity.get_media_id(self.xboxunity, god_header_path)
+                return media_id
+
+        except Exception as e:
+            print(f"[ERROR] Error getting media ID: {e}")
+            return None
 
     def _on_batch_progress(self, current: int, total: int):
         """Handle batch processing progress"""
