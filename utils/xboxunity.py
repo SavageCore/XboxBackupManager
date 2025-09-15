@@ -408,17 +408,40 @@ class XboxUnity:
             Tuple[bool, Optional[str]]: (Success status, Original filename)
         """
         try:
-            # Skip download if file already exists
-            if os.path.isfile(destination):
-                print(f"[INFO] File already exists, skipping download: {destination}")
-                return True, os.path.basename(destination)
             print(f"[INFO] Downloading from: {url}")
 
+            # First, get the original filename from server headers without downloading
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                 "Referer": "https://xboxunity.net/",
             }
+
+            # Do a HEAD request first to get the actual filename
+            head_response = _session.head(url, headers=headers, timeout=30)
+            if head_response.status_code == 200:
+                content_disposition = head_response.headers.get(
+                    "content-disposition", ""
+                )
+                original_filename = None
+
+                if content_disposition:
+                    original_filename = self._extract_filename_from_headers(
+                        content_disposition
+                    )
+
+                if not original_filename:
+                    original_filename = os.path.basename(destination)
+
+                # Check if file with the actual filename already exists
+                destination_dir = os.path.dirname(destination)
+                final_destination = os.path.join(destination_dir, original_filename)
+
+                if os.path.isfile(final_destination):
+                    print(
+                        f"[INFO] File already exists, skipping download: {final_destination}"
+                    )
+                    return True, original_filename
 
             # Create directory if it doesn't exist
             directory = os.path.dirname(destination)
@@ -432,30 +455,30 @@ class XboxUnity:
                 print(f"[ERROR] Response: {response.text[:200]}")
                 return False, None
 
-            # Try to get original filename from Content-Disposition header
-            original_filename = None
-            content_disposition = response.headers.get("content-disposition", "")
+            # Get original filename from Content-Disposition header (if we didn't get it from HEAD request)
+            if "original_filename" not in locals() or not original_filename:
+                content_disposition = response.headers.get("content-disposition", "")
+                original_filename = None
 
-            if content_disposition:
-                original_filename = self._extract_filename_from_headers(
-                    content_disposition
-                )
+                if content_disposition:
+                    original_filename = self._extract_filename_from_headers(
+                        content_disposition
+                    )
 
-            # If no filename in headers, use the provided destination filename
-            if not original_filename:
-                original_filename = os.path.basename(destination)
+                # If no filename in headers, use the provided destination filename
+                if not original_filename:
+                    original_filename = os.path.basename(destination)
 
-            # Update destination with original filename if we found a different one
-            if original_filename and original_filename != os.path.basename(destination):
-                destination_dir = os.path.dirname(destination)
-                destination = os.path.join(destination_dir, original_filename)
-                print(f"[INFO] Using original filename: {destination}")
+            # Set final destination with original filename
+            destination_dir = os.path.dirname(destination)
+            final_destination = os.path.join(destination_dir, original_filename)
+            print(f"[INFO] Downloading to: {final_destination}")
 
             total_size = int(response.headers.get("content-length", 0))
             print(f"[INFO] File size: {total_size} bytes")
 
             downloaded = 0
-            with open(destination, "wb") as file:
+            with open(final_destination, "wb") as file:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         file.write(chunk)
@@ -464,7 +487,7 @@ class XboxUnity:
                         if progress_callback and total_size > 0:
                             progress_callback(downloaded, total_size)
 
-            print(f"[INFO] Download completed: {destination}")
+            print(f"[INFO] Download completed: {final_destination}")
             return True, original_filename
 
         except requests.exceptions.RequestException as e:
