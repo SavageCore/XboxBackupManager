@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import qtawesome as qta
+import requests
 from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
@@ -56,14 +57,16 @@ from database.xbox_title_database import XboxTitleDatabaseLoader
 from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
-from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.icon_manager import IconManager
 from ui.theme_manager import ThemeManager
+from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
+from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
 from utils.ftp_client import FTPClient
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
+from utils.xboxunity import XboxUnity
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
@@ -95,6 +98,7 @@ class XboxBackupManager(QMainWindow):
         self.theme_manager = ThemeManager()
         self.database_loader = TitleDatabaseLoader()
         self.icon_manager = IconManager(self.theme_manager)
+        self.xboxunity = XboxUnity()
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
@@ -2439,6 +2443,12 @@ class XboxBackupManager(QMainWindow):
             lambda: SystemUtils.copy_to_clipboard(title_id)
         )
 
+        # Add "Title Updates" action
+        title_updates_action = menu.addAction("Title Updates")
+        title_updates_action.triggered.connect(
+            lambda: self._show_title_updates_dialog(folder_path, title_id)
+        )
+
         # Add separator
         menu.addSeparator()
 
@@ -2452,6 +2462,50 @@ class XboxBackupManager(QMainWindow):
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
+
+    def _show_title_updates_dialog(self, folder_path: str, title_id: str):
+        """Show dialog with title updates information"""
+        if not title_id:
+            return
+
+        # Get header path for GoD parsing
+        # Example path:
+        # {folder_path}\00007000\55892AEF852D69B4EF51
+        god_header_path = Path(folder_path) / "00007000"
+        print(f"Looking for GoD headers in: {god_header_path}")
+        header_files = list(god_header_path.glob("*"))
+        print(f"Found header files: {header_files}")
+        if not header_files:
+            QMessageBox.information(
+                self,
+                "Title Updates",
+                f"No header files found for Title ID: {title_id}",
+            )
+            return
+
+        god_header_path = str(header_files[0])
+        print(f"Using header file: {god_header_path}")
+
+        media_id = XboxUnity.get_media_id(self, god_header_path)
+
+        print(f"Media ID for Title ID {title_id}: {media_id}")
+
+        updates = self.xboxunity.search_title_updates(
+            media_id=media_id, title_id=title_id
+        )
+        if not updates:
+            QMessageBox.information(
+                self,
+                "Title Updates",
+                f"No title updates found for Title ID: {title_id}",
+            )
+            return
+
+        print(f"Found {len(updates)} updates for Title ID {title_id}")
+        print(updates)
+
+        dialog = XboxUnityTitleUpdatesDialog(self, title_id, updates)
+        dialog.exec()
 
     def remove_game_from_target(
         self, title_id: str, game_name: str, folder_name: str = ""
@@ -3507,7 +3561,7 @@ class XboxBackupManager(QMainWindow):
         god_process = QProcess(self)
         god_process.setProgram("iso2god-x86_64-windows.exe")
 
-        god_process.setArguments([iso_path, dest_dir])
+        god_process.setArguments(["--trim", iso_path, dest_dir])
 
         # Connect appropriate finished handler based on batch mode
         if hasattr(self, "current_god_batch"):
@@ -3579,15 +3633,17 @@ class XboxBackupManager(QMainWindow):
         """Check for required executables and set up watchers"""
         self.extract_xiso_path = os.path.join(os.getcwd(), "extract-xiso.exe")
         self.iso2god_path = os.path.join(os.getcwd(), "iso2god-x86_64-windows.exe")
+        self.xextool_path = os.path.join(os.getcwd(), "XexTool.exe")
 
         self.extract_xiso_found = os.path.exists(self.extract_xiso_path)
         self.iso2god_found = os.path.exists(self.iso2god_path)
+        self.xextool_found = os.path.exists(self.xextool_path)
 
         # Update status bar
         self._update_tools_status()
 
-        # If both tools are found, no need for dialog
-        if self.extract_xiso_found and self.iso2god_found:
+        # If all tools are found, no need for dialog
+        if self.extract_xiso_found and self.iso2god_found and self.xextool_found:
             return
 
         # Set up file system watchers
@@ -3600,18 +3656,24 @@ class XboxBackupManager(QMainWindow):
         """Update status bar with tools status"""
         extract_status = "✔️" if self.extract_xiso_found else "❌"
         iso2god_status = "✔️" if self.iso2god_found else "❌"
+        xextool_status = "✔️" if self.xextool_found else "❌"
 
         # Update download button
         if self.extract_xiso_found:
             xiso_button = self.findChild(QPushButton, "extract_xiso_download_button")
             if xiso_button:
                 xiso_button.setEnabled(False)
-                xiso_button.setText("✔️ Downloaded")
         if self.iso2god_found:
             iso2god_button = self.findChild(QPushButton, "iso2god_download_button")
             if iso2god_button:
                 iso2god_button.setEnabled(False)
                 iso2god_button.setText("✔️ Downloaded")
+                xiso_button.setText("✔️ Downloaded")
+        if self.xextool_found:
+            xextool_button = self.findChild(QPushButton, "xextool_download_button")
+            if xextool_button:
+                xextool_button.setEnabled(False)
+                xextool_button.setText("✔️ Downloaded")
 
         # If both tools are now found, close the dialog and update status bar
         if self.extract_xiso_found and self.iso2god_found:
@@ -3622,7 +3684,7 @@ class XboxBackupManager(QMainWindow):
             self.status_manager.show_message("✔️ Required tools are ready for use")
             return
 
-        status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status}"
+        status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status} | xextool: {xextool_status}"
         self.status_manager.show_message(status_text)
 
     def _show_tools_download_dialog(self):
@@ -3670,11 +3732,40 @@ class XboxBackupManager(QMainWindow):
             iso2god_layout.addWidget(iso2god_button)
             layout.addLayout(iso2god_layout)
 
+        # XexTool download
+        if not self.xextool_found:
+            api_url = "https://api.github.com/repos/mLoaDs/XexTool/releases/latest"
+            try:
+                response = requests.get(api_url, timeout=5)
+                response.raise_for_status()
+                release_info = response.json()
+                assets = release_info.get("assets", [])
+                download_url = None
+                for asset in assets:
+                    if asset.get("name", "").endswith(".zip"):
+                        download_url = asset.get("browser_download_url")
+                        break
+                if not download_url:
+                    download_url = "https://github.com/mLoaDs/XexTool/releases/download/v6.6/xextool_v6.6.zip"
+
+                xextool_layout = QHBoxLayout()
+                xextool_label = QLabel("XexTool.exe:")
+                xextool_button = QPushButton("Download")
+                xextool_button.setObjectName("xextool_download_button")
+                xextool_button.clicked.connect(
+                    lambda: QDesktopServices.openUrl(QUrl(download_url))
+                )
+                xextool_layout.addWidget(xextool_label)
+                xextool_layout.addWidget(xextool_button)
+                layout.addLayout(xextool_layout)
+            except requests.RequestException as e:
+                print(f"Error fetching XexTool download URL: {e}")
+
         instructions = QLabel(
             "After downloading:\n"
             "• Place files next to the application executable or your Downloads folder\n"
             "• The app will automatically detect and move them if required\n"
-            "• extract-xiso will be extracted from the ZIP automatically"
+            "• extract-xiso and XexTool will be extracted from the ZIP automatically"
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
@@ -3743,6 +3834,21 @@ class XboxBackupManager(QMainWindow):
                         self.iso2god_found = True
                         self._update_tools_status()
 
+                # Handle XexTool ZIP
+                elif (
+                    filename.startswith("xextool_v")
+                    and filename.endswith(".zip")
+                    and not self.xextool_found
+                ):
+                    if is_downloads:
+                        # Move ZIP to current directory
+                        dest_path = os.path.join(os.getcwd(), filename)
+                        shutil.move(file_path, dest_path)
+                        self._extract_xextool_zip(dest_path)
+                    else:
+                        # Already in current directory, extract it
+                        self._extract_xextool_zip(file_path)
+
         except Exception as e:
             print(f"Error handling file change: {e}")
 
@@ -3767,6 +3873,28 @@ class XboxBackupManager(QMainWindow):
 
         except Exception as e:
             print(f"Error extracting extract-xiso: {e}")
+
+    def _extract_xextool_zip(self, zip_path):
+        """Extract XexTool.exe from the ZIP file"""
+        try:
+            extracted = False
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                # Look for the exe file in the ZIP
+                for zip_info in zip_ref.infolist():
+                    if zip_info.filename.endswith("xextool.exe"):
+                        zip_info.filename = os.path.basename(zip_info.filename)
+                        zip_ref.extract(zip_info, os.getcwd())
+                        extracted = True
+                        break
+
+            if extracted:
+                self.xextool_found = True
+                self._update_tools_status()
+
+                os.remove(zip_path)
+
+        except Exception as e:
+            print(f"Error extracting XexTool: {e}")
 
     def _test_ftp_connection_for_switch(self):
         """Test FTP connection before switching modes"""

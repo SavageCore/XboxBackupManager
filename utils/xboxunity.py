@@ -1,5 +1,7 @@
 import os
 import re
+import struct
+import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
@@ -185,7 +187,7 @@ class XboxUnity:
         return title_updates
 
     def _create_title_update_info(
-        update: Dict[str, Any], title_id: str, media_id: str
+        self, update: Dict[str, Any], title_id: str, media_id: str
     ) -> Dict[str, Any]:
         """
         Create a standardized title update information dictionary.
@@ -466,3 +468,55 @@ class XboxUnity:
         except Exception as e:
             print(f"[ERROR] Unexpected error downloading TU: {e}")
             return False, None
+
+    def install_title_update(self, tu_path: str) -> bool:
+        """
+        Install a title update
+
+        Args:
+            tu_path (str): Path to the title update file
+        Returns:
+            bool: True if installation successful, False otherwise
+        """
+        print(f"[INFO] Installing title update from: {tu_path}")
+        if not os.path.isfile(tu_path):
+            print(f"[ERROR] TU file does not exist: {tu_path}")
+            return False
+
+        # Title updates that are in lowercase (for example tu00000002_00000000) go inside the Hdd1/Content/0000000000000000/{TITLE_ID}/000B0000 folder
+        # Title updates that are in uppercase (for example TU_16L61V6_0000008000000.00000000000O2) go inside Hdd1/Cache folder
+        filename = os.path.basename(tu_path)
+        if filename.islower():
+            print(
+                "[INFO] Detected lowercase TU filename - installing to Content folder"
+            )
+        elif filename.isupper():
+            print("[INFO] Detected uppercase TU filename - installing to Cache folder")
+
+    def get_media_id(self, god_header_path):
+        try:
+            with open(god_header_path, "rb") as f:
+                # Optional: Verify it's an STFS package by checking magic (e.g., 'CON ', 'LIVE', or 'PIRS')
+                magic = f.read(4).decode("ascii", errors="ignore").strip()
+                if magic not in ["CON", "LIVE", "PIRS"]:
+                    print(
+                        f"Warning: File magic '{magic}' does not match expected STFS types (CON, LIVE, PIRS)."
+                    )
+
+                # Seek to Media ID offset and read 4 bytes as big-endian uint32
+                f.seek(0x354)
+                media_id_bytes = f.read(4)
+                if len(media_id_bytes) != 4:
+                    raise ValueError("File too short to read Media ID.")
+
+                media_id = struct.unpack(">I", media_id_bytes)[0]
+                media_id = hex(media_id)
+                # Strip '0x' prefix and convert to uppercase
+                media_id = media_id[2:].upper()
+                return media_id
+        except FileNotFoundError:
+            print(f"Error: File '{god_header_path}' not found.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            sys.exit(1)
