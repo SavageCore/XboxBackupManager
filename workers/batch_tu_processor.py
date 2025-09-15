@@ -76,7 +76,8 @@ class BatchTitleUpdateProcessor(QThread):
                 self.game_started.emit(game_name)
                 self.progress_update.emit(i + 1, total_games)
 
-                # Log game processing start
+                # Log game processing start with spacing
+                self._log_message("")  # Add spacing between games
                 self._log_message(
                     f"Processing game: {game_name} (Title ID: {title_id})"
                 )
@@ -104,17 +105,6 @@ class BatchTitleUpdateProcessor(QThread):
                         updates, key=lambda x: int(x.get("version", 0)), reverse=True
                     )
 
-                    # Check if the latest version is already installed
-                    latest_version = updates[0] if updates else None
-                    if latest_version and self._is_update_installed(
-                        title_id, latest_version
-                    ):
-                        self._log_message(
-                            f"  Latest title update (version {latest_version.get('version')}) already installed for {game_name}"
-                        )
-                        self.game_completed.emit(game_name, 0)
-                        continue
-
                     # Find the highest version that's not installed
                     latest_update = None
                     for update in updates:
@@ -123,9 +113,16 @@ class BatchTitleUpdateProcessor(QThread):
                             break
 
                     if not latest_update:
-                        self._log_message(
-                            f"  All title updates already installed for {game_name}"
-                        )
+                        # All updates are already installed
+                        latest_version = updates[0] if updates else None
+                        if latest_version:
+                            self._log_message(
+                                f"  Latest title update (version {latest_version.get('version')}) already installed for {game_name}"
+                            )
+                        else:
+                            self._log_message(
+                                f"  All title updates already installed for {game_name}"
+                            )
                         self.game_completed.emit(game_name, 0)
                         continue
 
@@ -208,14 +205,8 @@ class BatchTitleUpdateProcessor(QThread):
                     )
 
                     if has_xex:
-                        self._log_message(
-                            "    Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
-                        )
+                        # ISO format, skip GoD media ID extraction
                         return None
-
-                    self._log_message(
-                        "    Game appears to be GoD format (no .xex found), extracting media ID"
-                    )
 
                     # Check for GoD structure on FTP
                     god_header_path = f"{folder_path.rstrip('/')}/00007000"
@@ -235,13 +226,6 @@ class BatchTitleUpdateProcessor(QThread):
                         )
                         return None
 
-                    # Log all found files for debugging
-                    self._log_message(f"    Found {len(items)} items in GoD directory:")
-                    for item in items:
-                        self._log_message(
-                            f"      {'DIR' if item['is_directory'] else 'FILE'}: {item['name']}"
-                        )
-
                     # Find header file (should be hex filename, can be 8-20 characters)
                     header_file = None
                     for item in items:
@@ -256,9 +240,6 @@ class BatchTitleUpdateProcessor(QThread):
                                 )
                             ):
                                 header_file = item["full_path"]
-                                self._log_message(
-                                    f"    Using header file: {header_name}"
-                                )
                                 break
 
                     if not header_file:
@@ -383,9 +364,6 @@ class BatchTitleUpdateProcessor(QThread):
 
             expected_filename = title_update_info.get("fileName", "")
             expected_size = title_update_info.get("size", 0)
-            self._log_message(
-                f"    Looking for file: {expected_filename} (size: {expected_size})"
-            )
 
             for base_path in possible_paths:
                 if base_path and os.path.exists(base_path):
@@ -396,9 +374,6 @@ class BatchTitleUpdateProcessor(QThread):
                                 file.upper() == expected_filename.upper()
                                 and file_size == expected_size
                             ):
-                                self._log_message(
-                                    f"    Found installed title update file: {file} in {root}"
-                                )
                                 return True
             return False
         except Exception as e:
@@ -442,9 +417,6 @@ class BatchTitleUpdateProcessor(QThread):
                         filename.upper() == expected_filename.upper()
                         and file_size == expected_size
                     ):
-                        self._log_message(
-                            f"    Found installed title update file: {filename} at {file_path}"
-                        )
                         return True
 
             return False

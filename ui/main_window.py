@@ -2994,14 +2994,7 @@ class XboxBackupManager(QMainWindow):
                     )
 
                     if has_xex:
-                        print(
-                            "[DEBUG] Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
-                        )
                         return None
-
-                    print(
-                        "[DEBUG] Game appears to be GoD format (no .xex found), extracting media ID"
-                    )
 
                     # Check for GoD structure on FTP
                     god_header_path = f"{folder_path.rstrip('/')}/00007000"
@@ -3087,10 +3080,6 @@ class XboxBackupManager(QMainWindow):
                         "[DEBUG] Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
                     )
                     return None
-
-                print(
-                    "[DEBUG] Game appears to be GoD format (no .xex found), extracting media ID"
-                )
 
                 god_header_path = folder_path_obj / "00007000"
                 print(f"Looking for GoD headers in: {god_header_path}")
