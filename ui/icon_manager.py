@@ -6,9 +6,9 @@ from PyQt6.QtGui import QIcon
 class IconManager(QObject):
     """Manages QtAwesome icons with dynamic theme support"""
 
-    def __init__(self, theme_manager):
+    def __init__(self, theme_manager=None):
         super().__init__()
-        self.theme_manager = theme_manager
+        # self.theme_manager = theme_manager
 
         # Store icon definitions for regeneration
         self.icon_registry = {}  # widget_id -> icon_definition
@@ -16,17 +16,18 @@ class IconManager(QObject):
 
     def create_icon(self, icon_name: str, **kwargs) -> QIcon:
         """Create a themed QtAwesome icon"""
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
         # Default colors if not provided
-        icon_kwargs = {
-            "color": palette.COLOR_TEXT_1,
-            "color_active": palette.COLOR_TEXT_1,
-            "color_disabled": palette.COLOR_DISABLED,
-            **kwargs,  # Allow override of default colors
-        }
+        # icon_kwargs = {
+        #     "color": palette.COLOR_TEXT_1,
+        #     "color_active": palette.COLOR_TEXT_1,
+        #     "color_disabled": palette.COLOR_DISABLED,
+        #     **kwargs,  # Allow override of default colors
+        # }
 
-        return qta.icon(icon_name, **icon_kwargs)
+        # return qta.icon(icon_name, **icon_kwargs)
+        return qta.icon(icon_name)
 
     def register_widget_icon(self, widget, icon_name: str, **kwargs):
         """Register a widget's icon for automatic updates"""

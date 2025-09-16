@@ -2,6 +2,7 @@ import sys
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
+from qt_material import apply_stylesheet
 
 from constants import APP_NAME, VERSION
 from ui.main_window import XboxBackupManager  # type: ignore
@@ -13,6 +14,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(VERSION)
+
+    apply_stylesheet(app, theme="dark_teal.xml")
 
     # Set application icon if available
     try:

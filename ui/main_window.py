@@ -58,6 +58,7 @@ from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.icon_manager import IconManager
+
 from ui.theme_manager import ThemeManager
 from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
@@ -96,7 +97,8 @@ class XboxBackupManager(QMainWindow):
         # Initialize managers
         self.settings_manager = SettingsManager()
         self.theme_manager = ThemeManager()
-        self.icon_manager = IconManager(self.theme_manager)
+        # self.icon_manager = IconManager(self.theme_manager)
+        self.icon_manager = IconManager()
         self.xboxunity = XboxUnity()
 
         self.status_bar = self.statusBar()
@@ -131,12 +133,12 @@ class XboxBackupManager(QMainWindow):
         self._current_transfer_speed = ""  # For storing current transfer speed
 
         # Get the current palette from your theme manager
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
         # Extract colors from the palette for different states
-        self.normal_color = palette.COLOR_BACKGROUND_6
-        self.active_color = palette.COLOR_BACKGROUND_6
-        self.disabled_color = palette.COLOR_DISABLED
+        # self.normal_color = palette.COLOR_BACKGROUND_6
+        # self.active_color = palette.COLOR_BACKGROUND_6
+        # self.disabled_color = palette.COLOR_DISABLED
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -169,11 +171,11 @@ class XboxBackupManager(QMainWindow):
 
     def setup_colors(self):
         """Setup color properties from theme"""
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
-        self.normal_color = palette.COLOR_TEXT_1
-        self.active_color = palette.COLOR_TEXT_1
-        self.disabled_color = palette.COLOR_DISABLED
+        # self.normal_color = palette.COLOR_TEXT_1
+        # self.active_color = palette.COLOR_TEXT_1
+        # self.disabled_color = palette.COLOR_DISABLED
 
     def setup_ui(self):
         """Setup UI with themed icons"""
@@ -268,9 +270,7 @@ class XboxBackupManager(QMainWindow):
 
         # Scan Directory
         self.toolbar_scan_action = QAction("Scan", self)
-        self.toolbar_scan_action.setIcon(
-            qta.icon("fa6s.magnifying-glass", color=self.normal_color)
-        )
+        self.toolbar_scan_action.setIcon(qta.icon("fa6s.magnifying-glass"))
         self.toolbar_scan_action.setToolTip("Scan current directory for games")
         self.toolbar_scan_action.triggered.connect(
             lambda: self.scan_directory(force=True)
@@ -280,9 +280,7 @@ class XboxBackupManager(QMainWindow):
 
         # Transfer Selected
         self.toolbar_transfer_action = QAction("Transfer", self)
-        self.toolbar_transfer_action.setIcon(
-            qta.icon("fa6s.download", color=self.normal_color)
-        )
+        self.toolbar_transfer_action.setIcon(qta.icon("fa6s.download"))
         self.toolbar_transfer_action.setToolTip("Transfer selected games to target")
         self.toolbar_transfer_action.triggered.connect(self.transfer_selected_games)
         self.toolbar_transfer_action.setEnabled(False)
@@ -290,9 +288,7 @@ class XboxBackupManager(QMainWindow):
 
         # Remove Selected
         self.toolbar_remove_action = QAction("Remove", self)
-        self.toolbar_remove_action.setIcon(
-            qta.icon("fa6s.trash", color=self.normal_color)
-        )
+        self.toolbar_remove_action.setIcon(qta.icon("fa6s.trash"))
         self.toolbar_remove_action.setToolTip("Remove selected games from target")
         self.toolbar_remove_action.triggered.connect(self.remove_selected_games)
         self.toolbar_remove_action.setEnabled(False)
@@ -300,9 +296,7 @@ class XboxBackupManager(QMainWindow):
 
         # Batch Title Updater
         self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
-        self.toolbar_batch_tu_action.setIcon(
-            qta.icon("fa6s.cloud-arrow-down", color=self.normal_color)
-        )
+        self.toolbar_batch_tu_action.setIcon(qta.icon("fa6s.cloud-arrow-down"))
         self.toolbar_batch_tu_action.setToolTip(
             "Download missing title updates for all transferred games"
         )
@@ -452,27 +446,21 @@ class XboxBackupManager(QMainWindow):
         # Set Source directory action
         self.browse_action = QAction("&Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
-        self.browse_action.setIcon(
-            qta.icon("fa6s.folder-open", color=self.normal_color)
-        )
+        self.browse_action.setIcon(qta.icon("fa6s.folder-open"))
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
 
         # Set Target directory action
         self.browse_target_action = QAction("&Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
-        self.browse_target_action.setIcon(
-            qta.icon("fa6s.bullseye", color=self.normal_color)
-        )
+        self.browse_target_action.setIcon(qta.icon("fa6s.bullseye"))
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
 
         # Set Cache directory action
         self.browse_cache_action = QAction("&Set Cache Directory...", self)
         self.browse_cache_action.setShortcut("Ctrl+K")
-        self.browse_cache_action.setIcon(
-            qta.icon("fa6s.folder-open", color=self.normal_color)
-        )
+        self.browse_cache_action.setIcon(qta.icon("fa6s.folder-open"))
         self.browse_cache_action.setEnabled(True)
         self.browse_cache_action.triggered.connect(self.browse_cache_directory)
         file_menu.addAction(self.browse_cache_action)
@@ -480,9 +468,7 @@ class XboxBackupManager(QMainWindow):
         # Set Content directory action
         self.browse_content_action = QAction("&Set Content Directory...", self)
         self.browse_content_action.setShortcut("Ctrl+N")
-        self.browse_content_action.setIcon(
-            qta.icon("fa6s.folder-open", color=self.normal_color)
-        )
+        self.browse_content_action.setIcon(qta.icon("fa6s.folder-open"))
         self.browse_content_action.setEnabled(True)
         self.browse_content_action.triggered.connect(self.browse_content_directory)
         file_menu.addAction(self.browse_content_action)
@@ -491,15 +477,13 @@ class XboxBackupManager(QMainWindow):
 
         # FTP settings action
         self.ftp_settings_action = QAction("&FTP Settings...", self)
-        self.ftp_settings_action.setIcon(qta.icon("fa6s.gear", color=self.normal_color))
+        self.ftp_settings_action.setIcon(qta.icon("fa6s.gear"))
         self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
         file_menu.addAction(self.ftp_settings_action)
 
         # Add Xbox Unity settings action
         self.xbox_unity_settings_action = QAction("&Xbox Unity Settings...", self)
-        self.xbox_unity_settings_action.setIcon(
-            qta.icon("fa6s.gear", color=self.normal_color)
-        )
+        self.xbox_unity_settings_action.setIcon(qta.icon("fa6s.gear"))
         self.xbox_unity_settings_action.setEnabled(True)
         self.xbox_unity_settings_action.triggered.connect(self.show_xboxunity_settings)
         file_menu.addAction(self.xbox_unity_settings_action)
@@ -508,7 +492,7 @@ class XboxBackupManager(QMainWindow):
 
         self.exit_action = QAction("E&xit", self)
         self.exit_action.setShortcut("Ctrl+Q")
-        self.exit_action.setIcon(qta.icon("fa6s.xmark", color=self.normal_color))
+        self.exit_action.setIcon(qta.icon("fa6s.xmark"))
         self.exit_action.triggered.connect(self.close)
         file_menu.addAction(self.exit_action)
 
@@ -523,9 +507,9 @@ class XboxBackupManager(QMainWindow):
         self.ftp_mode_action.setIcon(
             qta.icon(
                 "fa6s.network-wired",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.ftp_mode_action.triggered.connect(lambda: self.switch_mode("ftp"))
@@ -538,9 +522,9 @@ class XboxBackupManager(QMainWindow):
         self.usb_mode_action.setIcon(
             qta.icon(
                 "fa6s.hard-drive",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.usb_mode_action.triggered.connect(lambda: self.switch_mode("usb"))
@@ -560,17 +544,13 @@ class XboxBackupManager(QMainWindow):
 
         # Extract ISO action
         self.extract_iso_action = QAction("&Extract ISO...", self)
-        self.extract_iso_action.setIcon(
-            qta.icon("fa6s.file-zipper", color=self.normal_color)
-        )
+        self.extract_iso_action.setIcon(qta.icon("fa6s.file-zipper"))
         self.extract_iso_action.triggered.connect(self.browse_for_iso)
         tools_menu.addAction(self.extract_iso_action)
 
         # Create GOD action
         self.create_god_action = QAction("&Create GOD...", self)
-        self.create_god_action.setIcon(
-            qta.icon("fa6s.compact-disc", color=self.normal_color)
-        )
+        self.create_god_action.setIcon(qta.icon("fa6s.compact-disc"))
         self.create_god_action.triggered.connect(self.browse_for_god_creation)
         tools_menu.addAction(self.create_god_action)
 
@@ -607,9 +587,9 @@ class XboxBackupManager(QMainWindow):
         self.theme_menu.setIcon(
             qta.icon(
                 "fa6s.palette",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.theme_action_group = QActionGroup(self)
@@ -620,9 +600,9 @@ class XboxBackupManager(QMainWindow):
         self.auto_theme_action.setIcon(
             qta.icon(
                 "fa6s.circle-half-stroke",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.auto_theme_action.triggered.connect(lambda: self.set_theme_override(None))
@@ -634,9 +614,9 @@ class XboxBackupManager(QMainWindow):
         self.light_theme_action.setIcon(
             qta.icon(
                 "fa6s.sun",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.light_theme_action.triggered.connect(
@@ -650,9 +630,9 @@ class XboxBackupManager(QMainWindow):
         self.dark_theme_action.setIcon(
             qta.icon(
                 "fa6s.moon",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.dark_theme_action.triggered.connect(lambda: self.set_theme_override(True))
@@ -667,9 +647,9 @@ class XboxBackupManager(QMainWindow):
         self.about_action.setIcon(
             qta.icon(
                 "fa6s.circle-info",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.about_action.triggered.connect(self.show_about)
@@ -679,9 +659,9 @@ class XboxBackupManager(QMainWindow):
         self.check_updates_action.setIcon(
             qta.icon(
                 "fa6s.rotate",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.check_updates_action.triggered.connect(self._check_for_updates)
@@ -691,9 +671,9 @@ class XboxBackupManager(QMainWindow):
         self.licenses_action.setIcon(
             qta.icon(
                 "fa6s.file-contract",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.licenses_action.triggered.connect(self.show_licenses)
@@ -1251,9 +1231,9 @@ class XboxBackupManager(QMainWindow):
         self.cancel_button.setIcon(
             qta.icon(
                 "fa6s.xmark",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.cancel_button.setToolTip("Cancel the current transfer")
@@ -1795,21 +1775,21 @@ class XboxBackupManager(QMainWindow):
 
     def apply_theme(self):
         """Apply the current theme"""
-        stylesheet = self.theme_manager.get_stylesheet()
-        self.setStyleSheet(stylesheet)
+        self.theme_manager.get_stylesheet()
+        # self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
-        # Update colours
-        if self.theme_manager.should_use_dark_mode():
-            self.normal_color = palette.COLOR_TEXT_1
-            self.active_color = palette.COLOR_TEXT_1
-            self.disabled_color = palette.COLOR_DISABLED
-        else:
-            self.normal_color = palette.COLOR_BACKGROUND_6
-            self.active_color = palette.COLOR_BACKGROUND_6
-            self.disabled_color = palette.COLOR_DISABLED
+        # # Update colours
+        # if self.theme_manager.should_use_dark_mode():
+        #     self.normal_color = palette.COLOR_TEXT_1
+        #     self.active_color = palette.COLOR_TEXT_1
+        #     self.disabled_color = palette.COLOR_DISABLED
+        # else:
+        #     self.normal_color = palette.COLOR_BACKGROUND_6
+        #     self.active_color = palette.COLOR_BACKGROUND_6
+        #     self.disabled_color = palette.COLOR_DISABLED
 
         self.icon_manager.update_all_icons()
 
@@ -1983,9 +1963,9 @@ class XboxBackupManager(QMainWindow):
         self.settings_manager.save_ftp_settings(self.ftp_settings)
 
         # Save theme preference
-        self.settings_manager.save_theme_preference(
-            self.theme_manager.dark_mode_override
-        )
+        # self.settings_manager.save_theme_preference(
+        #     self.theme_manager.dark_mode_override
+        # )
 
         # Save table settings
         if hasattr(self.games_table, "horizontalHeader"):
@@ -3598,9 +3578,9 @@ class XboxBackupManager(QMainWindow):
         self.update_button.setIcon(
             qta.icon(
                 "fa6s.rotate",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.update_button.setToolTip("A new version is available. Click to update.")

@@ -1,8 +1,9 @@
 import darkdetect  # type: ignore
-import qdarkstyle  # type: ignore
 from PyQt6.QtCore import QObject
+from PyQt6.QtWidgets import QApplication
 from qdarkstyle.dark.palette import DarkPalette  # type: ignore
 from qdarkstyle.light.palette import LightPalette  # type: ignore
+from qt_material import apply_stylesheet  # type: ignore
 
 
 class ThemeManager(QObject):
@@ -22,37 +23,41 @@ class ThemeManager(QObject):
 
     def get_stylesheet(self) -> str:
         """Get the current theme stylesheet"""
+        app = QApplication.instance()
+        if app is None:
+            return ""
+
         if self.should_use_dark_mode():
-            stylesheet = qdarkstyle.load_stylesheet(palette=DarkPalette)
+            apply_stylesheet(app, theme="dark_teal.xml")
         else:
-            stylesheet = qdarkstyle.load_stylesheet(palette=LightPalette)
+            apply_stylesheet(app, theme="light_teal.xml", invert_secondary=True)
 
-        # Add custom styling
-        button_styling = """
-        QPushButton#scan_button {
-            padding: 8px 16px !important;
-            font-size: 14px !important;
-            min-height: 20px !important;
-        }
-        QPushButton#transfer_button {
-            margin-right: 8px;
-        }
-        QPushButton#transfer_button, QPushButton#remove_button {
-            padding: 4px 8px;
-        }
-        # QPushButton#remove_button {
-        #     background-color: darkred;
-        #     color: white;
+        # # Add custom styling
+        # button_styling = """
+        # QPushButton#scan_button {
+        #     padding: 8px 16px !important;
+        #     font-size: 14px !important;
+        #     min-height: 20px !important;
         # }
+        # QPushButton#transfer_button {
+        #     margin-right: 8px;
+        # }
+        # QPushButton#transfer_button, QPushButton#remove_button {
+        #     padding: 4px 8px;
+        # }
+        # # QPushButton#remove_button {
+        # #     background-color: darkred;
+        # #     color: white;
+        # # }
 
-        QProgressBar {
-            border: none;
-        }
-        QProgressBar::chunk {
-            border-radius: 0px !important;
-        }
-        """
-        return stylesheet + button_styling
+        # QProgressBar {
+        #     border: none;
+        # }
+        # QProgressBar::chunk {
+        #     border-radius: 0px !important;
+        # }
+        # """
+        # return stylesheet + button_styling
 
     def get_palette(self):
         """Get the current color palette"""
