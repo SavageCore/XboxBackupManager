@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List
 
-import qt_themes
+import qt_themes  # type: ignore
 import qtawesome as qta
 import requests
 from PyQt6.QtCore import (
@@ -5066,7 +5066,6 @@ class XboxBackupManager(QMainWindow):
                 border: 2px solid palette(highlight);
                 border-radius: 3px;
                 background-color: palette(highlight);
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEwIDNMNC41IDguNUwyIDYiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=);
             }
 
             QHeaderView {
@@ -5086,6 +5085,7 @@ class XboxBackupManager(QMainWindow):
 
             QHeaderView::section:hover {
                 background-color: palette(highlight);
+                color: palette(highlighted-text);
             }
 
             QHeaderView::section:pressed {
@@ -5166,30 +5166,9 @@ class NonSortableHeaderView(QHeaderView):
         # Draw rounded rectangle
         painter.drawRoundedRect(checkbox_rect, 3, 3)
 
-        # Draw checkmark if checked
-        if check_state == Qt.CheckState.Checked:
-            painter.setPen(
-                QPen(
-                    self.palette().highlightedText().color(),
-                    2,
-                    Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap,
-                    Qt.PenJoinStyle.RoundJoin,
-                )
-            )
+        # Note: Checkmark removed - just show colored state
 
-            # Draw checkmark path (similar to the SVG in your stylesheet)
-            checkmark_points = [
-                QPoint(x + 4, y + 8),  # Start point
-                QPoint(x + 7, y + 11),  # Middle point
-                QPoint(x + 12, y + 5),  # End point
-            ]
-
-            # Draw the checkmark as connected lines
-            painter.drawLine(checkmark_points[0], checkmark_points[1])
-            painter.drawLine(checkmark_points[1], checkmark_points[2])
-
-        elif check_state == Qt.CheckState.PartiallyChecked:
+        if check_state == Qt.CheckState.PartiallyChecked:
             # Draw partial state (dash)
             painter.setPen(
                 QPen(
