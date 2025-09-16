@@ -29,35 +29,101 @@ class ThemeManager(QObject):
 
         if self.should_use_dark_mode():
             apply_stylesheet(app, theme="dark_teal.xml")
+            # Dark theme menu styling
+            menu_styling = """
+            QMenuBar {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: none;
+            }
+            QMenuBar::item {
+                background-color: transparent;
+                color: #ffffff;
+                padding: 4px 8px;
+            }
+            QMenuBar::item:selected {
+                background-color: #404040;
+                color: #ffffff;
+            }
+            QMenuBar::item:pressed {
+                background-color: #505050;
+                color: #ffffff;
+            }
+            QMenu {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            QMenu::item {
+                background-color: transparent !important;
+                color: #ffffff !important;
+                padding: 3px 8px !important;
+            }
+            QMenu::item:selected {
+                background-color: #404040 !important;
+                color: #ffffff !important;
+            }
+            QMenu::item:pressed {
+                background-color: #505050 !important;
+                color: #ffffff !important;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #555555;
+                margin: 2px 0px;
+            }
+            """
         else:
             apply_stylesheet(app, theme="light_teal.xml", invert_secondary=True)
+            # Light theme menu styling
+            menu_styling = """
+            QMenuBar {
+                background-color: #f0f0f0;
+                color: #000000;
+                border: none;
+            }
+            QMenuBar::item {
+                background-color: transparent;
+                color: #000000;
+                padding: 4px 8px;
+            }
+            QMenuBar::item:selected {
+                background-color: #e0e0e0;
+                color: #000000;
+            }
+            QMenuBar::item:pressed {
+                background-color: #d0d0d0;
+                color: #000000;
+            }
+            QMenu {
+                background-color: #f0f0f0;
+                color: #000000;
+                border: 1px solid #cccccc;
+            }
+            QMenu::item {
+                background-color: transparent !important;
+                color: #000000 !important;
+                padding: 6px 16px !important;
+            }
+            QMenu::item:selected {
+                background-color: #e0e0e0 !important;
+                color: #000000 !important;
+            }
+            QMenu::item:pressed {
+                background-color: #d0d0d0 !important;
+                color: #000000 !important;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #cccccc;
+                margin: 2px 0px;
+            }
+            """
 
-        # # Add custom styling
-        # button_styling = """
-        # QPushButton#scan_button {
-        #     padding: 8px 16px !important;
-        #     font-size: 14px !important;
-        #     min-height: 20px !important;
-        # }
-        # QPushButton#transfer_button {
-        #     margin-right: 8px;
-        # }
-        # QPushButton#transfer_button, QPushButton#remove_button {
-        #     padding: 4px 8px;
-        # }
-        # # QPushButton#remove_button {
-        # #     background-color: darkred;
-        # #     color: white;
-        # # }
-
-        # QProgressBar {
-        #     border: none;
-        # }
-        # QProgressBar::chunk {
-        #     border-radius: 0px !important;
-        # }
-        # """
-        # return stylesheet + button_styling
+        # Apply the custom menu styling
+        if app:
+            current_stylesheet = app.styleSheet()
+            app.setStyleSheet(current_stylesheet + menu_styling)
 
     def get_palette(self):
         """Get the current color palette"""
