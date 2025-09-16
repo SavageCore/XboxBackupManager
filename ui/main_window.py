@@ -11,6 +11,7 @@ import os
 import platform
 import shutil
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -2389,7 +2390,12 @@ class XboxBackupManager(QMainWindow):
 
         for game in self.games:
             if game.title_id not in self.icon_cache:
-                missing_title_ids.append(game.title_id)
+                # If extracted iso game then add the folder name instead of title ID
+                if game.is_extracted_iso:
+                    folder_name = Path(game.folder_path).name.upper()
+                    missing_title_ids.append((game.title_id, folder_name))
+                else:
+                    missing_title_ids.append((game.title_id, None))
 
         if missing_title_ids:
             self.status_manager.show_message(
@@ -2398,7 +2404,7 @@ class XboxBackupManager(QMainWindow):
 
             # Start icon downloader thread
             self.icon_downloader = IconDownloader(
-                missing_title_ids, self.current_platform
+                missing_title_ids, self.current_platform, self.current_directory
             )
             self.icon_downloader.icon_downloaded.connect(self.on_icon_downloaded)
             self.icon_downloader.download_failed.connect(self.on_icon_download_failed)
@@ -2823,6 +2829,24 @@ class XboxBackupManager(QMainWindow):
                             folder_name, folder_path, ftp_client
                         )
                         if title_id:
+                            # Check if this is an extracted ISO game for FTP
+                            is_extracted_iso = False
+                            if self.current_platform == "xbox360":
+                                # Check if default.xex exists by listing directory contents
+                                try:
+                                    success, dir_items, error_msg = (
+                                        ftp_client.list_directory(folder_path)
+                                    )
+                                    if success:
+                                        is_extracted_iso = any(
+                                            not dir_item["is_directory"]
+                                            and dir_item["name"].lower()
+                                            == "default.xex"
+                                            for dir_item in dir_items
+                                        )
+                                except Exception:
+                                    pass  # If we can't check, assume it's not extracted ISO
+
                             game_name = self._get_game_display_name(
                                 folder_name, title_id
                             )
@@ -2832,6 +2856,7 @@ class XboxBackupManager(QMainWindow):
                                     "title_id": title_id,
                                     "folder_path": folder_path,
                                     "folder_name": folder_name,
+                                    "is_extracted_iso": is_extracted_iso,
                                 }
                             )
 
@@ -2857,6 +2882,12 @@ class XboxBackupManager(QMainWindow):
                         # Try to get title ID and game name from the folder
                         title_id = self._extract_title_id(folder_name, folder_path)
                         if title_id:
+                            # Check if this is an extracted ISO game
+                            is_extracted_iso = False
+                            if self.current_platform == "xbox360":
+                                xex_path = Path(folder_path) / "default.xex"
+                                is_extracted_iso = xex_path.exists()
+
                             game_name = self._get_game_display_name(
                                 folder_name, title_id
                             )
@@ -2866,6 +2897,7 @@ class XboxBackupManager(QMainWindow):
                                     "title_id": title_id,
                                     "folder_path": folder_path,
                                     "folder_name": folder_name,
+                                    "is_extracted_iso": is_extracted_iso,
                                 }
                             )
             except Exception as e:
@@ -2875,15 +2907,35 @@ class XboxBackupManager(QMainWindow):
 
     def _extract_title_id(self, folder_name: str, folder_path: str):
         """Extract title ID from folder name or path"""
-        # For Xbox 360, folder name is the title ID
+        # For Xbox 360, check if it's an extracted ISO game first
         if self.current_platform == "xbox360":
-            return folder_name.upper()
+            folder_path_obj = Path(folder_path)
+
+            # Check if this is an extracted ISO game (has default.xex)
+            xex_path = folder_path_obj / "default.xex"
+            if xex_path.exists():
+                try:
+                    # Use xextool to extract the actual title ID from XEX
+                    xex_info = SystemUtils.extract_xex_info(str(xex_path))
+                    if xex_info and xex_info.get("title_id"):
+                        return xex_info["title_id"]
+                except Exception as e:
+                    print(f"Error extracting title ID from XEX: {e}")
+
+            # For GoD format games, folder name is the title ID
+            # Check if folder name looks like a hex title ID (8 characters)
+            if len(folder_name) == 8 and all(
+                c in "0123456789ABCDEFabcdef" for c in folder_name
+            ):
+                return folder_name.upper()
+
+            # If not a GoD format and no XEX found, return None
+            return None
 
         # For Xbox, need to extract from internal structure
         elif self.current_platform == "xbox":
             try:
                 # Look for default.xbe or header files
-                from pathlib import Path
 
                 # Check for GoD structure
                 god_header_path = Path(folder_path) / "00007000"
@@ -2913,9 +2965,52 @@ class XboxBackupManager(QMainWindow):
         self, folder_name: str, folder_path: str, ftp_client: FTPClient
     ):
         """Extract title ID from folder name or path for FTP connections"""
-        # For Xbox 360, folder name is the title ID
+        # For Xbox 360, check if it's an extracted ISO game first
         if self.current_platform == "xbox360":
-            return folder_name.upper()
+            # Check if this is an extracted ISO game (has default.xex)
+            try:
+                # Try to check if default.xex exists by listing directory contents
+                success, items, error_msg = ftp_client.list_directory(folder_path)
+                if success:
+                    has_default_xex = any(
+                        not item["is_directory"]
+                        and item["name"].lower() == "default.xex"
+                        for item in items
+                    )
+
+                    if has_default_xex:
+                        # Download default.xex temporarily to extract title ID
+                        default_xex_path = f"{folder_path.rstrip('/')}/default.xex"
+
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".xex"
+                        ) as temp_file:
+                            temp_path = temp_file.name
+
+                        try:
+                            success, message = ftp_client.download_file(
+                                default_xex_path, temp_path
+                            )
+                            if success:
+                                xex_info = SystemUtils.extract_xex_info(temp_path)
+                                if xex_info and xex_info.get("title_id"):
+                                    return xex_info["title_id"]
+                        finally:
+                            # Clean up temporary file
+                            if os.path.exists(temp_path):
+                                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Error extracting title ID from FTP XEX: {e}")
+
+            # For GoD format games, folder name is the title ID
+            # Check if folder name looks like a hex title ID (8 characters)
+            if len(folder_name) == 8 and all(
+                c in "0123456789ABCDEFabcdef" for c in folder_name
+            ):
+                return folder_name.upper()
+
+            # If not a GoD format and no XEX found, return None
+            return None
 
         # For Xbox, need to extract from internal structure
         elif self.current_platform == "xbox":
@@ -2978,16 +3073,22 @@ class XboxBackupManager(QMainWindow):
         """Get media ID for a game from its local folder only (used for context menu)"""
         try:
             # Always use local mode for context menu operations
-            # First check if this is a GoD game (no .xex file in root)
             folder_path_obj = Path(folder_path)
-            xex_files = list(folder_path_obj.glob("*.xex"))
 
-            if xex_files:
-                print(
-                    "[DEBUG] Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
-                )
+            # First check if this is an extracted ISO game (has default.xex in root)
+            xex_path = folder_path_obj / "default.xex"
+            if xex_path.exists():
+                xex_info = SystemUtils.extract_xex_info(str(xex_path))
+                if xex_info and xex_info.get("media_id"):
+                    return xex_info["media_id"]
                 return None
 
+            # Check for other .xex files (non-default.xex)
+            xex_files = list(folder_path_obj.glob("*.xex"))
+            if xex_files:
+                return None
+
+            # If no .xex files, treat as GoD game
             god_header_path = folder_path_obj / "00007000"
             header_files = list(god_header_path.glob("*"))
 
@@ -4797,6 +4898,10 @@ class XboxBackupManager(QMainWindow):
                     "size_formatted": game.size_formatted,
                     "transferred": game.transferred,
                     "last_modified": getattr(game, "last_modified", 0),
+                    "media_id": getattr(game, "media_id", None),  # Save media_id
+                    "is_extracted_iso": getattr(
+                        game, "is_extracted_iso", False
+                    ),  # Save extracted ISO flag
                 }
                 cache_data["games"].append(game_data)
 
@@ -4839,9 +4944,13 @@ class XboxBackupManager(QMainWindow):
                     folder_path=game_data["folder_path"],
                     size_bytes=game_data["size_bytes"],
                     size_formatted=game_data["size_formatted"],
+                    is_extracted_iso=game_data.get(
+                        "is_extracted_iso", False
+                    ),  # Handle new field
                 )
                 game_info.transferred = game_data.get("transferred", False)
                 game_info.last_modified = game_data.get("last_modified", 0)
+                game_info.media_id = game_data.get("media_id")  # Handle media_id field
 
                 self.games.append(game_info)
 

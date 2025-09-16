@@ -1,3 +1,4 @@
+import base64
 import os
 from pathlib import Path
 from typing import Dict, Optional
@@ -5,6 +6,7 @@ from typing import Dict, Optional
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from models.game_info import GameInfo
+from utils.system_utils import SystemUtils
 
 
 class DirectoryScanner(QThread):
@@ -110,12 +112,62 @@ class DirectoryScanner(QThread):
                 folder_path=folder_path,
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
+                is_extracted_iso=False,  # Xbox games are not extracted ISOs
             )
 
             return game_info
 
         except Exception as e:
             print(f"Error processing Xbox game {folder_path}: {e}")
+            return None
+
+    def _process_extracted_iso_game(
+        self, folder_path: str, xex_path: str
+    ) -> Optional[GameInfo]:
+        """Process an extracted ISO Xbox 360 game folder"""
+        try:
+            # Use xextool to extract title ID and media ID from default.xex
+            xex_info = SystemUtils.extract_xex_info(xex_path)
+
+            if xex_info:
+                title_id = xex_info["title_id"]
+                media_id = xex_info.get("media_id")  # Use .get() to handle None values
+                icon_base64 = xex_info.get("icon_base64")  # Extract icon if available
+            else:
+                # Fallback: use folder name as title ID if xextool fails
+                folder_name = os.path.basename(folder_path)
+                title_id = folder_name
+                media_id = None
+                icon_base64 = None
+
+            # Get title name from database
+            name = self.title_database.get(
+                title_id,
+                f"Unknown Game ({title_id})",
+            )
+
+            # Calculate folder size
+            size_bytes = self._calculate_directory_size(folder_path)
+
+            # Create GameInfo object with media_id
+            game_info = GameInfo(
+                title_id=title_id,
+                name=name,
+                folder_path=folder_path,
+                size_bytes=size_bytes,
+                size_formatted=self._format_size(size_bytes),
+                media_id=media_id,
+                is_extracted_iso=True,  # Mark this as an extracted ISO game
+            )
+
+            # Cache the icon if we extracted one
+            if icon_base64:
+                self._cache_xex_icon(title_id, icon_base64)
+
+            return game_info
+
+        except Exception as e:
+            print(f"Error processing extracted ISO game {folder_path}: {e}")
             return None
 
     def _process_xbox360_game(
@@ -139,6 +191,7 @@ class DirectoryScanner(QThread):
                 folder_path=folder_path,
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
+                is_extracted_iso=False,  # Xbox 360 GoD games are not extracted ISOs
             )
 
             return game_info
@@ -148,27 +201,38 @@ class DirectoryScanner(QThread):
             return None
 
     def _scan_xbox360_directory(self):
-        """Scan directory for Xbox 360/XBLA games (existing logic)"""
+        """Scan directory for Xbox 360/XBLA games (GoD format) and extracted ISO games"""
         folders = []
 
-        # Get all subdirectories that look like title IDs
+        # Get all subdirectories
         for item in os.listdir(self.directory):
             if self.should_stop:
                 return
             item_path = os.path.join(self.directory, item)
             if os.path.isdir(item_path):
-                # For Xbox 360/XBLA, we expect 8-character hex title IDs
+                # Check if it's a standard GoD format (8-character hex title ID)
                 if len(item) == 8 and all(c in "0123456789ABCDEFabcdef" for c in item):
-                    folders.append((item_path, item.upper()))
+                    folders.append((item_path, item.upper(), "god"))
+                else:
+                    # Check if it's an extracted ISO game (has default.xex)
+                    xex_path = os.path.join(item_path, "default.xex")
+                    if os.path.exists(xex_path):
+                        folders.append((item_path, None, "iso", xex_path))
 
         total_folders = len(folders)
         self.progress.emit(0, total_folders)
 
-        for i, (folder_path, title_id) in enumerate(folders):
+        for i, folder_info in enumerate(folders):
             if self.should_stop:
                 return
 
-            game_info = self._process_xbox360_game(folder_path, title_id)
+            if len(folder_info) == 3:  # GoD format
+                folder_path, title_id, game_type = folder_info
+                game_info = self._process_xbox360_game(folder_path, title_id)
+            else:  # Extracted ISO format
+                folder_path, _, game_type, xex_path = folder_info
+                game_info = self._process_extracted_iso_game(folder_path, xex_path)
+
             if game_info and not self.should_stop:
                 self.game_found.emit(game_info)
 
@@ -195,3 +259,20 @@ class DirectoryScanner(QThread):
                 return f"{size_bytes:.2f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.2f} TB"
+
+    def _cache_xex_icon(self, title_id: str, icon_base64: str):
+        """Cache the extracted XEX icon to the cache/icons directory"""
+        try:
+            # Create cache/icons directory if it doesn't exist
+            cache_icons_dir = Path("cache") / "icons"
+            cache_icons_dir.mkdir(parents=True, exist_ok=True)
+
+            # Decode base64 and save as PNG file
+            icon_data = base64.b64decode(icon_base64)
+            icon_path = cache_icons_dir / f"{title_id}.png"
+
+            with open(icon_path, "wb") as f:
+                f.write(icon_data)
+
+        except Exception as e:
+            print(f"Failed to cache icon for {title_id}: {e}")
