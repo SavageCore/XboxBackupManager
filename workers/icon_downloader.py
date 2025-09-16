@@ -8,6 +8,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from utils.system_utils import SystemUtils
+from utils.xboxunity import XboxUnity
 
 
 class IconDownloader(QThread):
@@ -29,6 +30,7 @@ class IconDownloader(QThread):
         self.cache_dir = Path("cache/icons")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.system_utils = SystemUtils()
+        self.xbox_unity = XboxUnity()
 
     def run(self):
         for title_id, folder_name in self.title_ids:
@@ -51,7 +53,7 @@ class IconDownloader(QThread):
             if not pixmap.isNull():
                 return pixmap
 
-        # Check if this is an extracted ISO game (default.xex) and we have a current directory
+        # Check if this is an extracted ISO game (default.xex) or GoD game and we have a current directory
         if (
             self.platform == "xbox360"
             and self.current_directory
@@ -60,9 +62,17 @@ class IconDownloader(QThread):
             # Look for the game in the current directory
             game_dir = self.current_directory / folder_name
             xex_path = game_dir / "default.xex"
+            god_header_path = game_dir / "00007000"
 
+            # Try XEX extraction first (extracted ISO games)
             if xex_path.exists():
                 icon_pixmap = self._extract_icon_from_xex(xex_path, title_id)
+                if not icon_pixmap.isNull():
+                    return icon_pixmap
+
+            # Try GoD extraction (Games on Demand)
+            elif god_header_path.exists() and god_header_path.is_dir():
+                icon_pixmap = self._extract_icon_from_god(god_header_path, title_id)
                 if not icon_pixmap.isNull():
                     return icon_pixmap
 
@@ -73,6 +83,8 @@ class IconDownloader(QThread):
                 url = f"https://raw.githubusercontent.com/UncreativeXenon/XboxUnity-Scraper/refs/heads/master/Icons/{title_id}.png"
             else:
                 url = f"https://raw.githubusercontent.com/MobCat/MobCats-original-xbox-game-list/main/icon/{title_id[:4]}/{title_id}.png"
+
+            print(f"Downloading icon from: {url}")
 
             urllib.request.urlretrieve(url, str(cache_file))
 
@@ -107,6 +119,52 @@ class IconDownloader(QThread):
             pixmap.loadFromData(icon_data)
 
             # Cache the icon for future use
+            if not pixmap.isNull():
+                cache_file = self.cache_dir / f"{expected_title_id}.png"
+                pixmap.save(str(cache_file), "PNG")
+
+            return pixmap
+
+        except Exception:
+            return QPixmap()
+
+    def _extract_icon_from_god(
+        self, god_header_path: Path, expected_title_id: str
+    ) -> QPixmap:
+        """Extract icon from GoD file using XboxUnity"""
+        print(f"Extracting GoD icon from: {god_header_path}")
+        try:
+            # Find the first header file in the 00007000 directory
+            header_files = list(god_header_path.glob("*"))
+            if not header_files:
+                return QPixmap()
+
+            # Use the first header file found
+            header_file_path = str(header_files[0])
+
+            # Extract GoD information including icon
+            god_info = self.xbox_unity.get_god_info(header_file_path)
+            if not god_info:
+                return QPixmap()
+
+            # Verify this GoD file belongs to the title we're looking for
+            extracted_title_id = god_info.get("title_id")
+            if extracted_title_id and extracted_title_id != expected_title_id:
+                # Title ID doesn't match, but still try to use the icon
+                # (in case the folder was renamed)
+                pass
+
+            # Get the icon data
+            icon_base64 = god_info.get("icon_base64")
+            if not icon_base64:
+                return QPixmap()
+
+            # Decode base64 and create pixmap
+            icon_data = base64.b64decode(icon_base64)
+            pixmap = QPixmap()
+            pixmap.loadFromData(icon_data)
+
+            # Cache the icon for future use (use the expected title ID for consistent caching)
             if not pixmap.isNull():
                 cache_file = self.cache_dir / f"{expected_title_id}.png"
                 pixmap.save(str(cache_file), "PNG")

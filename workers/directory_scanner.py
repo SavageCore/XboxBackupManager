@@ -204,6 +204,10 @@ class DirectoryScanner(QThread):
                     if god_info.get("display_name"):
                         game_name = god_info["display_name"]
 
+                    # Cache the icon if available
+                    if god_info.get("icon_base64"):
+                        self._cache_god_icon(title_id, god_info["icon_base64"])
+
             # Get title name - prioritize GoD extracted name, then fallback to title ID
             if game_name:
                 name = game_name
@@ -305,3 +309,20 @@ class DirectoryScanner(QThread):
 
         except Exception as e:
             print(f"Failed to cache icon for {title_id}: {e}")
+
+    def _cache_god_icon(self, title_id: str, icon_base64: str):
+        """Cache the extracted GoD icon to the cache/icons directory"""
+        try:
+            # Create cache/icons directory if it doesn't exist
+            cache_icons_dir = Path("cache") / "icons"
+            cache_icons_dir.mkdir(parents=True, exist_ok=True)
+
+            # Decode base64 and save as PNG file
+            icon_data = base64.b64decode(icon_base64)
+            icon_path = cache_icons_dir / f"{title_id}.png"
+
+            with open(icon_path, "wb") as f:
+                f.write(icon_data)
+
+        except Exception as e:
+            print(f"Failed to cache GoD icon for {title_id}: {e}")

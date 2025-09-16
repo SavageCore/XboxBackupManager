@@ -633,10 +633,36 @@ class XboxUnity:
                 except Exception:
                     display_name = None
 
+                # Extract icon data (PNG format, typically at offset 0x171A)
+                icon_base64 = None
+                try:
+                    f.seek(0x171A)
+                    # Read potential PNG header to check if icon exists
+                    png_signature = f.read(8)
+                    if png_signature == b"\x89PNG\r\n\x1a\n":
+                        # Found PNG signature, read the icon
+                        f.seek(0x171A)
+                        # Read up to 64KB for the icon (should be plenty)
+                        icon_data = f.read(65536)
+
+                        # Find the end of the PNG file (IEND chunk)
+                        iend_pos = icon_data.find(b"IEND")
+                        if iend_pos != -1:
+                            # Include the IEND chunk and CRC (8 bytes total)
+                            icon_data = icon_data[: iend_pos + 8]
+
+                            # Convert to base64 for consistent handling
+                            import base64
+
+                            icon_base64 = base64.b64encode(icon_data).decode("ascii")
+                except Exception:
+                    icon_base64 = None
+
                 return {
                     "title_id": title_id,
                     "media_id": media_id,
                     "display_name": display_name,
+                    "icon_base64": icon_base64,
                 }
 
         except FileNotFoundError:

@@ -2399,7 +2399,7 @@ class XboxBackupManager(QMainWindow):
                     folder_name = Path(game.folder_path).name.upper()
                     missing_title_ids.append((game.title_id, folder_name))
                 else:
-                    missing_title_ids.append((game.title_id, None))
+                    missing_title_ids.append((game.title_id, game.title_id))
 
         if missing_title_ids:
             self.status_manager.show_message(
