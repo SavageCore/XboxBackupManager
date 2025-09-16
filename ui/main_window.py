@@ -4422,29 +4422,41 @@ class XboxBackupManager(QMainWindow):
             xiso_button = self.findChild(QPushButton, "extract_xiso_download_button")
             if xiso_button:
                 xiso_button.setEnabled(False)
+                xiso_button.setText("✔️ Downloaded")
         if self.iso2god_found:
             iso2god_button = self.findChild(QPushButton, "iso2god_download_button")
             if iso2god_button:
                 iso2god_button.setEnabled(False)
                 iso2god_button.setText("✔️ Downloaded")
-                xiso_button.setText("✔️ Downloaded")
         if self.xextool_found:
             xextool_button = self.findChild(QPushButton, "xextool_download_button")
             if xextool_button:
                 xextool_button.setEnabled(False)
                 xextool_button.setText("✔️ Downloaded")
 
-        # If both tools are now found, close the dialog and update status bar
-        if self.extract_xiso_found and self.iso2god_found:
+        # If all tools are now found, close the dialog and update status bar
+        if self.extract_xiso_found and self.iso2god_found and self.xextool_found:
             if hasattr(self, "tools_dialog") and self.tools_dialog:
-                self.tools_dialog.accept()
-                delattr(self, "tools_dialog")
-            # Set a status message of tools ready for use, then 5 seconds later return to games found
-            self.status_manager.show_message("✔️ Required tools are ready for use")
+                self.status_manager.show_message("✔️ Required tools are ready for use")
+                close_button = self.tools_dialog.findChild(QPushButton, "Close")
+                if close_button:
+                    close_button.setText("Restarting...")
+                    close_button.setEnabled(False)
+                QTimer.singleShot(2000, self._on_tools_added)
             return
 
         status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status} | xextool: {xextool_status}"
         self.status_manager.show_message(status_text)
+
+    def _on_tools_added(self):
+        """Handle the event when all required tools are added"""
+        # Close the dialog if open after a short delay
+        self.tools_dialog.accept
+        delattr(self, "tools_dialog")
+        # Clear the scan cache to force rescan
+        self._clear_cache_for_directory()
+        # Restart the application
+        SystemUtils.restart_app(self)
 
     def _show_tools_download_dialog(self):
         """Show dialog with download links for missing tools"""
@@ -4530,6 +4542,7 @@ class XboxBackupManager(QMainWindow):
         layout.addWidget(instructions)
 
         close_button = QPushButton("Close")
+        close_button.setObjectName("Close")
         close_button.clicked.connect(dialog.accept)
         layout.addWidget(close_button)
 

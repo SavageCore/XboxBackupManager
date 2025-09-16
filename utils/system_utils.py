@@ -1,6 +1,7 @@
 import os
 import platform
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -223,3 +224,40 @@ class SystemUtils:
         except Exception as e:
             print(f"Error extracting XBE info from {xbe_path}: {e}")
             return None
+
+    @staticmethod
+    def restart_app(self):
+        """Restart the application with error handling"""
+        try:
+            if getattr(sys, "frozen", False):
+                # Running as PyInstaller executable
+                executable_path = sys.executable
+                args = sys.argv[1:]  # Preserve command line arguments
+            else:
+                # Running as Python script
+                executable_path = sys.executable
+                args = [sys.argv[0]] + sys.argv[1:]
+
+            # Ensure the executable exists
+            if not os.path.exists(executable_path):
+                QMessageBox.critical(None, "Error", "Cannot find executable to restart")
+                return
+
+            # Start new instance with detached process
+            if getattr(sys, "frozen", False):
+                subprocess.Popen(
+                    [executable_path] + args,
+                    creationflags=(
+                        subprocess.DETACHED_PROCESS if sys.platform == "win32" else 0
+                    ),
+                )
+            else:
+                subprocess.Popen([executable_path] + args)
+
+            # Exit current instance
+            QApplication.instance().quit()
+
+        except Exception as e:
+            QMessageBox.critical(
+                None, "Restart Error", f"Failed to restart application: {str(e)}"
+            )
