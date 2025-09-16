@@ -75,43 +75,43 @@ class ThemeManager(QObject):
             """
         else:
             apply_stylesheet(app, theme="light_teal.xml", invert_secondary=True)
-            # Light theme menu styling
+            # Light theme menu styling with better contrast
             menu_styling = """
             QMenuBar {
-                background-color: #f0f0f0;
-                color: #000000;
+                background-color: #ffffff;
+                color: #2d2d2d;
                 border: none;
             }
             QMenuBar::item {
                 background-color: transparent;
-                color: #000000;
+                color: #2d2d2d;
                 padding: 4px 8px;
             }
             QMenuBar::item:selected {
-                background-color: #e0e0e0;
-                color: #000000;
+                background-color: #009688;
+                color: #ffffff;
             }
             QMenuBar::item:pressed {
-                background-color: #d0d0d0;
-                color: #000000;
+                background-color: #00796b;
+                color: #ffffff;
             }
             QMenu {
-                background-color: #f0f0f0;
-                color: #000000;
+                background-color: #ffffff;
+                color: #2d2d2d;
                 border: 1px solid #cccccc;
             }
             QMenu::item {
                 background-color: transparent !important;
-                color: #000000 !important;
+                color: #2d2d2d !important;
                 padding: 6px 16px !important;
             }
             QMenu::item:selected {
-                background-color: #e0e0e0 !important;
-                color: #000000 !important;
+                background-color: #009688 !important;
+                color: #ffffff !important;
             }
             QMenu::item:pressed {
-                background-color: #d0d0d0 !important;
-                color: #000000 !important;
+                background-color: #00796b !important;
+                color: #ffffff !important;
             }
             QMenu::separator {
                 height: 1px;

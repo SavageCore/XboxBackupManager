@@ -97,8 +97,7 @@ class XboxBackupManager(QMainWindow):
         # Initialize managers
         self.settings_manager = SettingsManager()
         self.theme_manager = ThemeManager()
-        # self.icon_manager = IconManager(self.theme_manager)
-        self.icon_manager = IconManager()
+        self.icon_manager = IconManager(self.theme_manager)
         self.xboxunity = XboxUnity()
 
         self.status_bar = self.statusBar()
@@ -270,7 +269,9 @@ class XboxBackupManager(QMainWindow):
 
         # Scan Directory
         self.toolbar_scan_action = QAction("Scan", self)
-        self.toolbar_scan_action.setIcon(qta.icon("fa6s.magnifying-glass"))
+        self.toolbar_scan_action.setIcon(
+            self.icon_manager.create_icon("fa6s.magnifying-glass")
+        )
         self.toolbar_scan_action.setToolTip("Scan current directory for games")
         self.toolbar_scan_action.triggered.connect(
             lambda: self.scan_directory(force=True)
@@ -280,7 +281,9 @@ class XboxBackupManager(QMainWindow):
 
         # Transfer Selected
         self.toolbar_transfer_action = QAction("Transfer", self)
-        self.toolbar_transfer_action.setIcon(qta.icon("fa6s.download"))
+        self.toolbar_transfer_action.setIcon(
+            self.icon_manager.create_icon("fa6s.download")
+        )
         self.toolbar_transfer_action.setToolTip("Transfer selected games to target")
         self.toolbar_transfer_action.triggered.connect(self.transfer_selected_games)
         self.toolbar_transfer_action.setEnabled(False)
@@ -288,7 +291,7 @@ class XboxBackupManager(QMainWindow):
 
         # Remove Selected
         self.toolbar_remove_action = QAction("Remove", self)
-        self.toolbar_remove_action.setIcon(qta.icon("fa6s.trash"))
+        self.toolbar_remove_action.setIcon(self.icon_manager.create_icon("fa6s.trash"))
         self.toolbar_remove_action.setToolTip("Remove selected games from target")
         self.toolbar_remove_action.triggered.connect(self.remove_selected_games)
         self.toolbar_remove_action.setEnabled(False)
@@ -296,7 +299,9 @@ class XboxBackupManager(QMainWindow):
 
         # Batch Title Updater
         self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
-        self.toolbar_batch_tu_action.setIcon(qta.icon("fa6s.cloud-arrow-down"))
+        self.toolbar_batch_tu_action.setIcon(
+            self.icon_manager.create_icon("fa6s.cloud-arrow-down")
+        )
         self.toolbar_batch_tu_action.setToolTip(
             "Download missing title updates for all transferred games"
         )
@@ -446,21 +451,32 @@ class XboxBackupManager(QMainWindow):
         # Set Source directory action
         self.browse_action = QAction("&Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
-        self.browse_action.setIcon(qta.icon("fa6s.folder-open"))
+        self.browse_action.setIcon(self.icon_manager.create_icon("fa6s.folder-open"))
+        self.icon_manager.register_widget_icon(self.browse_action, "fa6s.folder-open")
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
 
         # Set Target directory action
         self.browse_target_action = QAction("&Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
-        self.browse_target_action.setIcon(qta.icon("fa6s.bullseye"))
+        self.browse_target_action.setIcon(
+            self.icon_manager.create_icon("fa6s.bullseye")
+        )
+        self.icon_manager.register_widget_icon(
+            self.browse_target_action, "fa6s.bullseye"
+        )
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
 
         # Set Cache directory action
         self.browse_cache_action = QAction("&Set Cache Directory...", self)
         self.browse_cache_action.setShortcut("Ctrl+K")
-        self.browse_cache_action.setIcon(qta.icon("fa6s.folder-open"))
+        self.browse_cache_action.setIcon(
+            self.icon_manager.create_icon("fa6s.folder-open")
+        )
+        self.icon_manager.register_widget_icon(
+            self.browse_cache_action, "fa6s.folder-open"
+        )
         self.browse_cache_action.setEnabled(True)
         self.browse_cache_action.triggered.connect(self.browse_cache_directory)
         file_menu.addAction(self.browse_cache_action)
@@ -468,7 +484,12 @@ class XboxBackupManager(QMainWindow):
         # Set Content directory action
         self.browse_content_action = QAction("&Set Content Directory...", self)
         self.browse_content_action.setShortcut("Ctrl+N")
-        self.browse_content_action.setIcon(qta.icon("fa6s.folder-open"))
+        self.browse_content_action.setIcon(
+            self.icon_manager.create_icon("fa6s.folder-open")
+        )
+        self.icon_manager.register_widget_icon(
+            self.browse_content_action, "fa6s.folder-open"
+        )
         self.browse_content_action.setEnabled(True)
         self.browse_content_action.triggered.connect(self.browse_content_directory)
         file_menu.addAction(self.browse_content_action)
@@ -477,13 +498,19 @@ class XboxBackupManager(QMainWindow):
 
         # FTP settings action
         self.ftp_settings_action = QAction("&FTP Settings...", self)
-        self.ftp_settings_action.setIcon(qta.icon("fa6s.gear"))
+        self.ftp_settings_action.setIcon(self.icon_manager.create_icon("fa6s.gear"))
+        self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
         self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
         file_menu.addAction(self.ftp_settings_action)
 
         # Add Xbox Unity settings action
         self.xbox_unity_settings_action = QAction("&Xbox Unity Settings...", self)
-        self.xbox_unity_settings_action.setIcon(qta.icon("fa6s.gear"))
+        self.xbox_unity_settings_action.setIcon(
+            self.icon_manager.create_icon("fa6s.gear")
+        )
+        self.icon_manager.register_widget_icon(
+            self.xbox_unity_settings_action, "fa6s.gear"
+        )
         self.xbox_unity_settings_action.setEnabled(True)
         self.xbox_unity_settings_action.triggered.connect(self.show_xboxunity_settings)
         file_menu.addAction(self.xbox_unity_settings_action)
