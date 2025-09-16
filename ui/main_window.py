@@ -2409,7 +2409,7 @@ class XboxBackupManager(QMainWindow):
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(1, 64)
+        header.resizeSection(1, 90)
 
         # Other columns
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Title ID
