@@ -541,7 +541,6 @@ class XboxUnity:
                 media_id = hex(media_id)
                 # Strip '0x' prefix and convert to uppercase
                 media_id = media_id[2:].upper()
-                print(f"Extracted Media ID: {media_id}")
                 return media_id
         except FileNotFoundError:
             print(f"Error: File '{god_header_path}' not found.")
