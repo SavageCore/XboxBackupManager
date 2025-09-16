@@ -22,14 +22,12 @@ class DirectoryScanner(QThread):
         self,
         directory: str,
         platform: str = "xbox360",
-        xbox_database=None,
     ):
         super().__init__()
         self.directory = directory
         self.platform = platform
         self.should_stop = False
         self.xbox_unity = XboxUnity()
-        self.xbox_database = xbox_database  # Xbox database for original Xbox games
 
     def run(self):
         """Main scanning logic"""
@@ -82,25 +80,26 @@ class DirectoryScanner(QThread):
     def _process_xbox_game(self, folder_path: str, xbe_path: str) -> Optional[GameInfo]:
         """Process an Xbox game folder"""
         try:
-            # Get title info from XBE MD5
-            if hasattr(self, "xbox_database") and self.xbox_database:
-                title_info = self.xbox_database.get_full_title_info_by_xbe_path(
-                    xbe_path
-                )
+            # Use pyxbe to extract title information from XBE file
+            xbe_info = SystemUtils.extract_xbe_info(xbe_path)
 
-                if title_info:
-                    title_id = title_info["title_id"]
-                    name = title_info["name"]
+            if xbe_info and xbe_info.get("title_id"):
+                title_id = xbe_info["title_id"]
+                title_name = xbe_info.get("title_name")
+                icon_base64 = xbe_info.get("icon_base64")
+
+                # Use extracted title name, or fall back to folder name
+                if title_name:
+                    name = title_name
                 else:
-                    # Fallback: use folder name as title ID and name
                     folder_name = os.path.basename(folder_path)
-                    title_id = folder_name
                     name = f"Unknown Game ({folder_name})"
             else:
-                # No database available - use folder name
+                # Fallback: use folder name as title ID and name if XBE extraction fails
                 folder_name = os.path.basename(folder_path)
                 title_id = folder_name
                 name = f"Xbox Game ({folder_name})"
+                icon_base64 = None
 
             # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
@@ -112,8 +111,12 @@ class DirectoryScanner(QThread):
                 folder_path=folder_path,
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
-                is_extracted_iso=False,  # Xbox games are not extracted ISOs
+                is_extracted_iso=True,  # Xbox games are considered extracted ISOs
             )
+
+            # Cache the icon if we extracted one
+            if icon_base64:
+                self._cache_xbe_icon(title_id, icon_base64)
 
             return game_info
 
@@ -326,3 +329,20 @@ class DirectoryScanner(QThread):
 
         except Exception as e:
             print(f"Failed to cache GoD icon for {title_id}: {e}")
+
+    def _cache_xbe_icon(self, title_id: str, icon_base64: str):
+        """Cache the extracted XBE icon to the cache/icons directory"""
+        try:
+            # Create cache/icons directory if it doesn't exist
+            cache_icons_dir = Path("cache") / "icons"
+            cache_icons_dir.mkdir(parents=True, exist_ok=True)
+
+            # Decode base64 and save as image file
+            icon_data = base64.b64decode(icon_base64)
+            icon_path = cache_icons_dir / f"{title_id}.png"
+
+            with open(icon_path, "wb") as f:
+                f.write(icon_data)
+
+        except Exception as e:
+            print(f"Failed to cache XBE icon for {title_id}: {e}")

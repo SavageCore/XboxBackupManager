@@ -1,4 +1,6 @@
 import base64
+import sys
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -53,26 +55,33 @@ class IconDownloader(QThread):
             if not pixmap.isNull():
                 return pixmap
 
-        # Check if this is an extracted ISO game (default.xex) or GoD game and we have a current directory
-        if (
-            self.platform == "xbox360"
-            and self.current_directory
-            and self.current_directory.exists()
-        ):
+        # Check if this is an extracted ISO game (default.xex), GoD game, or Xbox game (default.xbe)
+        if self.current_directory and self.current_directory.exists():
             # Look for the game in the current directory
             game_dir = self.current_directory / folder_name
             xex_path = game_dir / "default.xex"
             god_header_path = game_dir / "00007000"
+            xbe_path = game_dir / "default.xbe"
 
-            # Try XEX extraction first (extracted ISO games)
-            if xex_path.exists():
+            # Try XEX extraction first (Xbox 360 extracted ISO games)
+            if self.platform == "xbox360" and xex_path.exists():
                 icon_pixmap = self._extract_icon_from_xex(xex_path, title_id)
                 if not icon_pixmap.isNull():
                     return icon_pixmap
 
-            # Try GoD extraction (Games on Demand)
-            elif god_header_path.exists() and god_header_path.is_dir():
+            # Try GoD extraction (Xbox 360 Games on Demand)
+            elif (
+                self.platform == "xbox360"
+                and god_header_path.exists()
+                and god_header_path.is_dir()
+            ):
                 icon_pixmap = self._extract_icon_from_god(god_header_path, title_id)
+                if not icon_pixmap.isNull():
+                    return icon_pixmap
+
+            # Try XBE extraction (Original Xbox games)
+            elif self.platform == "xbox" and xbe_path.exists():
+                icon_pixmap = self._extract_icon_from_xbe(xbe_path, title_id)
                 if not icon_pixmap.isNull():
                     return icon_pixmap
 
@@ -84,7 +93,8 @@ class IconDownloader(QThread):
             else:
                 url = f"https://raw.githubusercontent.com/MobCat/MobCats-original-xbox-game-list/main/icon/{title_id[:4]}/{title_id}.png"
 
-            print(f"Downloading icon from: {url}")
+            if not url:
+                return QPixmap()  # No URL available for this platform
 
             urllib.request.urlretrieve(url, str(cache_file))
 
@@ -132,7 +142,6 @@ class IconDownloader(QThread):
         self, god_header_path: Path, expected_title_id: str
     ) -> QPixmap:
         """Extract icon from GoD file using XboxUnity"""
-        print(f"Extracting GoD icon from: {god_header_path}")
         try:
             # Find the first header file in the 00007000 directory
             header_files = list(god_header_path.glob("*"))
@@ -172,4 +181,105 @@ class IconDownloader(QThread):
             return pixmap
 
         except Exception:
+            return QPixmap()
+
+    def _extract_icon_from_xbe(self, xbe_path: Path, expected_title_id: str) -> QPixmap:
+        """Extract icon from XBE file using pyxbe CLI tool"""
+        try:
+            # Use pyxbe command line tool to extract images directly in the game directory
+            game_dir = xbe_path.parent
+
+            # Check if we're running from a PyInstaller bundle
+            if getattr(sys, "frozen", False):
+                # Running in a PyInstaller bundle - pyxbe won't be available
+                print("Running from PyInstaller bundle - pyxbe CLI not available")
+                return QPixmap()
+
+            subprocess.run(
+                [sys.executable, "-m", "xbe", "--extract-images", str(xbe_path)],
+                cwd=str(game_dir),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            # Check for extracted BMP files regardless of return code
+            # (pyxbe might fail but still create the files)
+            title_image_path = game_dir / "default_title_image.bmp"
+            if title_image_path.exists():
+                # Load the title image
+                pixmap = QPixmap()
+                if pixmap.load(str(title_image_path)):
+                    # Cache the icon for future use
+                    if not pixmap.isNull():
+                        cache_file = self.cache_dir / f"{expected_title_id}.png"
+                        pixmap.save(str(cache_file), "PNG")
+
+                    # Clean up the extracted BMP files
+                    try:
+                        if title_image_path.exists():
+                            title_image_path.unlink()
+
+                        save_image_path = game_dir / "default_save_image.bmp"
+                        if save_image_path.exists():
+                            save_image_path.unlink()
+                    except Exception as cleanup_error:
+                        print(f"Warning: Failed to clean up BMP files: {cleanup_error}")
+
+                    return pixmap
+                else:
+                    print(f"Failed to load title image: {title_image_path}")
+                    # Clean up even if loading failed
+                    try:
+                        if title_image_path.exists():
+                            title_image_path.unlink()
+                    except Exception:
+                        pass
+            else:
+                # Fallback: look for any BMP files if default_title_image.bmp doesn't exist
+                bmp_files = list(game_dir.glob("*.bmp"))
+                if bmp_files:
+                    print(
+                        f"default_title_image.bmp not found, trying first available: {bmp_files}"
+                    )
+                    pixmap = QPixmap()
+                    if pixmap.load(str(bmp_files[0])):
+                        print(f"Successfully loaded BMP icon from: {bmp_files[0]}")
+
+                        # Cache the icon for future use
+                        if not pixmap.isNull():
+                            cache_file = self.cache_dir / f"{expected_title_id}.png"
+                            pixmap.save(str(cache_file), "PNG")
+                            print(f"Cached XBE icon as PNG: {cache_file}")
+
+                        # Clean up all BMP files
+                        for bmp_file in bmp_files:
+                            try:
+                                bmp_file.unlink()
+                                print(f"Cleaned up: {bmp_file}")
+                            except Exception:
+                                pass
+
+                        return pixmap
+                    else:
+                        print(f"Failed to load BMP file: {bmp_files[0]}")
+                        # Clean up even if loading failed
+                        for bmp_file in bmp_files:
+                            try:
+                                bmp_file.unlink()
+                            except Exception:
+                                pass
+
+            # # Show error info if extraction failed
+            # if result.returncode != 0:
+            #     print(f"pyxbe extraction failed with return code: {result.returncode}")
+            #     if result.stderr:
+            #         print(f"Error output: {result.stderr}")
+            #     if result.stdout:
+            #         print(f"Standard output: {result.stdout}")
+
+            # No fallback - either extract via CLI or fail
+            return QPixmap()
+
+        except Exception as e:
+            print(f"Exception in XBE icon extraction: {e}")
             return QPixmap()

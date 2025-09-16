@@ -4,6 +4,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from xbe import Xbe
 
 
 class SystemUtils:
@@ -178,4 +179,47 @@ class SystemUtils:
             subprocess.CalledProcessError,
             Exception,
         ):
+            return None
+
+    @staticmethod
+    def extract_xbe_info(xbe_path: str) -> dict:
+        """
+        Extract Title ID, Title Name, and icon from a default.xbe file using pyxbe
+
+        Args:
+            xbe_path: Path to the default.xbe file
+
+        Returns:
+            dict: {'title_id': str, 'title_name': str, 'icon_base64': str} or None if extraction fails
+        """
+        if not Xbe:
+            print("pyxbe library not available")
+            return None
+
+        if not os.path.exists(xbe_path):
+            return None
+
+        try:
+            # Load the XBE file using the proper from_file method
+            xbe = Xbe.from_file(xbe_path)
+
+            # Extract basic information
+            title_id = None
+            title_name = None
+
+            # Get Title ID from certificate
+            if hasattr(xbe, "cert") and hasattr(xbe.cert, "title_id"):
+                title_id = f"{xbe.cert.title_id:08X}"  # Format as hex string
+
+            # Get Title Name - available directly on xbe object
+            if hasattr(xbe, "title_name"):
+                title_name = xbe.title_name
+
+            return {
+                "title_id": title_id,
+                "title_name": title_name,
+            }
+
+        except Exception as e:
+            print(f"Error extracting XBE info from {xbe_path}: {e}")
             return None

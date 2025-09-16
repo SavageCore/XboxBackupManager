@@ -61,7 +61,6 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import APP_NAME, VERSION
-from database.xbox_title_database import XboxTitleDatabaseLoader
 
 # Import our modular components
 from models.game_info import GameInfo
@@ -111,10 +110,6 @@ class XboxBackupManager(QMainWindow):
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
-
-        self.xbox_database_loader = XboxTitleDatabaseLoader()
-        self.xbox_database_loader.database_loaded.connect(self.on_xbox_database_loaded)
-        self.xbox_database_loader.database_error.connect(self.on_xbox_database_error)
 
         # Application state
         self.games: List[GameInfo] = []
@@ -175,17 +170,13 @@ class XboxBackupManager(QMainWindow):
         self.init_ui()
         self.load_settings()
 
-        # Only load Xbox database (for original Xbox games)
-        if self.current_platform == "xbox":
-            self.load_title_database()
-        else:
-            # For Xbox 360, enable UI immediately since we don't need database
-            self.browse_action.setEnabled(True)
-            self.browse_target_action.setEnabled(True)
-            if self.current_directory:
-                self.toolbar_scan_action.setEnabled(True)
-                self.start_watching_directory()
-                self.scan_directory()
+        # Enable UI immediately since we don't need database loading for either platform
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        if self.current_directory:
+            self.toolbar_scan_action.setEnabled(True)
+            self.start_watching_directory()
+            self.scan_directory()
 
         self.setup_colors()
         self.setup_ui()
@@ -1679,8 +1670,6 @@ class XboxBackupManager(QMainWindow):
         # Recreate table with appropriate columns for new platform
         self.setup_table()
 
-        self.load_title_database()
-
         # Load source directory for new platform
         if self.platform_directories[platform]:
             self.current_directory = self.platform_directories[platform]
@@ -2037,35 +2026,6 @@ class XboxBackupManager(QMainWindow):
                 self.current_platform, header, sort_column, sort_order
             )
 
-    def load_title_database(self):
-        """Load the Xbox title database (only needed for original Xbox games)"""
-        if self.current_platform == "xbox":
-            self.xbox_database_loader.load_database()
-
-    def on_xbox_database_loaded(self, database: Dict[str, Dict[str, str]]):
-        """Handle successful Xbox database loading"""
-        # Enable UI elements
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-            self.start_watching_directory()
-            self.scan_directory()
-
-    def on_xbox_database_error(self, error_msg: str):
-        """Handle Xbox database loading error"""
-        QMessageBox.warning(
-            self,
-            "Database Error",
-            f"Failed to load Xbox title database:\n{error_msg}\n\nGames will use folder names instead.",
-        )
-
-        # Enable UI elements even without database
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-
     def start_watching_directory(self):
         """Start watching the current directory for changes"""
         if not self.current_directory:
@@ -2159,13 +2119,10 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
-        # Start scanning thread with appropriate database
-        xbox_db = self.xbox_database_loader if self.current_platform == "xbox" else None
-
+        # Start scanning thread
         self.scanner = DirectoryScanner(
             self.current_directory,
             platform=self.current_platform,
-            xbox_database=xbox_db,
         )
         self.scanner.progress.connect(self.update_progress)
         self.scanner.game_found.connect(self.add_game)
