@@ -238,6 +238,7 @@ class XboxBackupManager(QMainWindow):
                     "Scan": "fa6s.magnifying-glass",
                     "Transfer": "fa6s.download",
                     "Remove": "fa6s.trash",
+                    "Batch Title Updater": "fa6s.cloud-arrow-down",
                 }.get(action.text(), "fa6s.circle")
 
                 self.icon_manager.register_widget_icon(action, icon_name)
@@ -320,7 +321,7 @@ class XboxBackupManager(QMainWindow):
         # Batch Title Updater
         self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
         self.toolbar_batch_tu_action.setIcon(
-            qta.icon("fa6s.download", color=self.normal_color)
+            qta.icon("fa6s.cloud-arrow-down", color=self.normal_color)
         )
         self.toolbar_batch_tu_action.setToolTip(
             "Download missing title updates for all transferred games"
