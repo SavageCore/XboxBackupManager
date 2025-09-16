@@ -399,7 +399,7 @@ class XboxBackupManager(QMainWindow):
 
     def create_games_table(self, main_layout):
         """Create and setup the games table"""
-        self.games_table = QTableWidget()
+        self.games_table = ClickableFirstColumnTableWidget()
         self.games_table.setContentsMargins(0, 0, 0, 0)
 
         # Enable context menu
@@ -2430,9 +2430,9 @@ class XboxBackupManager(QMainWindow):
 
         header.installEventFilter(self)
 
-        # Select column - fixed width, narrow for checkbox only
+        # Select column - fixed width
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 25)  # More reasonable size for checkbox
+        header.resizeSection(0, 50)
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -2516,6 +2516,13 @@ class XboxBackupManager(QMainWindow):
                 border-bottom: 1px solid palette(mid);
                 padding: 4px;
             }
+            QTableWidget::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QTableWidget::item:first-child {
+                text-align: center;
+            }
             QHeaderView::down-arrow, QHeaderView::up-arrow {
                 width: 12px;
                 height: 12px;
@@ -2524,6 +2531,12 @@ class XboxBackupManager(QMainWindow):
             QHeaderView {
                 margin: 0px;
                 padding: 0px;
+            }
+            QHeaderView::section {
+                background-color: palette(button);
+                color: palette(button-text);
+                border: 1px solid palette(mid);
+                padding: 4px;
             }
         """
         )
@@ -5018,11 +5031,39 @@ class XboxBackupManager(QMainWindow):
             )
 
 
+class ClickableFirstColumnTableWidget(QTableWidget):
+    """Custom table widget that makes the entire first column clickable for checkboxes"""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.position().toPoint())
+            if item:
+                row = item.row()
+                column = item.column()
+
+                # If clicked in the first column, toggle the checkbox
+                if column == 0:
+                    checkbox_item = self.item(row, 0)
+                    if checkbox_item:
+                        current_state = checkbox_item.checkState()
+                        new_state = (
+                            Qt.CheckState.Unchecked
+                            if current_state == Qt.CheckState.Checked
+                            else Qt.CheckState.Checked
+                        )
+                        checkbox_item.setCheckState(new_state)
+                        return  # Don't call super() to prevent default selection behavior
+
+        super().mousePressEvent(event)
+
+
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
 
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
+        self._header_checkbox = None
+        self._init_header_checkbox()
 
     def _get_header_check_state(self):
         table = self.parent()
@@ -5041,31 +5082,74 @@ class NonSortableHeaderView(QHeaderView):
         else:
             return Qt.CheckState.PartiallyChecked
 
+    def _init_header_checkbox(self):
+        """Initialize the header checkbox widget"""
+        from PyQt6.QtWidgets import QCheckBox
+        from PyQt6.QtCore import Qt
+
+        if self._header_checkbox is None:
+            self._header_checkbox = QCheckBox()
+            self._header_checkbox.setParent(self)
+            # Set minimum size to ensure it renders properly
+            self._header_checkbox.setMinimumSize(22, 22)
+            self._header_checkbox.setMaximumSize(22, 22)
+            # Apply some basic styling to ensure visibility
+            self._header_checkbox.setStyleSheet(
+                """
+                QCheckBox {
+                    spacing: 0px;
+                }
+                QCheckBox::indicator {
+                    width: 18px;
+                    height: 18px;
+                }
+            """
+            )
+            # Connect to selection change
+            self._header_checkbox.stateChanged.connect(self._on_header_checkbox_changed)
+
+    def _on_header_checkbox_changed(self, state):
+        """Handle header checkbox state changes"""
+        table = self.parent()
+        if table is None:
+            return
+
+        # Directly update all checkbox items in the table
+        row_count = table.rowCount()
+        new_check_state = (
+            Qt.CheckState.Checked
+            if state == Qt.CheckState.Checked.value
+            else Qt.CheckState.Unchecked
+        )
+
+        for row in range(row_count):
+            item = table.item(row, 0)
+            if item:
+                item.setCheckState(new_check_state)
+
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
         if logicalIndex != 0:
             super().paintSection(painter, rect, logicalIndex)
             return
 
-        painter.save()
-        opt = QStyleOptionButton()
-        indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
-        indicator_height = self.style().pixelMetric(
-            QStyle.PixelMetric.PM_IndicatorHeight
-        )
-        x = rect.x() + (rect.width() - indicator_width) // 2
-        y = rect.y() + (rect.height() - indicator_height) // 2
-        opt.rect = QRect(x, y, indicator_width, indicator_height)
-        opt.state = QStyle.StateFlag.State_Enabled
+        # Draw the header background properly using the default header style
+        super().paintSection(painter, rect, logicalIndex)
 
-        check_state = self._get_header_check_state()
-        if check_state == Qt.CheckState.Checked:
-            opt.state |= QStyle.StateFlag.State_On
-        elif check_state == Qt.CheckState.PartiallyChecked:
-            opt.state |= QStyle.StateFlag.State_NoChange
-        # else State_Off by default
+        # Position the checkbox widget
+        if self._header_checkbox:
+            checkbox_size = 22  # Match the widget size
+            # Center the checkbox in the header cell
+            x = rect.x() + (rect.width() - checkbox_size) // 2
+            y = rect.y() + (rect.height() - checkbox_size) // 2
+            self._header_checkbox.setGeometry(x, y, checkbox_size, checkbox_size)
+            self._header_checkbox.show()
 
-        self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
-        painter.restore()
+            # Update checkbox state to match current selection
+            check_state = self._get_header_check_state()
+            if check_state != self._header_checkbox.checkState():
+                self._header_checkbox.blockSignals(True)  # Prevent recursion
+                self._header_checkbox.setCheckState(check_state)
+                self._header_checkbox.blockSignals(False)
 
     def mousePressEvent(self, event):
         section = self.logicalIndexAt(event.pos())
