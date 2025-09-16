@@ -172,6 +172,46 @@ class FTPClient(QObject):
         except Exception as e:
             return False, f"Failed to create directory: {str(e)}"
 
+    def create_directory_recursive(self, path: str) -> Tuple[bool, str]:
+        """Create directory and all parent directories on FTP server"""
+        if not self.is_connected():
+            return False, "Not connected to FTP server"
+
+        # Normalize path (remove trailing slashes, handle double slashes)
+        path = path.rstrip("/").replace("//", "/")
+
+        if not path or path == "/":
+            return True, "Root directory exists"
+
+        # Check if directory already exists
+        if self.directory_exists(path):
+            return True, "Directory already exists"
+
+        # Split path into components
+        path_parts = [part for part in path.split("/") if part]
+
+        # Start from root
+        current_path = ""
+
+        for part in path_parts:
+            current_path += "/" + part
+
+            # Check if this directory exists
+            if not self.directory_exists(current_path):
+                try:
+                    self._ftp.mkd(current_path)
+                except ftplib.error_perm as e:
+                    # If we get an error and it's not because the directory exists
+                    if not self.directory_exists(current_path):
+                        return (
+                            False,
+                            f"Failed to create directory {current_path}: {str(e)}",
+                        )
+                except Exception as e:
+                    return False, f"Failed to create directory {current_path}: {str(e)}"
+
+        return True, "Directory created successfully"
+
     def get_current_directory(self) -> str:
         """Get current working directory"""
         if not self.is_connected():

@@ -128,11 +128,10 @@ class BatchTitleUpdateProcessor(QThread):
 
                     # Download and install the latest missing update
                     version = latest_update.get("version", "N/A")
-                    download_url = latest_update.get("downloadUrl", "")
-
                     self._log_message(
-                        f"  Downloading version {version} for {game_name}"
+                        f"  Installing latest available version {version} for {game_name}"
                     )
+                    download_url = latest_update.get("downloadUrl", "")
 
                     # Download the update
                     destination = os.path.join("cache", "tu", title_id) + os.sep
@@ -258,9 +257,7 @@ class BatchTitleUpdateProcessor(QThread):
                             header_file, temp_path
                         )
                         if success:
-                            media_id = XboxUnity.get_media_id(
-                                self.xbox_unity, temp_path
-                            )
+                            media_id = self.xbox_unity.get_media_id(temp_path)
                             return media_id
                         else:
                             self._log_message(
@@ -300,7 +297,7 @@ class BatchTitleUpdateProcessor(QThread):
                     return None
 
                 god_header_path = str(header_files[0])
-                media_id = XboxUnity.get_media_id(self.xbox_unity, god_header_path)
+                media_id = self.xbox_unity.get_media_id(god_header_path)
                 return media_id
 
         except Exception as e:
@@ -311,7 +308,7 @@ class BatchTitleUpdateProcessor(QThread):
         """Check if an update is already installed"""
         try:
             version = update.get("version", "N/A")
-            self._log_message(f"    Checking if version {version} is installed...")
+            # Remove the verbose logging here - we'll log at a higher level
 
             # Get update info first
             download_url = update.get("downloadUrl", "")
@@ -546,7 +543,9 @@ class BatchTitleUpdateProcessor(QThread):
                     destination_file = f"{destination_dir}/{filename}"
 
                     # Create directory structure if it doesn't exist
-                    success, message = ftp_client.create_directory(destination_dir)
+                    success, message = ftp_client.create_directory_recursive(
+                        destination_dir
+                    )
                     if not success:
                         self._log_message(
                             f"    Failed to create FTP directory {destination_dir}: {message}"
@@ -576,6 +575,15 @@ class BatchTitleUpdateProcessor(QThread):
                         return False
 
                     destination_file = f"{cache_folder.rstrip('/')}/{filename}"
+                    cache_dir = cache_folder.rstrip("/")
+
+                    # Ensure cache directory exists
+                    success, message = ftp_client.create_directory_recursive(cache_dir)
+                    if not success:
+                        self._log_message(
+                            f"    Failed to create FTP cache directory {cache_dir}: {message}"
+                        )
+                        return False
 
                     # Upload the file
                     success, message = ftp_client.upload_file(

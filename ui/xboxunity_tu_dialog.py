@@ -143,30 +143,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             print(f"[DEBUG] Error getting FTP file size for {filepath}: {e}")
             return 0
 
-    def _create_ftp_directory_recursive(self, ftp_client, path):
-        """Recursively create FTP directory structure"""
-        if not path or path == "/" or path == ".":
-            return True
-
-        # Split the path into parts
-        parts = [p for p in path.split("/") if p]
-        current_path = ""
-
-        for part in parts:
-            current_path = f"{current_path}/{part}" if current_path else part
-
-            # Try to create the directory
-            success, message = ftp_client.create_directory(current_path)
-            if success:
-                return True
-            else:
-                print(
-                    f"[ERROR] Failed to create FTP directory {current_path}: {message}"
-                )
-                return False
-
-        return True
-
     def _is_title_update_installed(self, title_id: str, update) -> bool:
         """Check if a title update is installed by looking in Content and Cache folders"""
         if self.current_mode == "ftp":
@@ -432,21 +408,17 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
             # Create remote directory structure recursively
             remote_dir = str(Path(remote_path).parent).replace("\\", "/")
-            self._create_ftp_directory_recursive(ftp_client, remote_dir)
+            success, message = ftp_client.create_directory_recursive(remote_dir)
+            if not success:
+                print(f"[ERROR] Failed to create FTP directory structure: {message}")
+                return False
 
             # Upload the file
-            try:
-                # Manual FTP upload since our FTPClient doesn't have upload method exposed
-                with open(local_tu_path, "rb") as f:
-                    # Get the internal FTP connection
-                    if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
-                        ftp_client._ftp.storbinary(f"STOR {remote_path}", f)
-                        return True
-                    else:
-                        print("[ERROR] FTP connection not available")
-                        return False
-            except Exception as e:
-                print(f"[ERROR] Failed to upload TU to FTP: {e}")
+            success, message = ftp_client.upload_file(local_tu_path, remote_path)
+            if success:
+                return True
+            else:
+                print(f"[ERROR] Failed to upload TU to FTP: {message}")
                 return False
 
         finally:

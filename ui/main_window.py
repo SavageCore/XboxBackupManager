@@ -11,6 +11,7 @@ import os
 import platform
 import shutil
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -3043,9 +3044,6 @@ class XboxBackupManager(QMainWindow):
                         return None
 
                     # Download header file temporarily to extract media ID
-                    import tempfile
-                    import os
-
                     with tempfile.NamedTemporaryFile(delete=False) as temp_file:
                         temp_path = temp_file.name
 
@@ -3054,7 +3052,8 @@ class XboxBackupManager(QMainWindow):
                             header_file, temp_path
                         )
                         if success:
-                            media_id = XboxUnity.get_media_id(self.xboxunity, temp_path)
+                            print(f"[DEBUG] Downloaded header file to: {temp_path}")
+                            media_id = self.xboxunity.get_media_id(temp_path)
                             return media_id
                         else:
                             print(f"[ERROR] Failed to download header file: {message}")
