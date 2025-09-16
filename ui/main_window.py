@@ -17,26 +17,15 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List
 
-import qt_themes  # type: ignore
 import qtawesome as qta
 import requests
-from PyQt6.QtCore import (
-    QFileSystemWatcher,
-    QPoint,
-    QProcess,
-    QRect,
-    QSize,
-    Qt,
-    QTimer,
-    QUrl,
-)
+from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
     QDesktopServices,
     QIcon,
     QPainter,
-    QPen,
     QPixmap,
 )
 from PyQt6.QtWidgets import (
@@ -54,6 +43,8 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QPushButton,
+    QStyle,
+    QStyleOptionButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -132,7 +123,6 @@ class XboxBackupManager(QMainWindow):
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
 
-        self.is_dark = self.theme_manager.should_use_dark_mode()
         self.xboxunity_settings = {}
 
         # Transfer state
@@ -143,18 +133,10 @@ class XboxBackupManager(QMainWindow):
         # Get the current palette from your theme manager
         palette = self.theme_manager.get_palette()
 
-        palette = self.theme_manager.get_palette()
-
         # Extract colors from the palette for different states
-        self.normal_color = palette["text"]
-        self.active_color = palette["subtext1"]
-        self.disabled_color = palette["overlay0"]
-
-        self.theme = qt_themes.get_theme(
-            "catppuccin_mocha" if self.is_dark else "catppuccin_latte"
-        )
-
-        self.change_theme("catppuccin_mocha" if self.is_dark else "catppuccin_latte")
+        self.normal_color = palette.COLOR_BACKGROUND_6
+        self.active_color = palette.COLOR_BACKGROUND_6
+        self.disabled_color = palette.COLOR_DISABLED
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -187,10 +169,11 @@ class XboxBackupManager(QMainWindow):
 
     def setup_colors(self):
         """Setup color properties from theme"""
-        palette = self.theme_manager.get_qcolor_palette()
-        self.normal_color = palette["text"]
-        self.active_color = palette["subtext1"]
-        self.disabled_color = palette["overlay0"]
+        palette = self.theme_manager.get_palette()
+
+        self.normal_color = palette.COLOR_TEXT_1
+        self.active_color = palette.COLOR_TEXT_1
+        self.disabled_color = palette.COLOR_DISABLED
 
     def setup_ui(self):
         """Setup UI with themed icons"""
@@ -235,7 +218,6 @@ class XboxBackupManager(QMainWindow):
                     "Scan": "fa6s.magnifying-glass",
                     "Transfer": "fa6s.download",
                     "Remove": "fa6s.trash",
-                    "Batch Title Updater": "fa6s.cloud-arrow-down",
                 }.get(action.text(), "fa6s.circle")
 
                 self.icon_manager.register_widget_icon(action, icon_name)
@@ -318,7 +300,7 @@ class XboxBackupManager(QMainWindow):
         # Batch Title Updater
         self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
         self.toolbar_batch_tu_action.setIcon(
-            qta.icon("fa6s.cloud-arrow-down", color=self.normal_color)
+            qta.icon("fa6s.download", color=self.normal_color)
         )
         self.toolbar_batch_tu_action.setToolTip(
             "Download missing title updates for all transferred games"
@@ -356,7 +338,7 @@ class XboxBackupManager(QMainWindow):
 
         # Target directory row
         target_layout = QHBoxLayout()
-        target_layout.setSpacing(10)
+        target_layout.setSpacing(1)
 
         self.target_directory_label = QLabel("No target directory selected")
         self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -376,14 +358,7 @@ class XboxBackupManager(QMainWindow):
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
-        self.platform_label.setStyleSheet(
-            """
-            QLabel {
-                font-weight: bold;
-                color: palette(text);
-            }
-            """
-        )
+        self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         target_layout.addWidget(QLabel("Target:"))
         target_layout.addWidget(self.target_directory_label, 0)  # No stretch factor
@@ -449,15 +424,7 @@ class XboxBackupManager(QMainWindow):
         # menubar = QMenuBar()
         menubar = self.menuBar()
 
-        # Apply comprehensive menu bar styling
-        menubar.setStyleSheet(
-            """
-            QMenuBar {
-                background-color: #313244; #surface0
-                padding: 2px;
-            }
-        """
-        )
+        # menubar.setNativeMenuBar(True)
 
         # File menu
         self.create_file_menu(menubar)
@@ -809,6 +776,7 @@ class XboxBackupManager(QMainWindow):
             }
             QLabel:hover {
                 color: palette(highlight);
+                text-decoration: underline;
             }
         """
         )
@@ -820,6 +788,7 @@ class XboxBackupManager(QMainWindow):
             }
             QLabel:hover {
                 color: palette(highlight);
+                text-decoration: underline;
             }
         """
         )
@@ -1807,13 +1776,10 @@ class XboxBackupManager(QMainWindow):
             "This application uses the following libraries:<br><br>"
             "• <a href='https://pypi.org/project/black/'>black</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/darkdetect/'>darkdetect</a> (BSD License (BSD-3-Clause))<br>"
-            "• <a href='https://pypi.org/project/psutil/'>psutil</a> (BSD License (BSD-3-Clause))<br>"
-            "• <a href='https://pypi.org/project/pyinstaller/'>pyinstaller</a> (BSD License (BSD-3-Clause))<br>"
             "• <a href='https://pypi.org/project/PyQt6/'>PyQt6</a> (GPL-3.0-only)<br>"
+            "• <a href='https://pypi.org/project/qdarkstyle/'>qdarkstyle</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/QtAwesome/'>QtAwesome</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/requests/'>requests</a> (Apache Software License (Apache-2.0))<br>"
-            "• <a href='https://pypi.org/project/semver/'>semver</a> (BSD License (BSD-3-Clause))<br>"
-            "• <a href='https://pypi.org/project/qt-themes/'>qt-themes</a> (MIT)<br>"
             "<br>"
             "Xbox Database / Icons are from <a href='https://github.com/MobCat/MobCats-original-xbox-game-list'>MobCats</a><br>"
             "Xbox 360 Icons are from <a href='https://github.com/XboxUnity'>XboxUnity</a>"
@@ -1828,20 +1794,23 @@ class XboxBackupManager(QMainWindow):
 
     def apply_theme(self):
         """Apply the current theme"""
-        dark = self.theme_manager.should_use_dark_mode()
-        self.change_theme("catppuccin_mocha" if dark else "catppuccin_latte")
+        stylesheet = self.theme_manager.get_stylesheet()
+        self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
         palette = self.theme_manager.get_palette()
 
         # Update colours
-        self.normal_color = palette["text"]
-        self.active_color = palette["subtext1"]
-        self.disabled_color = palette["overlay0"]
+        if self.theme_manager.should_use_dark_mode():
+            self.normal_color = palette.COLOR_TEXT_1
+            self.active_color = palette.COLOR_TEXT_1
+            self.disabled_color = palette.COLOR_DISABLED
+        else:
+            self.normal_color = palette.COLOR_BACKGROUND_6
+            self.active_color = palette.COLOR_BACKGROUND_6
+            self.disabled_color = palette.COLOR_DISABLED
 
         self.icon_manager.update_all_icons()
-
-        self.fix_checkbox_stylesheet()
 
     def update_theme_menu_state(self):
         """Update theme menu state based on current override"""
@@ -2200,16 +2169,14 @@ class XboxBackupManager(QMainWindow):
         col_index = 0
 
         # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")
+        checkbox_item = QTableWidgetItem("")  # Empty text is important
         checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-        # Only use setTextAlignment for centering - avoid setData with TextAlignmentRole
+        # Center the checkbox both horizontally and vertically
         checkbox_item.setTextAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
-
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2452,11 +2419,12 @@ class XboxBackupManager(QMainWindow):
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""
         header = self.games_table.horizontalHeader()
+
         header.installEventFilter(self)
 
-        # Select column - fixed width for checkbox only, slightly wider for better alignment
+        # Select column - fixed width, narrow for checkbox only
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 30)  # Increased from 25 to 30 for better alignment
+        header.resizeSection(0, 25)  # More reasonable size for checkbox
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -2513,14 +2481,8 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setContentsMargins(0, 0, 0, 0)
         self.games_table.verticalHeader().setDefaultSectionSize(72)
 
-        # Disable all selection to prevent column highlighting
+        # Disable row selection
         self.games_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.games_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectItems
-        )
-
-        # Disable focus to prevent highlighting on click
-        self.games_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Configure horizontal header
         header = self.games_table.horizontalHeader()
@@ -2533,7 +2495,30 @@ class XboxBackupManager(QMainWindow):
         header.setSortIndicatorShown(True)
         header.setSectionsClickable(True)
 
-        self.fix_checkbox_stylesheet()
+        # Apply custom styling
+        self.games_table.setStyleSheet(
+            """
+            QTableWidget {
+                gridline-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
+            }
+            QTableWidget::item {
+                border-bottom: 1px solid palette(mid);
+                padding: 4px;
+            }
+            QHeaderView::down-arrow, QHeaderView::up-arrow {
+                width: 12px;
+                height: 12px;
+                right: 4px;
+            }
+            QHeaderView {
+                margin: 0px;
+                padding: 0px;
+            }
+        """
+        )
 
         # Set default sort to Game Name (column 2 with icons)
         self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
@@ -3611,13 +3596,12 @@ class XboxBackupManager(QMainWindow):
         self.update_button = QPushButton("Update Available")
         self.update_button.setIcon(
             qta.icon(
-                "fa6s.download",
+                "fa6s.rotate",
                 color=self.normal_color,
                 color_active=self.active_color,
                 color_disabled=self.disabled_color,
             )
         )
-
         self.update_button.setToolTip("A new version is available. Click to update.")
         self.update_button.clicked.connect(
             lambda: self._on_update_button_clicked(download_url)
@@ -4753,71 +4737,6 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory:
             self.scan_directory()
 
-    def change_theme(self, theme_name):
-        qt_themes.set_theme(theme_name)
-
-        # Update color properties
-        self.setup_colors()
-
-        # Update all registered icons automatically
-        self.icon_manager.update_all_icons()
-
-        menubar = self.menuBar()
-
-        if theme_name == "catppuccin_mocha":
-            menubar.setStyleSheet(
-                """
-            QMenuBar {
-                background-color: #11111b;
-                padding: 2px;
-            }
-        """
-            )
-        else:
-            menubar.setStyleSheet(
-                """
-            QMenuBar {
-                background-color: #eff1f5;
-                padding: 2px;
-            }
-        """
-            )
-
-        if hasattr(self, "directory_label") and self.directory_label:
-            self.directory_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                }
-            QLabel:hover {
-                color: palette(highlight);
-            }
-        """
-            )
-
-        if hasattr(self, "target_directory_label") and self.target_directory_label:
-            self.target_directory_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                }
-            QLabel:hover {
-                color: palette(highlight);
-            }
-        """
-            )
-
-        # platform_label
-        if hasattr(self, "platform_label") and self.platform_label:
-            self.platform_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                    color: palette(text);
-                }
-        """
-            )
-
     def _get_cache_file_path(self) -> Path:
         """Get the cache file path for current platform and directory"""
         if not self.current_directory:
@@ -5077,100 +4996,6 @@ class XboxBackupManager(QMainWindow):
                 "FTP operations will not be available until connection is restored.",
             )
 
-        # Update color properties
-        self.setup_colors()
-
-    def fix_checkbox_stylesheet(self):
-        self.games_table.setStyleSheet(
-            """
-            QTableWidget {
-                gridline-color: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-                outline: 0;
-                alternate-background-color: palette(alternate-base);
-                background-color: palette(base);
-            }
-
-            QTableWidget::item {
-                border-bottom: 1px solid palette(mid);
-                padding: 4px;
-                outline: 0;
-            }
-
-            QTableWidget::item:selected {
-                background-color: transparent;
-                color: palette(text);
-            }
-
-            QTableWidget::item:focus {
-                background-color: transparent;
-                border: none;
-                outline: 0;
-            }
-
-            /* Force checkbox column to have consistent background and centering */
-            QTableWidget::item:first-child {
-                background-color: palette(base);
-                text-align: center;
-                padding: 2px;
-            }
-
-            QTableWidget::item:first-child:alternate {
-                background-color: palette(base);
-            }
-
-            /* Ensure consistent checkbox indicator styling */
-            QTableWidget::indicator {
-                width: 16px;
-                height: 16px;
-            }
-
-            QTableWidget::indicator:unchecked {
-                border: 2px solid palette(mid);
-                border-radius: 3px;
-                background-color: palette(base);
-            }
-
-            QTableWidget::indicator:checked {
-                border: 2px solid palette(highlight);
-                border-radius: 3px;
-                background-color: palette(highlight);
-            }
-
-            QHeaderView {
-                margin: 0px;
-                padding: 0px;
-                background-color: palette(button);
-            }
-
-            QHeaderView::section {
-                background-color: palette(button);
-                color: palette(button-text);
-                border: 1px solid palette(mid);
-                border-left: none;
-                border-top: none;
-                padding: 4px;
-            }
-
-            QHeaderView::section:hover {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
-            }
-
-            QHeaderView::section:pressed {
-                background-color: palette(dark);
-            }
-
-            QHeaderView::down-arrow, QHeaderView::up-arrow {
-                width: 12px;
-                height: 12px;
-                right: 4px;
-            }
-            """
-        )
-
 
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
@@ -5201,56 +5026,24 @@ class NonSortableHeaderView(QHeaderView):
             return
 
         painter.save()
+        opt = QStyleOptionButton()
+        indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
+        indicator_height = self.style().pixelMetric(
+            QStyle.PixelMetric.PM_IndicatorHeight
+        )
+        x = rect.x() + (rect.width() - indicator_width) // 2
+        y = rect.y() + (rect.height() - indicator_height) // 2
+        opt.rect = QRect(x, y, indicator_width, indicator_height)
+        opt.state = QStyle.StateFlag.State_Enabled
 
-        # Fill the header background first
-        painter.fillRect(rect, self.palette().button())
-
-        # Draw the same borders as other sections
-        painter.setPen(self.palette().mid().color())
-
-        # Draw right border (column divider)
-        painter.drawLine(rect.topRight(), rect.bottomRight())
-
-        # Draw bottom border
-        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
-
-        # Get the check state
         check_state = self._get_header_check_state()
-
-        # Draw custom checkbox to match table styling
-        checkbox_size = 16
-        x = rect.x() + (rect.width() - checkbox_size) // 2
-        y = rect.y() + (rect.height() - checkbox_size) // 2
-        checkbox_rect = QRect(x, y, checkbox_size, checkbox_size)
-
-        # Draw checkbox background
-        painter.fillRect(checkbox_rect, self.palette().base())
-
-        # Draw checkbox border
         if check_state == Qt.CheckState.Checked:
-            painter.setPen(QPen(self.palette().highlight().color(), 2))
-            painter.setBrush(self.palette().highlight())
-        else:
-            painter.setPen(QPen(self.palette().mid().color(), 2))
-            painter.setBrush(self.palette().base())
+            opt.state |= QStyle.StateFlag.State_On
+        elif check_state == Qt.CheckState.PartiallyChecked:
+            opt.state |= QStyle.StateFlag.State_NoChange
+        # else State_Off by default
 
-        # Draw rounded rectangle
-        painter.drawRoundedRect(checkbox_rect, 3, 3)
-
-        # Note: Checkmark removed - just show colored state
-
-        if check_state == Qt.CheckState.PartiallyChecked:
-            # Draw partial state (dash)
-            painter.setPen(
-                QPen(
-                    self.palette().highlight().color(),
-                    2,
-                    Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap,
-                )
-            )
-            painter.drawLine(QPoint(x + 4, y + 8), QPoint(x + 12, y + 8))
-
+        self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
         painter.restore()
 
     def mousePressEvent(self, event):
