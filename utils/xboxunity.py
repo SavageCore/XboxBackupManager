@@ -548,3 +548,126 @@ class XboxUnity:
         except Exception as e:
             print(f"Error reading file: {e}")
             sys.exit(1)
+
+    def get_god_info(self, god_header_path):
+        """
+        Extract comprehensive information from a GoD (Games on Demand) header file.
+
+        Returns a dictionary containing:
+        - title_id: The game's title ID
+        - media_id: The media ID for title updates
+        - display_name: The game's display name
+        - description: Game description (if available)
+        - publisher: Publisher name (if available)
+        - title_name: Alternative title name (if available)
+        """
+        try:
+            with open(god_header_path, "rb") as f:
+                # Verify it's an STFS package
+                magic = f.read(4).decode("ascii", errors="ignore").strip()
+                if magic not in ["CON", "LIVE", "PIRS"]:
+                    print(
+                        f"Warning: File magic '{magic}' does not match expected STFS types."
+                    )
+
+                # Read Title ID (4 bytes at offset 0x360 in STFS header)
+                f.seek(0x360)
+                title_id_bytes = f.read(4)
+                if len(title_id_bytes) == 4:
+                    title_id = struct.unpack(">I", title_id_bytes)[0]
+                    title_id = f"{title_id:08X}"
+                else:
+                    title_id = None
+
+                # Read Media ID (4 bytes at offset 0x354)
+                f.seek(0x354)
+                media_id_bytes = f.read(4)
+                if len(media_id_bytes) == 4:
+                    media_id = struct.unpack(">I", media_id_bytes)[0]
+                    media_id = f"{media_id:08X}"
+                else:
+                    media_id = None
+
+                # Read Display Name (UTF-16, at offset 0x1691 in STFS header)
+                # This is the main game title we want to extract
+                f.seek(0x1691)
+                display_name_bytes = f.read(0x80)  # 128 bytes max
+                display_name = None
+
+                # Read Display Name - extract ASCII from UTF-16 data
+                # STFS files often have mixed language data, so we'll extract ASCII directly
+                f.seek(0x1691)
+                display_name_bytes = f.read(0x80)  # 128 bytes max
+                display_name = None
+
+                try:
+                    # Extract ASCII characters by taking every other byte (skip UTF-16 null bytes)
+                    # This should give us English characters from UTF-16 encoded data
+                    ascii_chars = []
+                    for i in range(0, len(display_name_bytes), 2):
+                        if i + 1 < len(display_name_bytes):
+                            # Get the first byte of each UTF-16 character pair
+                            char_byte = display_name_bytes[i]
+                            if 32 <= char_byte <= 126:  # Printable ASCII range
+                                ascii_chars.append(chr(char_byte))
+                            elif char_byte == 0:  # Null terminator
+                                break
+
+                    display_name = "".join(ascii_chars).strip()
+
+                    # If we didn't get a good result, try the opposite byte order
+                    if not display_name:
+                        ascii_chars = []
+                        for i in range(1, len(display_name_bytes), 2):
+                            if i < len(display_name_bytes):
+                                char_byte = display_name_bytes[i]
+                                if 32 <= char_byte <= 126:  # Printable ASCII range
+                                    ascii_chars.append(chr(char_byte))
+                                elif char_byte == 0:  # Null terminator
+                                    break
+                        display_name = "".join(ascii_chars).strip()
+
+                    if not display_name:
+                        display_name = None
+
+                except Exception:
+                    display_name = None
+
+                # Extract icon data (PNG format, typically at offset 0x171A)
+                icon_base64 = None
+                try:
+                    f.seek(0x171A)
+                    # Read potential PNG header to check if icon exists
+                    png_signature = f.read(8)
+                    if png_signature == b"\x89PNG\r\n\x1a\n":
+                        # Found PNG signature, read the icon
+                        f.seek(0x171A)
+                        # Read up to 64KB for the icon (should be plenty)
+                        icon_data = f.read(65536)
+
+                        # Find the end of the PNG file (IEND chunk)
+                        iend_pos = icon_data.find(b"IEND")
+                        if iend_pos != -1:
+                            # Include the IEND chunk and CRC (8 bytes total)
+                            icon_data = icon_data[: iend_pos + 8]
+
+                            # Convert to base64 for consistent handling
+                            import base64
+
+                            icon_base64 = base64.b64encode(icon_data).decode("ascii")
+                except Exception:
+                    icon_base64 = None
+
+                return {
+                    "title_id": title_id,
+                    "media_id": media_id,
+                    "display_name": display_name,
+                    "icon_base64": icon_base64,
+                }
+
+        except FileNotFoundError:
+            print(f"Error: File '{god_header_path}' not found.")
+            return None
+        except Exception as e:
+            print(f"Error reading GoD file: {e}")
+            return None

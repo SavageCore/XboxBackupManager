@@ -23,7 +23,7 @@ jobs:
           pip install -r requirements.txt
       - name: Build with pyinstaller
         run: |
-          pyinstaller -F -n XboxBackupManager-win64 -i icon.ico main.py --add-data "database/xbox360.json;database" --add-data "database/MobCatsOGXboxTitleIDs.db;database" --noconsole
+          pyinstaller -F -n XboxBackupManager-win64 -i icon.ico main.py --noconsole
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

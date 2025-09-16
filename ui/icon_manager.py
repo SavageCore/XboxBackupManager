@@ -20,9 +20,9 @@ class IconManager(QObject):
 
         # Default colors if not provided
         icon_kwargs = {
-            "color": palette["text"],
-            "color_active": palette["subtext1"],
-            "color_disabled": palette["overlay0"],
+            "color": palette.COLOR_TEXT_1,
+            "color_active": palette.COLOR_TEXT_1,
+            "color_disabled": palette.COLOR_DISABLED,
             **kwargs,  # Allow override of default colors
         }
 

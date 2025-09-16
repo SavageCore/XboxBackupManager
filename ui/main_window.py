@@ -11,31 +11,21 @@ import os
 import platform
 import shutil
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path
 from typing import Dict, List
 
-import qt_themes  # type: ignore
 import qtawesome as qta
 import requests
-from PyQt6.QtCore import (
-    QFileSystemWatcher,
-    QPoint,
-    QProcess,
-    QRect,
-    QSize,
-    Qt,
-    QTimer,
-    QUrl,
-)
+from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
     QDesktopServices,
     QIcon,
     QPainter,
-    QPen,
     QPixmap,
 )
 from PyQt6.QtWidgets import (
@@ -53,6 +43,8 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QPushButton,
+    QStyle,
+    QStyleOptionButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -60,8 +52,6 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import APP_NAME, VERSION
-from database.xbox360_title_database import TitleDatabaseLoader
-from database.xbox_title_database import XboxTitleDatabaseLoader
 
 # Import our modular components
 from models.game_info import GameInfo
@@ -106,16 +96,11 @@ class XboxBackupManager(QMainWindow):
         # Initialize managers
         self.settings_manager = SettingsManager()
         self.theme_manager = ThemeManager()
-        self.database_loader = TitleDatabaseLoader()
         self.icon_manager = IconManager(self.theme_manager)
         self.xboxunity = XboxUnity()
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
-
-        self.xbox_database_loader = XboxTitleDatabaseLoader()
-        self.xbox_database_loader.database_loaded.connect(self.on_xbox_database_loaded)
-        self.xbox_database_loader.database_error.connect(self.on_xbox_database_error)
 
         # Application state
         self.games: List[GameInfo] = []
@@ -138,7 +123,6 @@ class XboxBackupManager(QMainWindow):
         self.ftp_settings = {}
         self.ftp_target_directories = {"xbox": "/", "xbox360": "/", "xbla": "/"}
 
-        self.is_dark = self.theme_manager.should_use_dark_mode()
         self.xboxunity_settings = {}
 
         # Transfer state
@@ -149,18 +133,10 @@ class XboxBackupManager(QMainWindow):
         # Get the current palette from your theme manager
         palette = self.theme_manager.get_palette()
 
-        palette = self.theme_manager.get_palette()
-
         # Extract colors from the palette for different states
-        self.normal_color = palette["text"]
-        self.active_color = palette["subtext1"]
-        self.disabled_color = palette["overlay0"]
-
-        self.theme = qt_themes.get_theme(
-            "catppuccin_mocha" if self.is_dark else "catppuccin_latte"
-        )
-
-        self.change_theme("catppuccin_mocha" if self.is_dark else "catppuccin_latte")
+        self.normal_color = palette.COLOR_BACKGROUND_6
+        self.active_color = palette.COLOR_BACKGROUND_6
+        self.disabled_color = palette.COLOR_DISABLED
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -172,14 +148,17 @@ class XboxBackupManager(QMainWindow):
         self.scan_timer.timeout.connect(self.delayed_scan)
         self.scan_delay = 2000  # 2 seconds delay
 
-        # Connect database signals
-        self.database_loader.database_loaded.connect(self.on_database_loaded)
-        self.database_loader.database_error.connect(self.on_database_error)
-
         # Initialize UI and load settings
         self.init_ui()
         self.load_settings()
-        self.load_title_database()
+
+        # Enable UI immediately since we don't need database loading for either platform
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        if self.current_directory:
+            self.toolbar_scan_action.setEnabled(True)
+            self.start_watching_directory()
+            self.scan_directory()
 
         self.setup_colors()
         self.setup_ui()
@@ -190,10 +169,11 @@ class XboxBackupManager(QMainWindow):
 
     def setup_colors(self):
         """Setup color properties from theme"""
-        palette = self.theme_manager.get_qcolor_palette()
-        self.normal_color = palette["text"]
-        self.active_color = palette["subtext1"]
-        self.disabled_color = palette["overlay0"]
+        palette = self.theme_manager.get_palette()
+
+        self.normal_color = palette.COLOR_TEXT_1
+        self.active_color = palette.COLOR_TEXT_1
+        self.disabled_color = palette.COLOR_DISABLED
 
     def setup_ui(self):
         """Setup UI with themed icons"""
@@ -359,7 +339,7 @@ class XboxBackupManager(QMainWindow):
 
         # Target directory row
         target_layout = QHBoxLayout()
-        target_layout.setSpacing(10)
+        target_layout.setSpacing(1)
 
         self.target_directory_label = QLabel("No target directory selected")
         self.target_directory_label.setStyleSheet("QLabel { font-weight: bold; }")
@@ -379,14 +359,7 @@ class XboxBackupManager(QMainWindow):
 
         # Platform indicator label
         self.platform_label = QLabel("Xbox 360")
-        self.platform_label.setStyleSheet(
-            """
-            QLabel {
-                font-weight: bold;
-                color: palette(text);
-            }
-            """
-        )
+        self.platform_label.setStyleSheet("QLabel { font-weight: bold; }")
 
         target_layout.addWidget(QLabel("Target:"))
         target_layout.addWidget(self.target_directory_label, 0)  # No stretch factor
@@ -452,15 +425,7 @@ class XboxBackupManager(QMainWindow):
         # menubar = QMenuBar()
         menubar = self.menuBar()
 
-        # Apply comprehensive menu bar styling
-        menubar.setStyleSheet(
-            """
-            QMenuBar {
-                background-color: #313244; #surface0
-                padding: 2px;
-            }
-        """
-        )
+        # menubar.setNativeMenuBar(True)
 
         # File menu
         self.create_file_menu(menubar)
@@ -812,6 +777,7 @@ class XboxBackupManager(QMainWindow):
             }
             QLabel:hover {
                 color: palette(highlight);
+                text-decoration: underline;
             }
         """
         )
@@ -823,6 +789,7 @@ class XboxBackupManager(QMainWindow):
             }
             QLabel:hover {
                 color: palette(highlight);
+                text-decoration: underline;
             }
         """
         )
@@ -1516,16 +1483,40 @@ class XboxBackupManager(QMainWindow):
                 )
 
             try:
-                target_path = f"{self.current_target_directory.rstrip('/')}/{Path(game.folder_path).name}"
-                return ftp_client.directory_exists(target_path)
+                # For extracted ISO games, always use game.name
+                if getattr(game, "is_extracted_iso", False):
+                    target_path = (
+                        f"{self.current_target_directory.rstrip('/')}/{game.name}"
+                    )
+                    return ftp_client.directory_exists(target_path)
+                else:
+                    # For GoD games, check both game.name and title_id (for backward compatibility)
+                    target_path_by_name = (
+                        f"{self.current_target_directory.rstrip('/')}/{game.name}"
+                    )
+                    target_path_by_id = (
+                        f"{self.current_target_directory.rstrip('/')}/{game.title_id}"
+                    )
+
+                    return ftp_client.directory_exists(
+                        target_path_by_name
+                    ) or ftp_client.directory_exists(target_path_by_id)
 
             except Exception:
                 return False
         else:
-            target_path = (
-                Path(self.current_target_directory) / Path(game.folder_path).name
-            )
-            return target_path.exists() and target_path.is_dir()
+            # For extracted ISO games, always use game.name
+            if getattr(game, "is_extracted_iso", False):
+                target_path = Path(self.current_target_directory) / game.name
+                return target_path.exists() and target_path.is_dir()
+            else:
+                # For GoD games, check both game.name and title_id (for backward compatibility)
+                target_path_by_name = Path(self.current_target_directory) / game.name
+                target_path_by_id = Path(self.current_target_directory) / game.title_id
+
+                return (
+                    target_path_by_name.exists() and target_path_by_name.is_dir()
+                ) or (target_path_by_id.exists() and target_path_by_id.is_dir())
 
     def browse_directory(self):
         """Open directory selection dialog"""
@@ -1648,8 +1639,6 @@ class XboxBackupManager(QMainWindow):
 
         # Recreate table with appropriate columns for new platform
         self.setup_table()
-
-        self.load_title_database()
 
         # Load source directory for new platform
         if self.platform_directories[platform]:
@@ -1788,13 +1777,10 @@ class XboxBackupManager(QMainWindow):
             "This application uses the following libraries:<br><br>"
             "• <a href='https://pypi.org/project/black/'>black</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/darkdetect/'>darkdetect</a> (BSD License (BSD-3-Clause))<br>"
-            "• <a href='https://pypi.org/project/psutil/'>psutil</a> (BSD License (BSD-3-Clause))<br>"
-            "• <a href='https://pypi.org/project/pyinstaller/'>pyinstaller</a> (BSD License (BSD-3-Clause))<br>"
             "• <a href='https://pypi.org/project/PyQt6/'>PyQt6</a> (GPL-3.0-only)<br>"
+            "• <a href='https://pypi.org/project/qdarkstyle/'>qdarkstyle</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/QtAwesome/'>QtAwesome</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/requests/'>requests</a> (Apache Software License (Apache-2.0))<br>"
-            "• <a href='https://pypi.org/project/semver/'>semver</a> (BSD License (BSD-3-Clause))<br>"
-            "• <a href='https://pypi.org/project/qt-themes/'>qt-themes</a> (MIT)<br>"
             "<br>"
             "Xbox Database / Icons are from <a href='https://github.com/MobCat/MobCats-original-xbox-game-list'>MobCats</a><br>"
             "Xbox 360 Icons are from <a href='https://github.com/XboxUnity'>XboxUnity</a>"
@@ -1809,20 +1795,23 @@ class XboxBackupManager(QMainWindow):
 
     def apply_theme(self):
         """Apply the current theme"""
-        dark = self.theme_manager.should_use_dark_mode()
-        self.change_theme("catppuccin_mocha" if dark else "catppuccin_latte")
+        stylesheet = self.theme_manager.get_stylesheet()
+        self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
         palette = self.theme_manager.get_palette()
 
         # Update colours
-        self.normal_color = palette["text"]
-        self.active_color = palette["subtext1"]
-        self.disabled_color = palette["overlay0"]
+        if self.theme_manager.should_use_dark_mode():
+            self.normal_color = palette.COLOR_TEXT_1
+            self.active_color = palette.COLOR_TEXT_1
+            self.disabled_color = palette.COLOR_DISABLED
+        else:
+            self.normal_color = palette.COLOR_BACKGROUND_6
+            self.active_color = palette.COLOR_BACKGROUND_6
+            self.disabled_color = palette.COLOR_DISABLED
 
         self.icon_manager.update_all_icons()
-
-        self.fix_checkbox_stylesheet()
 
     def update_theme_menu_state(self):
         """Update theme menu state based on current override"""
@@ -2007,59 +1996,6 @@ class XboxBackupManager(QMainWindow):
                 self.current_platform, header, sort_column, sort_order
             )
 
-    def load_title_database(self):
-        """Load the appropriate title database based on platform"""
-        if self.current_platform == "xbox":
-            self.xbox_database_loader.load_database()
-        else:
-            self.database_loader.load_database()
-
-    def on_database_loaded(self, database: Dict[str, str]):
-        """Handle successful database loading"""
-        # Enable UI elements
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-            self.start_watching_directory()
-            self.scan_directory()
-
-    def on_database_error(self, error_msg: str):
-        """Handle database loading error"""
-        QMessageBox.critical(
-            self, "Database Error", f"Failed to load title database:\n{error_msg}"
-        )
-
-        # Enable UI elements even without database
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-
-    def on_xbox_database_loaded(self, database: Dict[str, Dict[str, str]]):
-        """Handle successful Xbox database loading"""
-        # Enable UI elements
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-            self.start_watching_directory()
-            self.scan_directory()
-
-    def on_xbox_database_error(self, error_msg: str):
-        """Handle Xbox database loading error"""
-        QMessageBox.warning(
-            self,
-            "Database Error",
-            f"Failed to load Xbox title database:\n{error_msg}\n\nGames will use folder names instead.",
-        )
-
-        # Enable UI elements even without database
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-
     def start_watching_directory(self):
         """Start watching the current directory for changes"""
         if not self.current_directory:
@@ -2153,14 +2089,10 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
-        # Start scanning thread with appropriate database
-        xbox_db = self.xbox_database_loader if self.current_platform == "xbox" else None
-
+        # Start scanning thread
         self.scanner = DirectoryScanner(
             self.current_directory,
-            self.database_loader.title_database,
             platform=self.current_platform,
-            xbox_database=xbox_db,
         )
         self.scanner.progress.connect(self.update_progress)
         self.scanner.game_found.connect(self.add_game)
@@ -2238,16 +2170,14 @@ class XboxBackupManager(QMainWindow):
         col_index = 0
 
         # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")
+        checkbox_item = QTableWidgetItem("")  # Empty text is important
         checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-        # Only use setTextAlignment for centering - avoid setData with TextAlignmentRole
+        # Center the checkbox both horizontally and vertically
         checkbox_item.setTextAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
-
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2389,7 +2319,12 @@ class XboxBackupManager(QMainWindow):
 
         for game in self.games:
             if game.title_id not in self.icon_cache:
-                missing_title_ids.append(game.title_id)
+                # If extracted iso game then add the folder name instead of title ID
+                if game.is_extracted_iso:
+                    folder_name = Path(game.folder_path).name.upper()
+                    missing_title_ids.append((game.title_id, folder_name))
+                else:
+                    missing_title_ids.append((game.title_id, game.title_id))
 
         if missing_title_ids:
             self.status_manager.show_message(
@@ -2398,7 +2333,7 @@ class XboxBackupManager(QMainWindow):
 
             # Start icon downloader thread
             self.icon_downloader = IconDownloader(
-                missing_title_ids, self.current_platform
+                missing_title_ids, self.current_platform, self.current_directory
             )
             self.icon_downloader.icon_downloaded.connect(self.on_icon_downloaded)
             self.icon_downloader.download_failed.connect(self.on_icon_download_failed)
@@ -2485,11 +2420,12 @@ class XboxBackupManager(QMainWindow):
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""
         header = self.games_table.horizontalHeader()
+
         header.installEventFilter(self)
 
-        # Select column - fixed width for checkbox only, slightly wider for better alignment
+        # Select column - fixed width, narrow for checkbox only
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 30)  # Increased from 25 to 30 for better alignment
+        header.resizeSection(0, 25)  # More reasonable size for checkbox
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -2546,14 +2482,8 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setContentsMargins(0, 0, 0, 0)
         self.games_table.verticalHeader().setDefaultSectionSize(72)
 
-        # Disable all selection to prevent column highlighting
+        # Disable row selection
         self.games_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.games_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectItems
-        )
-
-        # Disable focus to prevent highlighting on click
-        self.games_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Configure horizontal header
         header = self.games_table.horizontalHeader()
@@ -2566,7 +2496,30 @@ class XboxBackupManager(QMainWindow):
         header.setSortIndicatorShown(True)
         header.setSectionsClickable(True)
 
-        self.fix_checkbox_stylesheet()
+        # Apply custom styling
+        self.games_table.setStyleSheet(
+            """
+            QTableWidget {
+                gridline-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
+            }
+            QTableWidget::item {
+                border-bottom: 1px solid palette(mid);
+                padding: 4px;
+            }
+            QHeaderView::down-arrow, QHeaderView::up-arrow {
+                width: 12px;
+                height: 12px;
+                right: 4px;
+            }
+            QHeaderView {
+                margin: 0px;
+                padding: 0px;
+            }
+        """
+        )
 
         # Set default sort to Game Name (column 2 with icons)
         self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
@@ -2823,6 +2776,24 @@ class XboxBackupManager(QMainWindow):
                             folder_name, folder_path, ftp_client
                         )
                         if title_id:
+                            # Check if this is an extracted ISO game for FTP
+                            is_extracted_iso = False
+                            if self.current_platform == "xbox360":
+                                # Check if default.xex exists by listing directory contents
+                                try:
+                                    success, dir_items, error_msg = (
+                                        ftp_client.list_directory(folder_path)
+                                    )
+                                    if success:
+                                        is_extracted_iso = any(
+                                            not dir_item["is_directory"]
+                                            and dir_item["name"].lower()
+                                            == "default.xex"
+                                            for dir_item in dir_items
+                                        )
+                                except Exception:
+                                    pass  # If we can't check, assume it's not extracted ISO
+
                             game_name = self._get_game_display_name(
                                 folder_name, title_id
                             )
@@ -2832,6 +2803,7 @@ class XboxBackupManager(QMainWindow):
                                     "title_id": title_id,
                                     "folder_path": folder_path,
                                     "folder_name": folder_name,
+                                    "is_extracted_iso": is_extracted_iso,
                                 }
                             )
 
@@ -2857,6 +2829,12 @@ class XboxBackupManager(QMainWindow):
                         # Try to get title ID and game name from the folder
                         title_id = self._extract_title_id(folder_name, folder_path)
                         if title_id:
+                            # Check if this is an extracted ISO game
+                            is_extracted_iso = False
+                            if self.current_platform == "xbox360":
+                                xex_path = Path(folder_path) / "default.xex"
+                                is_extracted_iso = xex_path.exists()
+
                             game_name = self._get_game_display_name(
                                 folder_name, title_id
                             )
@@ -2866,6 +2844,7 @@ class XboxBackupManager(QMainWindow):
                                     "title_id": title_id,
                                     "folder_path": folder_path,
                                     "folder_name": folder_name,
+                                    "is_extracted_iso": is_extracted_iso,
                                 }
                             )
             except Exception as e:
@@ -2875,15 +2854,35 @@ class XboxBackupManager(QMainWindow):
 
     def _extract_title_id(self, folder_name: str, folder_path: str):
         """Extract title ID from folder name or path"""
-        # For Xbox 360, folder name is the title ID
+        # For Xbox 360, check if it's an extracted ISO game first
         if self.current_platform == "xbox360":
-            return folder_name.upper()
+            folder_path_obj = Path(folder_path)
+
+            # Check if this is an extracted ISO game (has default.xex)
+            xex_path = folder_path_obj / "default.xex"
+            if xex_path.exists():
+                try:
+                    # Use xextool to extract the actual title ID from XEX
+                    xex_info = SystemUtils.extract_xex_info(str(xex_path))
+                    if xex_info and xex_info.get("title_id"):
+                        return xex_info["title_id"]
+                except Exception as e:
+                    print(f"Error extracting title ID from XEX: {e}")
+
+            # For GoD format games, folder name is the title ID
+            # Check if folder name looks like a hex title ID (8 characters)
+            if len(folder_name) == 8 and all(
+                c in "0123456789ABCDEFabcdef" for c in folder_name
+            ):
+                return folder_name.upper()
+
+            # If not a GoD format and no XEX found, return None
+            return None
 
         # For Xbox, need to extract from internal structure
         elif self.current_platform == "xbox":
             try:
                 # Look for default.xbe or header files
-                from pathlib import Path
 
                 # Check for GoD structure
                 god_header_path = Path(folder_path) / "00007000"
@@ -2913,9 +2912,52 @@ class XboxBackupManager(QMainWindow):
         self, folder_name: str, folder_path: str, ftp_client: FTPClient
     ):
         """Extract title ID from folder name or path for FTP connections"""
-        # For Xbox 360, folder name is the title ID
+        # For Xbox 360, check if it's an extracted ISO game first
         if self.current_platform == "xbox360":
-            return folder_name.upper()
+            # Check if this is an extracted ISO game (has default.xex)
+            try:
+                # Try to check if default.xex exists by listing directory contents
+                success, items, error_msg = ftp_client.list_directory(folder_path)
+                if success:
+                    has_default_xex = any(
+                        not item["is_directory"]
+                        and item["name"].lower() == "default.xex"
+                        for item in items
+                    )
+
+                    if has_default_xex:
+                        # Download default.xex temporarily to extract title ID
+                        default_xex_path = f"{folder_path.rstrip('/')}/default.xex"
+
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".xex"
+                        ) as temp_file:
+                            temp_path = temp_file.name
+
+                        try:
+                            success, message = ftp_client.download_file(
+                                default_xex_path, temp_path
+                            )
+                            if success:
+                                xex_info = SystemUtils.extract_xex_info(temp_path)
+                                if xex_info and xex_info.get("title_id"):
+                                    return xex_info["title_id"]
+                        finally:
+                            # Clean up temporary file
+                            if os.path.exists(temp_path):
+                                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Error extracting title ID from FTP XEX: {e}")
+
+            # For GoD format games, folder name is the title ID
+            # Check if folder name looks like a hex title ID (8 characters)
+            if len(folder_name) == 8 and all(
+                c in "0123456789ABCDEFabcdef" for c in folder_name
+            ):
+                return folder_name.upper()
+
+            # If not a GoD format and no XEX found, return None
+            return None
 
         # For Xbox, need to extract from internal structure
         elif self.current_platform == "xbox":
@@ -2978,16 +3020,22 @@ class XboxBackupManager(QMainWindow):
         """Get media ID for a game from its local folder only (used for context menu)"""
         try:
             # Always use local mode for context menu operations
-            # First check if this is a GoD game (no .xex file in root)
             folder_path_obj = Path(folder_path)
-            xex_files = list(folder_path_obj.glob("*.xex"))
 
-            if xex_files:
-                print(
-                    "[DEBUG] Game appears to be ISO format (.xex found), skipping GoD media ID extraction"
-                )
+            # First check if this is an extracted ISO game (has default.xex in root)
+            xex_path = folder_path_obj / "default.xex"
+            if xex_path.exists():
+                xex_info = SystemUtils.extract_xex_info(str(xex_path))
+                if xex_info and xex_info.get("media_id"):
+                    return xex_info["media_id"]
                 return None
 
+            # Check for other .xex files (non-default.xex)
+            xex_files = list(folder_path_obj.glob("*.xex"))
+            if xex_files:
+                return None
+
+            # If no .xex files, treat as GoD game
             god_header_path = folder_path_obj / "00007000"
             header_files = list(god_header_path.glob("*"))
 
@@ -3549,13 +3597,12 @@ class XboxBackupManager(QMainWindow):
         self.update_button = QPushButton("Update Available")
         self.update_button.setIcon(
             qta.icon(
-                "fa6s.download",
+                "fa6s.rotate",
                 color=self.normal_color,
                 color_active=self.active_color,
                 color_disabled=self.disabled_color,
             )
         )
-
         self.update_button.setToolTip("A new version is available. Click to update.")
         self.update_button.clicked.connect(
             lambda: self._on_update_button_clicked(download_url)
@@ -4691,71 +4738,6 @@ class XboxBackupManager(QMainWindow):
         if self.current_directory:
             self.scan_directory()
 
-    def change_theme(self, theme_name):
-        qt_themes.set_theme(theme_name)
-
-        # Update color properties
-        self.setup_colors()
-
-        # Update all registered icons automatically
-        self.icon_manager.update_all_icons()
-
-        menubar = self.menuBar()
-
-        if theme_name == "catppuccin_mocha":
-            menubar.setStyleSheet(
-                """
-            QMenuBar {
-                background-color: #11111b;
-                padding: 2px;
-            }
-        """
-            )
-        else:
-            menubar.setStyleSheet(
-                """
-            QMenuBar {
-                background-color: #eff1f5;
-                padding: 2px;
-            }
-        """
-            )
-
-        if hasattr(self, "directory_label") and self.directory_label:
-            self.directory_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                }
-            QLabel:hover {
-                color: palette(highlight);
-            }
-        """
-            )
-
-        if hasattr(self, "target_directory_label") and self.target_directory_label:
-            self.target_directory_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                }
-            QLabel:hover {
-                color: palette(highlight);
-            }
-        """
-            )
-
-        # platform_label
-        if hasattr(self, "platform_label") and self.platform_label:
-            self.platform_label.setStyleSheet(
-                """
-                QLabel {
-                    font-weight: bold;
-                    color: palette(text);
-                }
-        """
-            )
-
     def _get_cache_file_path(self) -> Path:
         """Get the cache file path for current platform and directory"""
         if not self.current_directory:
@@ -4797,6 +4779,10 @@ class XboxBackupManager(QMainWindow):
                     "size_formatted": game.size_formatted,
                     "transferred": game.transferred,
                     "last_modified": getattr(game, "last_modified", 0),
+                    "media_id": getattr(game, "media_id", None),  # Save media_id
+                    "is_extracted_iso": getattr(
+                        game, "is_extracted_iso", False
+                    ),  # Save extracted ISO flag
                 }
                 cache_data["games"].append(game_data)
 
@@ -4839,9 +4825,13 @@ class XboxBackupManager(QMainWindow):
                     folder_path=game_data["folder_path"],
                     size_bytes=game_data["size_bytes"],
                     size_formatted=game_data["size_formatted"],
+                    is_extracted_iso=game_data.get(
+                        "is_extracted_iso", False
+                    ),  # Handle new field
                 )
                 game_info.transferred = game_data.get("transferred", False)
                 game_info.last_modified = game_data.get("last_modified", 0)
+                game_info.media_id = game_data.get("media_id")  # Handle media_id field
 
                 self.games.append(game_info)
 
@@ -5007,100 +4997,6 @@ class XboxBackupManager(QMainWindow):
                 "FTP operations will not be available until connection is restored.",
             )
 
-        # Update color properties
-        self.setup_colors()
-
-    def fix_checkbox_stylesheet(self):
-        self.games_table.setStyleSheet(
-            """
-            QTableWidget {
-                gridline-color: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-                outline: 0;
-                alternate-background-color: palette(alternate-base);
-                background-color: palette(base);
-            }
-
-            QTableWidget::item {
-                border-bottom: 1px solid palette(mid);
-                padding: 4px;
-                outline: 0;
-            }
-
-            QTableWidget::item:selected {
-                background-color: transparent;
-                color: palette(text);
-            }
-
-            QTableWidget::item:focus {
-                background-color: transparent;
-                border: none;
-                outline: 0;
-            }
-
-            /* Force checkbox column to have consistent background and centering */
-            QTableWidget::item:first-child {
-                background-color: palette(base);
-                text-align: center;
-                padding: 2px;
-            }
-
-            QTableWidget::item:first-child:alternate {
-                background-color: palette(base);
-            }
-
-            /* Ensure consistent checkbox indicator styling */
-            QTableWidget::indicator {
-                width: 16px;
-                height: 16px;
-            }
-
-            QTableWidget::indicator:unchecked {
-                border: 2px solid palette(mid);
-                border-radius: 3px;
-                background-color: palette(base);
-            }
-
-            QTableWidget::indicator:checked {
-                border: 2px solid palette(highlight);
-                border-radius: 3px;
-                background-color: palette(highlight);
-            }
-
-            QHeaderView {
-                margin: 0px;
-                padding: 0px;
-                background-color: palette(button);
-            }
-
-            QHeaderView::section {
-                background-color: palette(button);
-                color: palette(button-text);
-                border: 1px solid palette(mid);
-                border-left: none;
-                border-top: none;
-                padding: 4px;
-            }
-
-            QHeaderView::section:hover {
-                background-color: palette(highlight);
-                color: palette(highlighted-text);
-            }
-
-            QHeaderView::section:pressed {
-                background-color: palette(dark);
-            }
-
-            QHeaderView::down-arrow, QHeaderView::up-arrow {
-                width: 12px;
-                height: 12px;
-                right: 4px;
-            }
-            """
-        )
-
 
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
@@ -5131,56 +5027,24 @@ class NonSortableHeaderView(QHeaderView):
             return
 
         painter.save()
+        opt = QStyleOptionButton()
+        indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
+        indicator_height = self.style().pixelMetric(
+            QStyle.PixelMetric.PM_IndicatorHeight
+        )
+        x = rect.x() + (rect.width() - indicator_width) // 2
+        y = rect.y() + (rect.height() - indicator_height) // 2
+        opt.rect = QRect(x, y, indicator_width, indicator_height)
+        opt.state = QStyle.StateFlag.State_Enabled
 
-        # Fill the header background first
-        painter.fillRect(rect, self.palette().button())
-
-        # Draw the same borders as other sections
-        painter.setPen(self.palette().mid().color())
-
-        # Draw right border (column divider)
-        painter.drawLine(rect.topRight(), rect.bottomRight())
-
-        # Draw bottom border
-        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
-
-        # Get the check state
         check_state = self._get_header_check_state()
-
-        # Draw custom checkbox to match table styling
-        checkbox_size = 16
-        x = rect.x() + (rect.width() - checkbox_size) // 2
-        y = rect.y() + (rect.height() - checkbox_size) // 2
-        checkbox_rect = QRect(x, y, checkbox_size, checkbox_size)
-
-        # Draw checkbox background
-        painter.fillRect(checkbox_rect, self.palette().base())
-
-        # Draw checkbox border
         if check_state == Qt.CheckState.Checked:
-            painter.setPen(QPen(self.palette().highlight().color(), 2))
-            painter.setBrush(self.palette().highlight())
-        else:
-            painter.setPen(QPen(self.palette().mid().color(), 2))
-            painter.setBrush(self.palette().base())
+            opt.state |= QStyle.StateFlag.State_On
+        elif check_state == Qt.CheckState.PartiallyChecked:
+            opt.state |= QStyle.StateFlag.State_NoChange
+        # else State_Off by default
 
-        # Draw rounded rectangle
-        painter.drawRoundedRect(checkbox_rect, 3, 3)
-
-        # Note: Checkmark removed - just show colored state
-
-        if check_state == Qt.CheckState.PartiallyChecked:
-            # Draw partial state (dash)
-            painter.setPen(
-                QPen(
-                    self.palette().highlight().color(),
-                    2,
-                    Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap,
-                )
-            )
-            painter.drawLine(QPoint(x + 4, y + 8), QPoint(x + 12, y + 8))
-
+        self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
         painter.restore()
 
     def mousePressEvent(self, event):
