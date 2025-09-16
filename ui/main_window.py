@@ -61,7 +61,6 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import APP_NAME, VERSION
-from database.xbox360_title_database import TitleDatabaseLoader
 from database.xbox_title_database import XboxTitleDatabaseLoader
 
 # Import our modular components
@@ -107,7 +106,6 @@ class XboxBackupManager(QMainWindow):
         # Initialize managers
         self.settings_manager = SettingsManager()
         self.theme_manager = ThemeManager()
-        self.database_loader = TitleDatabaseLoader()
         self.icon_manager = IconManager(self.theme_manager)
         self.xboxunity = XboxUnity()
 
@@ -173,14 +171,21 @@ class XboxBackupManager(QMainWindow):
         self.scan_timer.timeout.connect(self.delayed_scan)
         self.scan_delay = 2000  # 2 seconds delay
 
-        # Connect database signals
-        self.database_loader.database_loaded.connect(self.on_database_loaded)
-        self.database_loader.database_error.connect(self.on_database_error)
-
         # Initialize UI and load settings
         self.init_ui()
         self.load_settings()
-        self.load_title_database()
+
+        # Only load Xbox database (for original Xbox games)
+        if self.current_platform == "xbox":
+            self.load_title_database()
+        else:
+            # For Xbox 360, enable UI immediately since we don't need database
+            self.browse_action.setEnabled(True)
+            self.browse_target_action.setEnabled(True)
+            if self.current_directory:
+                self.toolbar_scan_action.setEnabled(True)
+                self.start_watching_directory()
+                self.scan_directory()
 
         self.setup_colors()
         self.setup_ui()
@@ -1517,16 +1522,40 @@ class XboxBackupManager(QMainWindow):
                 )
 
             try:
-                target_path = f"{self.current_target_directory.rstrip('/')}/{Path(game.folder_path).name}"
-                return ftp_client.directory_exists(target_path)
+                # For extracted ISO games, always use game.name
+                if getattr(game, "is_extracted_iso", False):
+                    target_path = (
+                        f"{self.current_target_directory.rstrip('/')}/{game.name}"
+                    )
+                    return ftp_client.directory_exists(target_path)
+                else:
+                    # For GoD games, check both game.name and title_id (for backward compatibility)
+                    target_path_by_name = (
+                        f"{self.current_target_directory.rstrip('/')}/{game.name}"
+                    )
+                    target_path_by_id = (
+                        f"{self.current_target_directory.rstrip('/')}/{game.title_id}"
+                    )
+
+                    return ftp_client.directory_exists(
+                        target_path_by_name
+                    ) or ftp_client.directory_exists(target_path_by_id)
 
             except Exception:
                 return False
         else:
-            target_path = (
-                Path(self.current_target_directory) / Path(game.folder_path).name
-            )
-            return target_path.exists() and target_path.is_dir()
+            # For extracted ISO games, always use game.name
+            if getattr(game, "is_extracted_iso", False):
+                target_path = Path(self.current_target_directory) / game.name
+                return target_path.exists() and target_path.is_dir()
+            else:
+                # For GoD games, check both game.name and title_id (for backward compatibility)
+                target_path_by_name = Path(self.current_target_directory) / game.name
+                target_path_by_id = Path(self.current_target_directory) / game.title_id
+
+                return (
+                    target_path_by_name.exists() and target_path_by_name.is_dir()
+                ) or (target_path_by_id.exists() and target_path_by_id.is_dir())
 
     def browse_directory(self):
         """Open directory selection dialog"""
@@ -2009,33 +2038,9 @@ class XboxBackupManager(QMainWindow):
             )
 
     def load_title_database(self):
-        """Load the appropriate title database based on platform"""
+        """Load the Xbox title database (only needed for original Xbox games)"""
         if self.current_platform == "xbox":
             self.xbox_database_loader.load_database()
-        else:
-            self.database_loader.load_database()
-
-    def on_database_loaded(self, database: Dict[str, str]):
-        """Handle successful database loading"""
-        # Enable UI elements
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
-            self.start_watching_directory()
-            self.scan_directory()
-
-    def on_database_error(self, error_msg: str):
-        """Handle database loading error"""
-        QMessageBox.critical(
-            self, "Database Error", f"Failed to load title database:\n{error_msg}"
-        )
-
-        # Enable UI elements even without database
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-        if self.current_directory:
-            self.toolbar_scan_action.setEnabled(True)
 
     def on_xbox_database_loaded(self, database: Dict[str, Dict[str, str]]):
         """Handle successful Xbox database loading"""
@@ -2159,7 +2164,6 @@ class XboxBackupManager(QMainWindow):
 
         self.scanner = DirectoryScanner(
             self.current_directory,
-            self.database_loader.title_database,
             platform=self.current_platform,
             xbox_database=xbox_db,
         )

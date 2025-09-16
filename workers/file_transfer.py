@@ -45,7 +45,7 @@ class FileTransferWorker(QThread):
     def _transfer_game_with_progress(self, game):
         """Transfer a single game with file-level progress tracking"""
         source_path = Path(game.folder_path)
-        target_path = Path(self.target_directory) / source_path.name
+        target_path = Path(self.target_directory) / game.name
 
         # Calculate total size and file count for this game
         total_files = 0

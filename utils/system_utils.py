@@ -109,7 +109,7 @@ class SystemUtils:
         try:
             # Run xextool with XML output format including icon extraction
             result = subprocess.run(
-                [xextool_path, "-x", "dti", xex_path],
+                [xextool_path, "-x", "dtin", xex_path],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -121,6 +121,7 @@ class SystemUtils:
             output = result.stdout
 
             # Parse the XML output
+            game_name = None
             title_id = None
             media_id = None
             icon_base64 = None
@@ -128,6 +129,11 @@ class SystemUtils:
             try:
                 # Parse XML output
                 root = ET.fromstring(output)
+
+                # Extract GameName
+                name_element = root.find("GameName")
+                if name_element is not None:
+                    game_name = name_element.text if name_element.text else None
 
                 # Extract TitleId
                 title_element = root.find("TitleId")
@@ -158,6 +164,8 @@ class SystemUtils:
                         result_dict["media_id"] = media_id
                     if icon_base64:
                         result_dict["icon_base64"] = icon_base64
+                    if game_name:
+                        result_dict["game_name"] = game_name
                     return result_dict
                 else:
                     return None

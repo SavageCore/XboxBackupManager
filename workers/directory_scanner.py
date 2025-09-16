@@ -1,12 +1,13 @@
 import base64
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from models.game_info import GameInfo
 from utils.system_utils import SystemUtils
+from utils.xboxunity import XboxUnity
 
 
 class DirectoryScanner(QThread):
@@ -20,16 +21,15 @@ class DirectoryScanner(QThread):
     def __init__(
         self,
         directory: str,
-        title_database: Dict[str, str],
         platform: str = "xbox360",
         xbox_database=None,
     ):
         super().__init__()
         self.directory = directory
-        self.title_database = title_database  # Xbox 360 database
-        self.xbox_database = xbox_database  # Xbox database
         self.platform = platform
         self.should_stop = False
+        self.xbox_unity = XboxUnity()
+        self.xbox_database = xbox_database  # Xbox database for original Xbox games
 
     def run(self):
         """Main scanning logic"""
@@ -133,18 +133,20 @@ class DirectoryScanner(QThread):
                 title_id = xex_info["title_id"]
                 media_id = xex_info.get("media_id")  # Use .get() to handle None values
                 icon_base64 = xex_info.get("icon_base64")  # Extract icon if available
+                game_name = xex_info.get("game_name")
             else:
                 # Fallback: use folder name as title ID if xextool fails
                 folder_name = os.path.basename(folder_path)
                 title_id = folder_name
                 media_id = None
                 icon_base64 = None
+                game_name = None
 
-            # Get title name from database
-            name = self.title_database.get(
-                title_id,
-                f"Unknown Game ({title_id})",
-            )
+            # Get title name - prioritize XEX game name, then fallback to title ID
+            if game_name:
+                name = game_name
+            else:
+                name = f"Unknown Game ({title_id})"
 
             # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
@@ -175,11 +177,39 @@ class DirectoryScanner(QThread):
     ) -> Optional[GameInfo]:
         """Process an Xbox 360/XBLA game folder"""
         try:
-            # Get title name from database
-            name = self.title_database.get(
-                title_id,
-                f"Unknown Game ({title_id})",
-            )
+            # Try to extract detailed info from GoD header
+            god_header_path = Path(folder_path) / "00007000"
+            header_files = list(god_header_path.glob("*"))
+
+            god_info = None
+            media_id = None
+            game_name = None
+
+            if header_files:
+                # Use the first header file found
+                header_file_path = str(header_files[0])
+
+                # Extract comprehensive GoD information
+                god_info = self.xbox_unity.get_god_info(header_file_path)
+
+                if god_info:
+                    # Use extracted title_id if available and valid
+                    if god_info.get("title_id") and god_info["title_id"] != "00000000":
+                        title_id = god_info["title_id"]
+
+                    # Get media_id for title updates
+                    media_id = god_info.get("media_id")
+
+                    # Use display_name from GoD header if available
+                    if god_info.get("display_name"):
+                        game_name = god_info["display_name"]
+
+            # Get title name - prioritize GoD extracted name, then fallback to title ID
+            if game_name:
+                name = game_name
+            else:
+                # Fallback to title ID if GoD extraction failed
+                name = f"Unknown Game ({title_id})"
 
             # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
@@ -191,6 +221,7 @@ class DirectoryScanner(QThread):
                 folder_path=folder_path,
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
+                media_id=media_id,  # Add media_id from GoD extraction
                 is_extracted_iso=False,  # Xbox 360 GoD games are not extracted ISOs
             )
 
@@ -210,14 +241,12 @@ class DirectoryScanner(QThread):
                 return
             item_path = os.path.join(self.directory, item)
             if os.path.isdir(item_path):
-                # Check if it's a standard GoD format (8-character hex title ID)
-                if len(item) == 8 and all(c in "0123456789ABCDEFabcdef" for c in item):
-                    folders.append((item_path, item.upper(), "god"))
+                # Check if it's an extracted ISO game (has default.xex)
+                xex_path = os.path.join(item_path, "default.xex")
+                if os.path.exists(xex_path):
+                    folders.append((item_path, None, "iso", xex_path))
                 else:
-                    # Check if it's an extracted ISO game (has default.xex)
-                    xex_path = os.path.join(item_path, "default.xex")
-                    if os.path.exists(xex_path):
-                        folders.append((item_path, None, "iso", xex_path))
+                    folders.append((item_path, item.upper(), "god"))
 
         total_folders = len(folders)
         self.progress.emit(0, total_folders)

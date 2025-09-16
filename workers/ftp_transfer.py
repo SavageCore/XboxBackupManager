@@ -81,7 +81,7 @@ class FTPTransferWorker(QThread):
         self._last_speed_update = time.time()
 
         # Create target directory on FTP server
-        target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{source_path.name}"
+        target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.name}"
         success, message = ftp_client.create_directory(target_ftp_path)
         if not success:
             raise Exception(
