@@ -1633,6 +1633,15 @@ class XboxBackupManager(QMainWindow):
                 self.current_target_directory
             )
 
+        # Save current table settings for current platform
+        if hasattr(self.games_table, "horizontalHeader"):
+            header = self.games_table.horizontalHeader()
+            sort_column = header.sortIndicatorSection()
+            sort_order = header.sortIndicatorOrder()
+            self.settings_manager.save_table_settings(
+                self.current_platform, header, sort_column, sort_order
+            )
+
         # Update window title
         self.setWindowTitle(
             f"{APP_NAME} - {self.platform_names[platform]} - v{VERSION}"
@@ -2622,9 +2631,6 @@ class XboxBackupManager(QMainWindow):
             }}
         """
         )
-
-        # Set default sort to Game Name (column 2 with icons)
-        self.games_table.sortItems(2, Qt.SortOrder.AscendingOrder)
 
     def _load_table_settings(self):
         """Load saved table column widths and sort settings"""

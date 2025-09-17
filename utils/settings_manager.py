@@ -69,8 +69,8 @@ class SettingsManager:
                 header.sectionSize(i),
             )
 
-        self.settings.setValue("sort_column", sort_column)
-        self.settings.setValue("sort_order", sort_order.value)
+        self.settings.setValue(f"{platform}_sort_column", sort_column)
+        self.settings.setValue(f"{platform}_sort_order", sort_order.value)
 
     def load_table_settings(self, platform):
         """Load table settings"""
@@ -83,8 +83,10 @@ class SettingsManager:
             if width:
                 column_widths[i] = int(width)
 
-        sort_column = self.settings.value("sort_column", 3)
-        sort_order = self.settings.value("sort_order", 0)  # Qt.SortOrder.AscendingOrder
+        sort_column = self.settings.value(f"{platform}_sort_column", 3)
+        sort_order = self.settings.value(
+            f"{platform}_sort_order", 0
+        )  # Qt.SortOrder.AscendingOrder
 
         return column_widths, int(sort_column), int(sort_order)
 
