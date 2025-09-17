@@ -1,30 +1,37 @@
+from PyQt6 import QtGui
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QPen
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
+from PyQt6.QtWidgets import QStyledItemDelegate
 
 
 class IconDelegate(QStyledItemDelegate):
     """Custom delegate for rendering icons properly in table cells"""
 
-    def __init__(self, parent=None):
+    def __init__(self, theme_manager=None, parent=None):
         super().__init__(parent)
+        self.theme_manager = theme_manager
 
     def paint(self, painter, option, index):
         """Custom paint method for icon rendering"""
         if index.column() == 1:  # Icon column
-            # Draw background and selection state manually without icon
-            if option.state & QStyle.StateFlag.State_Selected:
-                painter.fillRect(option.rect, option.palette.highlight())
+            # Don't draw background - let the default item handle it
+            # Just draw the icon and bottom border
 
             # Draw only bottom border (like other cells)
-            painter.setPen(QPen(option.palette.mid().color()))
+            # Use theme-appropriate border color
+            if self.theme_manager and self.theme_manager.should_use_dark_mode():
+                border_color = QtGui.QColor("#222529")  # Dark theme
+            else:
+                border_color = QtGui.QColor("#e0e0e0")  # Light theme
+
+            painter.setPen(QPen(border_color))
             painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
 
             # Get the icon from the item
             icon = index.data(Qt.ItemDataRole.DecorationRole)
 
             if icon and not icon.isNull():
-                # Calculate center position for the icon
+                # Calculate center position for the icon with smaller size
                 icon_size = 48  # Fixed size for icons
                 rect = option.rect
                 x = rect.x() + (rect.width() - icon_size) // 2

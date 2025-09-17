@@ -43,8 +43,6 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QPushButton,
-    QStyle,
-    QStyleOptionButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -131,12 +129,12 @@ class XboxBackupManager(QMainWindow):
         self._current_transfer_speed = ""  # For storing current transfer speed
 
         # Get the current palette from your theme manager
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
         # Extract colors from the palette for different states
-        self.normal_color = palette.COLOR_BACKGROUND_6
-        self.active_color = palette.COLOR_BACKGROUND_6
-        self.disabled_color = palette.COLOR_DISABLED
+        # self.normal_color = palette.COLOR_BACKGROUND_6
+        # self.active_color = palette.COLOR_BACKGROUND_6
+        # self.disabled_color = palette.COLOR_DISABLED
 
         # File system monitoring
         self.file_watcher = QFileSystemWatcher()
@@ -169,11 +167,11 @@ class XboxBackupManager(QMainWindow):
 
     def setup_colors(self):
         """Setup color properties from theme"""
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
-        self.normal_color = palette.COLOR_TEXT_1
-        self.active_color = palette.COLOR_TEXT_1
-        self.disabled_color = palette.COLOR_DISABLED
+        # self.normal_color = palette.COLOR_TEXT_1
+        # self.active_color = palette.COLOR_TEXT_1
+        # self.disabled_color = palette.COLOR_DISABLED
 
     def setup_ui(self):
         """Setup UI with themed icons"""
@@ -181,7 +179,9 @@ class XboxBackupManager(QMainWindow):
         self.icon_manager.register_widget_icon(
             self.browse_target_action, "fa6s.bullseye"
         )
-        self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
+        self.icon_manager.register_widget_icon(
+            self.ftp_settings_action, "fa6s.network-wired"
+        )
         self.icon_manager.register_widget_icon(
             self.xbox_unity_settings_action, "fa6s.gear"
         )
@@ -189,7 +189,7 @@ class XboxBackupManager(QMainWindow):
         self.icon_manager.register_widget_icon(
             self.ftp_mode_action, "fa6s.network-wired"
         )
-        self.icon_manager.register_widget_icon(self.usb_mode_action, "fa6s.hard-drive")
+        self.icon_manager.register_widget_icon(self.usb_mode_action, "fa6b.usb")
         self.icon_manager.register_widget_icon(
             self.ftp_mode_action, "fa6s.network-wired"
         )
@@ -216,9 +216,9 @@ class XboxBackupManager(QMainWindow):
             for action in self.toolbar_actions:
                 icon_name = {
                     "Scan": "fa6s.magnifying-glass",
-                    "Transfer": "fa6s.download",
+                    "Transfer": "fa6s.arrow-right",
                     "Remove": "fa6s.trash",
-                    "Batch Title Updater": "fa6s.cloud-arrow-down",
+                    "Batch Title Updater": "fa6s.download",
                 }.get(action.text(), "fa6s.circle")
 
                 self.icon_manager.register_widget_icon(action, icon_name)
@@ -269,7 +269,7 @@ class XboxBackupManager(QMainWindow):
         # Scan Directory
         self.toolbar_scan_action = QAction("Scan", self)
         self.toolbar_scan_action.setIcon(
-            qta.icon("fa6s.magnifying-glass", color=self.normal_color)
+            self.icon_manager.create_icon("fa6s.magnifying-glass")
         )
         self.toolbar_scan_action.setToolTip("Scan current directory for games")
         self.toolbar_scan_action.triggered.connect(
@@ -281,7 +281,7 @@ class XboxBackupManager(QMainWindow):
         # Transfer Selected
         self.toolbar_transfer_action = QAction("Transfer", self)
         self.toolbar_transfer_action.setIcon(
-            qta.icon("fa6s.download", color=self.normal_color)
+            self.icon_manager.create_icon("fa6s.arrow-right")
         )
         self.toolbar_transfer_action.setToolTip("Transfer selected games to target")
         self.toolbar_transfer_action.triggered.connect(self.transfer_selected_games)
@@ -290,9 +290,7 @@ class XboxBackupManager(QMainWindow):
 
         # Remove Selected
         self.toolbar_remove_action = QAction("Remove", self)
-        self.toolbar_remove_action.setIcon(
-            qta.icon("fa6s.trash", color=self.normal_color)
-        )
+        self.toolbar_remove_action.setIcon(self.icon_manager.create_icon("fa6s.trash"))
         self.toolbar_remove_action.setToolTip("Remove selected games from target")
         self.toolbar_remove_action.triggered.connect(self.remove_selected_games)
         self.toolbar_remove_action.setEnabled(False)
@@ -301,7 +299,7 @@ class XboxBackupManager(QMainWindow):
         # Batch Title Updater
         self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
         self.toolbar_batch_tu_action.setIcon(
-            qta.icon("fa6s.cloud-arrow-down", color=self.normal_color)
+            self.icon_manager.create_icon("fa6s.download")
         )
         self.toolbar_batch_tu_action.setToolTip(
             "Download missing title updates for all transferred games"
@@ -400,7 +398,7 @@ class XboxBackupManager(QMainWindow):
 
     def create_games_table(self, main_layout):
         """Create and setup the games table"""
-        self.games_table = QTableWidget()
+        self.games_table = ClickableFirstColumnTableWidget()
         self.games_table.setContentsMargins(0, 0, 0, 0)
 
         # Enable context menu
@@ -450,38 +448,44 @@ class XboxBackupManager(QMainWindow):
         file_menu = menubar.addMenu("&File")
 
         # Set Source directory action
-        self.browse_action = QAction("&Set Source Directory...", self)
+        self.browse_action = QAction("Set &Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
-        self.browse_action.setIcon(
-            qta.icon("fa6s.folder-open", color=self.normal_color)
-        )
+        self.browse_action.setIcon(self.icon_manager.create_icon("fa6s.folder-open"))
+        self.icon_manager.register_widget_icon(self.browse_action, "fa6s.folder-open")
         self.browse_action.triggered.connect(self.browse_directory)
         file_menu.addAction(self.browse_action)
 
         # Set Target directory action
-        self.browse_target_action = QAction("&Set Target Directory...", self)
+        self.browse_target_action = QAction("Set &Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.setIcon(
-            qta.icon("fa6s.bullseye", color=self.normal_color)
+            self.icon_manager.create_icon("fa6s.bullseye")
+        )
+        self.icon_manager.register_widget_icon(
+            self.browse_target_action, "fa6s.bullseye"
         )
         self.browse_target_action.triggered.connect(self.browse_target_directory)
         file_menu.addAction(self.browse_target_action)
 
         # Set Cache directory action
-        self.browse_cache_action = QAction("&Set Cache Directory...", self)
+        self.browse_cache_action = QAction("Set C&ache Directory...", self)
         self.browse_cache_action.setShortcut("Ctrl+K")
-        self.browse_cache_action.setIcon(
-            qta.icon("fa6s.folder-open", color=self.normal_color)
+        self.browse_cache_action.setIcon(self.icon_manager.create_icon("fa6s.database"))
+        self.icon_manager.register_widget_icon(
+            self.browse_cache_action, "fa6s.database"
         )
         self.browse_cache_action.setEnabled(True)
         self.browse_cache_action.triggered.connect(self.browse_cache_directory)
         file_menu.addAction(self.browse_cache_action)
 
         # Set Content directory action
-        self.browse_content_action = QAction("&Set Content Directory...", self)
+        self.browse_content_action = QAction("Set C&ontent Directory...", self)
         self.browse_content_action.setShortcut("Ctrl+N")
         self.browse_content_action.setIcon(
-            qta.icon("fa6s.folder-open", color=self.normal_color)
+            self.icon_manager.create_icon("fa6s.folder-tree")
+        )
+        self.icon_manager.register_widget_icon(
+            self.browse_content_action, "fa6s.folder-tree"
         )
         self.browse_content_action.setEnabled(True)
         self.browse_content_action.triggered.connect(self.browse_content_directory)
@@ -491,14 +495,22 @@ class XboxBackupManager(QMainWindow):
 
         # FTP settings action
         self.ftp_settings_action = QAction("&FTP Settings...", self)
-        self.ftp_settings_action.setIcon(qta.icon("fa6s.gear", color=self.normal_color))
+        self.ftp_settings_action.setIcon(
+            self.icon_manager.create_icon("fa6s.network-wired")
+        )
+        self.icon_manager.register_widget_icon(
+            self.ftp_settings_action, "fa6s.network-wired"
+        )
         self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
         file_menu.addAction(self.ftp_settings_action)
 
         # Add Xbox Unity settings action
         self.xbox_unity_settings_action = QAction("&Xbox Unity Settings...", self)
         self.xbox_unity_settings_action.setIcon(
-            qta.icon("fa6s.gear", color=self.normal_color)
+            self.icon_manager.create_icon("fa6s.gear")
+        )
+        self.icon_manager.register_widget_icon(
+            self.xbox_unity_settings_action, "fa6s.gear"
         )
         self.xbox_unity_settings_action.setEnabled(True)
         self.xbox_unity_settings_action.triggered.connect(self.show_xboxunity_settings)
@@ -506,9 +518,9 @@ class XboxBackupManager(QMainWindow):
 
         file_menu.addSeparator()
 
-        self.exit_action = QAction("E&xit", self)
+        self.exit_action = QAction("&Quit", self)
         self.exit_action.setShortcut("Ctrl+Q")
-        self.exit_action.setIcon(qta.icon("fa6s.xmark", color=self.normal_color))
+        self.exit_action.setIcon(qta.icon("fa6s.xmark"))
         self.exit_action.triggered.connect(self.close)
         file_menu.addAction(self.exit_action)
 
@@ -523,9 +535,9 @@ class XboxBackupManager(QMainWindow):
         self.ftp_mode_action.setIcon(
             qta.icon(
                 "fa6s.network-wired",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.ftp_mode_action.triggered.connect(lambda: self.switch_mode("ftp"))
@@ -537,10 +549,10 @@ class XboxBackupManager(QMainWindow):
         self.usb_mode_action.setCheckable(True)
         self.usb_mode_action.setIcon(
             qta.icon(
-                "fa6s.hard-drive",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                "fa6b.usb",
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.usb_mode_action.triggered.connect(lambda: self.switch_mode("usb"))
@@ -560,17 +572,13 @@ class XboxBackupManager(QMainWindow):
 
         # Extract ISO action
         self.extract_iso_action = QAction("&Extract ISO...", self)
-        self.extract_iso_action.setIcon(
-            qta.icon("fa6s.file-zipper", color=self.normal_color)
-        )
+        self.extract_iso_action.setIcon(qta.icon("fa6s.file-zipper"))
         self.extract_iso_action.triggered.connect(self.browse_for_iso)
         tools_menu.addAction(self.extract_iso_action)
 
         # Create GOD action
         self.create_god_action = QAction("&Create GOD...", self)
-        self.create_god_action.setIcon(
-            qta.icon("fa6s.compact-disc", color=self.normal_color)
-        )
+        self.create_god_action.setIcon(qta.icon("fa6s.compact-disc"))
         self.create_god_action.triggered.connect(self.browse_for_god_creation)
         tools_menu.addAction(self.create_god_action)
 
@@ -585,7 +593,7 @@ class XboxBackupManager(QMainWindow):
         self.platform_action_group.addAction(self.xbox_action)
         platform_menu.addAction(self.xbox_action)
 
-        self.xbox360_action = QAction("&Xbox 360", self)
+        self.xbox360_action = QAction("Xbox &360", self)
         self.xbox360_action.setCheckable(True)
         self.xbox360_action.setChecked(True)
         self.xbox360_action.triggered.connect(lambda: self.switch_platform("xbox360"))
@@ -601,15 +609,15 @@ class XboxBackupManager(QMainWindow):
     def create_view_menu(self, menubar):
         """Create the View menu"""
         view_menu = menubar.addMenu("&View")
-        view_menu.setTitle("View")
+        view_menu.setTitle("&View")
 
         self.theme_menu = view_menu.addMenu("&Theme")
         self.theme_menu.setIcon(
             qta.icon(
                 "fa6s.palette",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.theme_action_group = QActionGroup(self)
@@ -620,9 +628,9 @@ class XboxBackupManager(QMainWindow):
         self.auto_theme_action.setIcon(
             qta.icon(
                 "fa6s.circle-half-stroke",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.auto_theme_action.triggered.connect(lambda: self.set_theme_override(None))
@@ -634,9 +642,9 @@ class XboxBackupManager(QMainWindow):
         self.light_theme_action.setIcon(
             qta.icon(
                 "fa6s.sun",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.light_theme_action.triggered.connect(
@@ -650,9 +658,9 @@ class XboxBackupManager(QMainWindow):
         self.dark_theme_action.setIcon(
             qta.icon(
                 "fa6s.moon",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.dark_theme_action.triggered.connect(lambda: self.set_theme_override(True))
@@ -667,9 +675,9 @@ class XboxBackupManager(QMainWindow):
         self.about_action.setIcon(
             qta.icon(
                 "fa6s.circle-info",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.about_action.triggered.connect(self.show_about)
@@ -679,9 +687,9 @@ class XboxBackupManager(QMainWindow):
         self.check_updates_action.setIcon(
             qta.icon(
                 "fa6s.rotate",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.check_updates_action.triggered.connect(self._check_for_updates)
@@ -691,9 +699,9 @@ class XboxBackupManager(QMainWindow):
         self.licenses_action.setIcon(
             qta.icon(
                 "fa6s.file-contract",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.licenses_action.triggered.connect(self.show_licenses)
@@ -1251,9 +1259,9 @@ class XboxBackupManager(QMainWindow):
         self.cancel_button.setIcon(
             qta.icon(
                 "fa6s.xmark",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.cancel_button.setToolTip("Cancel the current transfer")
@@ -1776,14 +1784,24 @@ class XboxBackupManager(QMainWindow):
         msg_box.setText(
             "This application uses the following libraries:<br><br>"
             "• <a href='https://pypi.org/project/black/'>black</a> (MIT)<br>"
+            "• <a href='https://pypi.org/project/psutil/'>psutil</a> (BSD License (BSD-3-Clause))<br>"
             "• <a href='https://pypi.org/project/darkdetect/'>darkdetect</a> (BSD License (BSD-3-Clause))<br>"
             "• <a href='https://pypi.org/project/PyQt6/'>PyQt6</a> (GPL-3.0-only)<br>"
-            "• <a href='https://pypi.org/project/qdarkstyle/'>qdarkstyle</a> (MIT)<br>"
+            "• <a href='https://pypi.org/project/pyxbe/'>pyxbe</a> (MIT)<br>"
             "• <a href='https://pypi.org/project/QtAwesome/'>QtAwesome</a> (MIT)<br>"
+            "• <a href='https://pypi.org/project/qt-material/'>qt-material</a> (BSD License (BSD-2-Clause))<br>"
             "• <a href='https://pypi.org/project/requests/'>requests</a> (Apache Software License (Apache-2.0))<br>"
+            "• <a href='https://pypi.org/project/semver/'>semver</a> (BSD License (BSD-3-Clause))<br>"
             "<br>"
-            "Xbox Database / Icons are from <a href='https://github.com/MobCat/MobCats-original-xbox-game-list'>MobCats</a><br>"
-            "Xbox 360 Icons are from <a href='https://github.com/XboxUnity'>XboxUnity</a>"
+            "Thanks to the developers of <a href='https://github.com/XboxDev/extract-xiso'>extract-xiso</a>, <a href='https://github.com/iliazeus/iso2god-rs'>iso2god-rs</a> and <a href='https://github.com/mLoaDs/XexTool'>XexTool</a>.<br>"
+            "<br>"
+            "pyxbe is used to extract Xbox icons and metadata.<br>"
+            "XexTool is used to extract Xbox 360 icons and metadata.<br>"
+            "<br>"
+            "If either of those fail to extract an icon we download them from the below sources.<br>"
+            "<br>"
+            "<a href='https://github.com/MobCat/MobCats-original-xbox-game-list'>MobCats</a> for Xbox<br>"
+            "<a href='https://github.com/XboxUnity'>XboxUnity</a> for Xbox 360"
             "<br>"
             "<br>"
             "For more information, please visit the respective project pages."
@@ -1810,6 +1828,10 @@ class XboxBackupManager(QMainWindow):
             self.normal_color = palette.COLOR_BACKGROUND_6
             self.active_color = palette.COLOR_BACKGROUND_6
             self.disabled_color = palette.COLOR_DISABLED
+
+        # Refresh table styling to apply theme-aware colors
+        if hasattr(self, "games_table"):
+            self._configure_table_appearance()
 
         self.icon_manager.update_all_icons()
 
@@ -1983,9 +2005,9 @@ class XboxBackupManager(QMainWindow):
         self.settings_manager.save_ftp_settings(self.ftp_settings)
 
         # Save theme preference
-        self.settings_manager.save_theme_preference(
-            self.theme_manager.dark_mode_override
-        )
+        # self.settings_manager.save_theme_preference(
+        #     self.theme_manager.dark_mode_override
+        # )
 
         # Save table settings
         if hasattr(self.games_table, "horizontalHeader"):
@@ -2178,6 +2200,9 @@ class XboxBackupManager(QMainWindow):
         checkbox_item.setTextAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
+        # Ensure no text content interferes with checkbox positioning
+        checkbox_item.setText("")
+        checkbox_item.setData(Qt.ItemDataRole.DisplayRole, "")
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2403,10 +2428,8 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setHorizontalHeader(custom_header)
 
         # Set up custom icon delegate for proper icon rendering
-        icon_delegate = IconDelegate()
-        self.games_table.setItemDelegateForColumn(
-            1, icon_delegate
-        )  # Icon column is now 1
+        icon_delegate = IconDelegate(self.theme_manager)
+        self.games_table.setItemDelegateForColumn(1, icon_delegate)  # Icon column
 
         # Configure column widths and resize modes
         self._setup_table_columns(show_dlcs)
@@ -2423,13 +2446,13 @@ class XboxBackupManager(QMainWindow):
 
         header.installEventFilter(self)
 
-        # Select column - fixed width, narrow for checkbox only
+        # Select column - fixed width
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 25)  # More reasonable size for checkbox
+        header.resizeSection(0, 40)  # Reduced width for better checkbox centering
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(1, 64)
+        header.resizeSection(1, 70)  # Slightly reduced for better proportions
 
         # Other columns
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Title ID
@@ -2468,7 +2491,7 @@ class XboxBackupManager(QMainWindow):
     def _configure_table_appearance(self):
         """Configure table appearance and styling"""
         # Table settings
-        self.games_table.setAlternatingRowColors(True)
+        self.games_table.setAlternatingRowColors(False)
         self.games_table.setSortingEnabled(True)
         self.games_table.setFrameStyle(0)  # Remove outer frame/border
         self.games_table.setShowGrid(False)  # Remove grid lines
@@ -2497,27 +2520,78 @@ class XboxBackupManager(QMainWindow):
         header.setSectionsClickable(True)
 
         # Apply custom styling
+        # Use theme-appropriate colors that work with qt-material
+        if self.theme_manager.should_use_dark_mode():
+            # Dark theme colors - use a lighter header that matches qt-material dark theme
+            header_bg_color = "#262a2e"
+            header_bg_hover_color = "#3b3f42"
+            header_text_color = "#ffffff"
+            border_color = "#222529"
+            border_hover_color = "#262a2e"
+        else:
+            # Light theme colors - use a slightly darker header than white
+            header_bg_color = "#f5f5f5"  # Very light gray
+            header_bg_hover_color = "#dcdcdc"
+            header_text_color = "#3b3f42"
+            border_color = "#e0e0e0"
+            border_hover_color = "#f5f5f5"
+
         self.games_table.setStyleSheet(
-            """
-            QTableWidget {
+            f"""
+            QTableWidget {{
                 gridline-color: transparent;
                 border: none;
                 margin: 0px;
                 padding: 0px;
-            }
-            QTableWidget::item {
-                border-bottom: 1px solid palette(mid);
-                padding: 4px;
-            }
-            QHeaderView::down-arrow, QHeaderView::up-arrow {
+            }}
+            QTableWidget::item {{
+                padding-left: 16px;
+            }}
+            QTableWidget::indicator {{
+                width: 16px;
+                height: 16px;
+                border: none;
+                background: transparent;
+            }}
+            QTableWidget::item:first-child {{
+                padding-left: 12px;
+                border-left: none;
+                border-top: none;
+                border-bottom: 1px solid {border_color};
+            }}
+            QHeaderView::down-arrow, QHeaderView::up-arrow {{
                 width: 12px;
                 height: 12px;
                 right: 4px;
-            }
-            QHeaderView {
+            }}
+            QHeaderView {{
                 margin: 0px;
                 padding: 0px;
-            }
+            }}
+            QHeaderView::section {{
+                background-color: {header_bg_color};
+                color: {header_text_color};
+                border: none;
+                border-right: 1px solid {border_color};
+                border-bottom: 1px solid {border_color};
+                padding: 4px;
+                font-weight: normal;
+            }}
+            QHeaderView::section:hover {{
+                background-color: {header_bg_hover_color};
+                color: {header_text_color};
+                border: none;
+                border-right: 1px solid {border_hover_color};
+                border-bottom: 1px solid {border_hover_color};
+                padding: 4px;
+                font-weight: normal;
+            }}
+            QHeaderView::section:first {{
+                border-left: none;
+            }}
+            QHeaderView::section:last {{
+                border-right: none;
+            }}
         """
         )
 
@@ -2583,30 +2657,51 @@ class XboxBackupManager(QMainWindow):
             folder_path = folder_item.text()  # Fallback to text if UserRole is empty
 
         title_id = self.games_table.item(row, 2).text()
+        game_name = self.games_table.item(row, 3).text()
+        size_text = self.games_table.item(row, 4).text()
 
         # Create context menu
         menu = QMenu(self)
 
         # Add "Open Folder" action
         open_folder_action = menu.addAction("Open Folder")
+        open_folder_action.setIcon(self.icon_manager.create_icon("fa6s.folder-open"))
         open_folder_action.triggered.connect(
             lambda: SystemUtils.open_folder_in_explorer(folder_path, self)
         )
 
-        # Add "Copy Source Path" action
-        copy_path_action = menu.addAction("Copy Source Path")
-        copy_path_action.triggered.connect(
-            lambda: SystemUtils.copy_to_clipboard(folder_path)
-        )
+        # Create Copy submenu
+        copy_submenu = menu.addMenu("Copy")
+        copy_submenu.setIcon(self.icon_manager.create_icon("fa6s.copy"))
 
-        # Add "Copy Title ID" action
-        copy_title_id_action = menu.addAction("Copy Title ID")
+        # Add copy actions to submenu
+        copy_title_id_action = copy_submenu.addAction("Title ID")
+        copy_title_id_action.setIcon(self.icon_manager.create_icon("fa6s.hashtag"))
         copy_title_id_action.triggered.connect(
             lambda: SystemUtils.copy_to_clipboard(title_id)
         )
 
+        copy_game_name_action = copy_submenu.addAction("Game Name")
+        copy_game_name_action.setIcon(self.icon_manager.create_icon("fa6s.tag"))
+        copy_game_name_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(game_name)
+        )
+
+        copy_size_action = copy_submenu.addAction("Size")
+        copy_size_action.setIcon(self.icon_manager.create_icon("fa6s.weight-hanging"))
+        copy_size_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(size_text)
+        )
+
+        copy_path_action = copy_submenu.addAction("Source Path")
+        copy_path_action.setIcon(self.icon_manager.create_icon("fa6s.route"))
+        copy_path_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(folder_path)
+        )
+
         # Add "Title Updates" action
         title_updates_action = menu.addAction("Title Updates")
+        title_updates_action.setIcon(self.icon_manager.create_icon("fa6s.download"))
         title_updates_action.triggered.connect(
             lambda: self._show_title_updates_dialog(folder_path, title_id)
         )
@@ -2616,10 +2711,12 @@ class XboxBackupManager(QMainWindow):
 
         # Add "Transfer" action
         transfer_action = menu.addAction("Transfer")
+        transfer_action.setIcon(self.icon_manager.create_icon("fa6s.arrow-right"))
         transfer_action.triggered.connect(lambda: self._transfer_single_game(row))
 
         # Add "Remove from Target" action
         remove_action = menu.addAction("Remove from Target")
+        remove_action.setIcon(self.icon_manager.create_icon("fa6s.trash"))
         remove_action.triggered.connect(self.create_remove_action(row, show_dlcs))
 
         # Show the menu at the cursor position
@@ -3598,9 +3695,9 @@ class XboxBackupManager(QMainWindow):
         self.update_button.setIcon(
             qta.icon(
                 "fa6s.rotate",
-                color=self.normal_color,
-                color_active=self.active_color,
-                color_disabled=self.disabled_color,
+                # color=self.normal_color,
+                # color_active=self.active_color,
+                # color_disabled=self.disabled_color,
             )
         )
         self.update_button.setToolTip("A new version is available. Click to update.")
@@ -5011,11 +5108,39 @@ class XboxBackupManager(QMainWindow):
             )
 
 
+class ClickableFirstColumnTableWidget(QTableWidget):
+    """Custom table widget that makes the entire first column clickable for checkboxes"""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.position().toPoint())
+            if item:
+                row = item.row()
+                column = item.column()
+
+                # If clicked in the first column, toggle the checkbox
+                if column == 0:
+                    checkbox_item = self.item(row, 0)
+                    if checkbox_item:
+                        current_state = checkbox_item.checkState()
+                        new_state = (
+                            Qt.CheckState.Unchecked
+                            if current_state == Qt.CheckState.Checked
+                            else Qt.CheckState.Checked
+                        )
+                        checkbox_item.setCheckState(new_state)
+                        return  # Don't call super() to prevent default selection behavior
+
+        super().mousePressEvent(event)
+
+
 class NonSortableHeaderView(QHeaderView):
     """Custom header view to disable sorting and indicators on specific sections"""
 
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
+        self._header_checkbox = None
+        self._init_header_checkbox()
 
     def _get_header_check_state(self):
         table = self.parent()
@@ -5034,31 +5159,80 @@ class NonSortableHeaderView(QHeaderView):
         else:
             return Qt.CheckState.PartiallyChecked
 
+    def _init_header_checkbox(self):
+        """Initialize the header checkbox widget"""
+        from PyQt6.QtWidgets import QCheckBox
+
+        if self._header_checkbox is None:
+            self._header_checkbox = QCheckBox()
+            self._header_checkbox.setParent(self)
+            # Set minimum size to ensure it renders properly
+            self._header_checkbox.setMinimumSize(22, 22)
+            self._header_checkbox.setMaximumSize(22, 22)
+            # Ensure the checkbox appears above other widgets
+            self._header_checkbox.raise_()
+            # Enable mouse tracking and make sure it's clickable
+            self._header_checkbox.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+            )
+            # Apply some basic styling to ensure visibility
+            self._header_checkbox.setStyleSheet(
+                """
+                QCheckBox {
+                    spacing: 0px;
+                    background: transparent;
+                }
+                QCheckBox::indicator {
+                    width: 18px;
+                    height: 18px;
+                }
+            """
+            )
+            # Connect to selection change
+            self._header_checkbox.stateChanged.connect(self._on_header_checkbox_changed)
+
+    def _on_header_checkbox_changed(self, state):
+        """Handle header checkbox state changes"""
+        table = self.parent()
+        if table is None:
+            return
+
+        # Directly update all checkbox items in the table
+        row_count = table.rowCount()
+        new_check_state = (
+            Qt.CheckState.Checked
+            if state == Qt.CheckState.Checked.value
+            else Qt.CheckState.Unchecked
+        )
+
+        for row in range(row_count):
+            item = table.item(row, 0)
+            if item:
+                item.setCheckState(new_check_state)
+
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
         if logicalIndex != 0:
             super().paintSection(painter, rect, logicalIndex)
             return
 
-        painter.save()
-        opt = QStyleOptionButton()
-        indicator_width = self.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth)
-        indicator_height = self.style().pixelMetric(
-            QStyle.PixelMetric.PM_IndicatorHeight
-        )
-        x = rect.x() + (rect.width() - indicator_width) // 2
-        y = rect.y() + (rect.height() - indicator_height) // 2
-        opt.rect = QRect(x, y, indicator_width, indicator_height)
-        opt.state = QStyle.StateFlag.State_Enabled
+        # Draw the header background properly using the default header style
+        super().paintSection(painter, rect, logicalIndex)
 
-        check_state = self._get_header_check_state()
-        if check_state == Qt.CheckState.Checked:
-            opt.state |= QStyle.StateFlag.State_On
-        elif check_state == Qt.CheckState.PartiallyChecked:
-            opt.state |= QStyle.StateFlag.State_NoChange
-        # else State_Off by default
+        # Position the checkbox widget
+        if self._header_checkbox:
+            checkbox_size = 22  # Match the widget size
+            # Center the checkbox in the header cell
+            x = rect.x() + (rect.width() - checkbox_size) // 2
+            y = rect.y() + (rect.height() - checkbox_size) // 2
+            self._header_checkbox.setGeometry(x, y, checkbox_size, checkbox_size)
+            self._header_checkbox.show()
 
-        self.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter)
-        painter.restore()
+            # Update checkbox state to match current selection
+            check_state = self._get_header_check_state()
+            if check_state != self._header_checkbox.checkState():
+                self._header_checkbox.blockSignals(True)  # Prevent recursion
+                self._header_checkbox.setCheckState(check_state)
+                self._header_checkbox.blockSignals(False)
 
     def mousePressEvent(self, event):
         section = self.logicalIndexAt(event.pos())
@@ -5067,6 +5241,14 @@ class NonSortableHeaderView(QHeaderView):
             return
 
         if section == 0:
+            # Check if the click is within the checkbox widget area
+            if self._header_checkbox and self._header_checkbox.isVisible():
+                checkbox_rect = self._header_checkbox.geometry()
+                if checkbox_rect.contains(event.pos()):
+                    # Let the checkbox handle this event
+                    return
+
+            # Handle header click for select all/none
             table = self.parent()
             row_count = self.model().rowCount()
             current_state = self._get_header_check_state()
@@ -5079,7 +5261,6 @@ class NonSortableHeaderView(QHeaderView):
                 item = table.item(row, 0)
                 if item:
                     item.setCheckState(new_state)
-            event.ignore()
             return
 
         super().mousePressEvent(event)

@@ -16,13 +16,23 @@ class IconManager(QObject):
 
     def create_icon(self, icon_name: str, **kwargs) -> QIcon:
         """Create a themed QtAwesome icon"""
-        palette = self.theme_manager.get_palette()
+        # Get theme-appropriate colors
+        if self.theme_manager.should_use_dark_mode():
+            # Dark theme colors
+            default_color = "#ffffff"
+            active_color = "#ffffff"
+            disabled_color = "#666666"
+        else:
+            # Light theme colors
+            default_color = "#2d2d2d"
+            active_color = "#2d2d2d"  # Keep same color for consistency
+            disabled_color = "#999999"
 
         # Default colors if not provided
         icon_kwargs = {
-            "color": palette.COLOR_TEXT_1,
-            "color_active": palette.COLOR_TEXT_1,
-            "color_disabled": palette.COLOR_DISABLED,
+            "color": default_color,
+            "color_active": active_color,
+            "color_disabled": disabled_color,
             **kwargs,  # Allow override of default colors
         }
 
