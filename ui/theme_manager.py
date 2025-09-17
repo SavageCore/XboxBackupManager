@@ -42,17 +42,17 @@ class ThemeManager(QObject):
                 padding: 4px 8px;
             }
             QMenuBar::item:selected {
-                background-color: #404040;
-                color: #ffffff;
+                background-color: #1de9b6;
+                color: #2d2d2d;
             }
             QMenuBar::item:pressed {
-                background-color: #505050;
-                color: #ffffff;
+                background-color: #33ebbd;
+                color: #2d2d2d;
             }
             QMenu {
                 background-color: #2d2d2d;
                 color: #ffffff;
-                border: 1px solid #555555;
+                border: 1px solid #2d2d2d;
             }
             QMenu::item {
                 background-color: transparent !important;
@@ -60,16 +60,16 @@ class ThemeManager(QObject):
                 padding: 3px 8px !important;
             }
             QMenu::item:selected {
-                background-color: #404040 !important;
-                color: #ffffff !important;
+                background-color: #1de9b6 !important;
+                color: #2d2d2d !important;
             }
             QMenu::item:pressed {
-                background-color: #505050 !important;
-                color: #ffffff !important;
+                background-color: #33ebbd !important;
+                color: #2d2d2d !important;
             }
             QMenu::separator {
                 height: 1px;
-                background-color: #555555;
+                background-color: #535353;
                 margin: 2px 0px;
             }
             QStatusBar {
@@ -91,12 +91,10 @@ class ThemeManager(QObject):
                 padding: 4px 8px;
             }
             QMenuBar::item:selected {
-                background-color: #009688;
-                color: #ffffff;
+                background-color: #1de9b6;
             }
             QMenuBar::item:pressed {
-                background-color: #009688;
-                color: #ffffff;
+                background-color: #1de9b6;
             }
             QMenu {
                 background-color: #ffffff;
@@ -109,12 +107,10 @@ class ThemeManager(QObject):
                 padding: 6px 16px !important;
             }
             QMenu::item:selected {
-                background-color: #009688 !important;
-                color: #ffffff !important;
+                background-color: #1de9b6 !important;
             }
             QMenu::item:pressed {
-                background-color: #00796b !important;
-                color: #ffffff !important;
+                background-color: #1de9b6 !important;
             }
             QMenu::separator {
                 height: 1px;
