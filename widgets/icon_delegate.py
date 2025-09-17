@@ -20,7 +20,6 @@ class IconDelegate(QStyledItemDelegate):
             # Draw only bottom border (like other cells)
             # Use theme-appropriate border color
             if self.theme_manager and self.theme_manager.should_use_dark_mode():
-                print("Dark mode active")
                 border_color = QtGui.QColor("#222529")  # Dark theme
             else:
                 border_color = QtGui.QColor("#e0e0e0")  # Light theme

@@ -2541,24 +2541,19 @@ class XboxBackupManager(QMainWindow):
                 padding: 0px;
             }}
             QTableWidget::item {{
-                border-bottom: 1px solid {border_color};
-                padding: 4px;
+                padding-left: 16px;
             }}
             QTableWidget::indicator {{
-                width: 18px;
-                height: 18px;
-                margin: 0px auto;
-                padding: 0px;
+                width: 16px;
+                height: 16px;
                 border: none;
                 background: transparent;
             }}
             QTableWidget::item:first-child {{
-                text-align: center;
-                padding: 0px;
-                margin: 0px;
+                padding-left: 12px;
                 border-left: none;
-                border-right: none;
                 border-top: none;
+                border-bottom: 1px solid {border_color};
             }}
             QHeaderView::down-arrow, QHeaderView::up-arrow {{
                 width: 12px;
@@ -5147,11 +5142,18 @@ class NonSortableHeaderView(QHeaderView):
             # Set minimum size to ensure it renders properly
             self._header_checkbox.setMinimumSize(22, 22)
             self._header_checkbox.setMaximumSize(22, 22)
+            # Ensure the checkbox appears above other widgets
+            self._header_checkbox.raise_()
+            # Enable mouse tracking and make sure it's clickable
+            self._header_checkbox.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+            )
             # Apply some basic styling to ensure visibility
             self._header_checkbox.setStyleSheet(
                 """
                 QCheckBox {
                     spacing: 0px;
+                    background: transparent;
                 }
                 QCheckBox::indicator {
                     width: 18px;
@@ -5212,6 +5214,14 @@ class NonSortableHeaderView(QHeaderView):
             return
 
         if section == 0:
+            # Check if the click is within the checkbox widget area
+            if self._header_checkbox and self._header_checkbox.isVisible():
+                checkbox_rect = self._header_checkbox.geometry()
+                if checkbox_rect.contains(event.pos()):
+                    # Let the checkbox handle this event
+                    return
+
+            # Handle header click for select all/none
             table = self.parent()
             row_count = self.model().rowCount()
             current_state = self._get_header_check_state()
@@ -5224,7 +5234,6 @@ class NonSortableHeaderView(QHeaderView):
                 item = table.item(row, 0)
                 if item:
                     item.setCheckState(new_state)
-            event.ignore()
             return
 
         super().mousePressEvent(event)
