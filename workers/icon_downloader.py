@@ -60,7 +60,10 @@ class IconDownloader(QThread):
             # Look for the game in the current directory
             game_dir = self.current_directory / folder_name
             xex_path = game_dir / "default.xex"
-            god_header_path = game_dir / "00007000"
+            if self.platform == "xbox360":
+                god_header_path = game_dir / "00007000"
+            elif self.platform == "xbla":
+                god_header_path = game_dir / "000D0000"
             xbe_path = game_dir / "default.xbe"
 
             # Try XEX extraction first (Xbox 360 extracted ISO games)
@@ -71,7 +74,7 @@ class IconDownloader(QThread):
 
             # Try GoD extraction (Xbox 360 Games on Demand)
             elif (
-                self.platform == "xbox360"
+                self.platform in ["xbox360", "xbla"]
                 and god_header_path.exists()
                 and god_header_path.is_dir()
             ):
