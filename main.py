@@ -2,7 +2,7 @@ import sys
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
-from qt_material import apply_stylesheet
+from qt_material import apply_stylesheet  # type: ignore
 
 from constants import APP_NAME, VERSION
 from ui.main_window import XboxBackupManager  # type: ignore

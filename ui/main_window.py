@@ -2424,7 +2424,7 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setHorizontalHeader(custom_header)
 
         # Set up custom icon delegate for proper icon rendering
-        icon_delegate = IconDelegate()
+        icon_delegate = IconDelegate(self.theme_manager)
         self.games_table.setItemDelegateForColumn(1, icon_delegate)  # Icon column
 
         # Configure column widths and resize modes
