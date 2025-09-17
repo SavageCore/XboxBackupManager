@@ -43,8 +43,6 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QPushButton,
-    QStyle,
-    QStyleOptionButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -58,7 +56,6 @@ from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.icon_manager import IconManager
-
 from ui.theme_manager import ThemeManager
 from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
@@ -1829,7 +1826,7 @@ class XboxBackupManager(QMainWindow):
             self.disabled_color = palette.COLOR_DISABLED
 
         # Refresh table styling to apply theme-aware colors
-        if hasattr(self, 'games_table'):
+        if hasattr(self, "games_table"):
             self._configure_table_appearance()
 
         self.icon_manager.update_all_icons()
@@ -2196,9 +2193,12 @@ class XboxBackupManager(QMainWindow):
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         # Center the checkbox both horizontally and vertically
-        checkbox_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Remove any text to ensure only checkbox is shown
+        checkbox_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+        )
+        # Ensure no text content interferes with checkbox positioning
         checkbox_item.setText("")
+        checkbox_item.setData(Qt.ItemDataRole.DisplayRole, "")
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2519,15 +2519,19 @@ class XboxBackupManager(QMainWindow):
         # Use theme-appropriate colors that work with qt-material
         if self.theme_manager.should_use_dark_mode():
             # Dark theme colors - use a lighter header that matches qt-material dark theme
-            header_bg_color = "#3a3a3a"  # Slightly lighter than main background
+            header_bg_color = "#262a2e"
+            header_bg_hover_color = "#3b3f42"
             header_text_color = "#ffffff"
-            border_color = "#555555"
+            border_color = "#222529"
+            border_hover_color = "#262a2e"
         else:
             # Light theme colors - use a slightly darker header than white
             header_bg_color = "#f5f5f5"  # Very light gray
+            header_bg_hover_color = "#dcdcdc"
             header_text_color = "#2d2d2d"
             border_color = "#e0e0e0"
-        
+            border_hover_color = "#f5f5f5"
+
         self.games_table.setStyleSheet(
             f"""
             QTableWidget {{
@@ -2543,16 +2547,18 @@ class XboxBackupManager(QMainWindow):
             QTableWidget::indicator {{
                 width: 18px;
                 height: 18px;
-                margin: 0px;
+                margin: 0px auto;
                 padding: 0px;
                 border: none;
-                subcontrol-position: center;
-                subcontrol-origin: content;
+                background: transparent;
             }}
             QTableWidget::item:first-child {{
                 text-align: center;
                 padding: 0px;
                 margin: 0px;
+                border-left: none;
+                border-right: none;
+                border-top: none;
             }}
             QHeaderView::down-arrow, QHeaderView::up-arrow {{
                 width: 12px;
@@ -2566,9 +2572,26 @@ class XboxBackupManager(QMainWindow):
             QHeaderView::section {{
                 background-color: {header_bg_color};
                 color: {header_text_color};
-                border: 1px solid {border_color};
+                border: none;
+                border-right: 1px solid {border_color};
+                border-bottom: 1px solid {border_color};
                 padding: 4px;
                 font-weight: normal;
+            }}
+            QHeaderView::section:hover {{
+                background-color: {header_bg_hover_color};
+                color: {header_text_color};
+                border: none;
+                border-right: 1px solid {border_hover_color};
+                border-bottom: 1px solid {border_hover_color};
+                padding: 4px;
+                font-weight: normal;
+            }}
+            QHeaderView::section:first {{
+                border-left: none;
+            }}
+            QHeaderView::section:last {{
+                border-right: none;
             }}
         """
         )

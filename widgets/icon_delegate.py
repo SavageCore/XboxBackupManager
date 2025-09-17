@@ -1,6 +1,6 @@
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QPen
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate
+from PyQt6.QtWidgets import QStyledItemDelegate
 
 
 class IconDelegate(QStyledItemDelegate):
@@ -12,9 +12,8 @@ class IconDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         """Custom paint method for icon rendering"""
         if index.column() == 1:  # Icon column
-            # Draw background and selection state manually without icon
-            if option.state & QStyle.StateFlag.State_Selected:
-                painter.fillRect(option.rect, option.palette.highlight())
+            # Don't draw background - let the default item handle it
+            # Just draw the icon and bottom border
 
             # Draw only bottom border (like other cells)
             painter.setPen(QPen(option.palette.mid().color()))
@@ -24,7 +23,7 @@ class IconDelegate(QStyledItemDelegate):
             icon = index.data(Qt.ItemDataRole.DecorationRole)
 
             if icon and not icon.isNull():
-                # Calculate center position for the icon
+                # Calculate center position for the icon with smaller size
                 icon_size = 48  # Fixed size for icons
                 rect = option.rect
                 x = rect.x() + (rect.width() - icon_size) // 2
