@@ -446,7 +446,7 @@ class XboxBackupManager(QMainWindow):
         file_menu = menubar.addMenu("&File")
 
         # Set Source directory action
-        self.browse_action = QAction("&Set Source Directory...", self)
+        self.browse_action = QAction("Set Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
         self.browse_action.setIcon(self.icon_manager.create_icon("fa6s.folder-open"))
         self.icon_manager.register_widget_icon(self.browse_action, "fa6s.folder-open")
@@ -454,7 +454,7 @@ class XboxBackupManager(QMainWindow):
         file_menu.addAction(self.browse_action)
 
         # Set Target directory action
-        self.browse_target_action = QAction("&Set Target Directory...", self)
+        self.browse_target_action = QAction("Set Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.setIcon(
             self.icon_manager.create_icon("fa6s.bullseye")
@@ -466,7 +466,7 @@ class XboxBackupManager(QMainWindow):
         file_menu.addAction(self.browse_target_action)
 
         # Set Cache directory action
-        self.browse_cache_action = QAction("&Set Cache Directory...", self)
+        self.browse_cache_action = QAction("Set Cache Directory...", self)
         self.browse_cache_action.setShortcut("Ctrl+K")
         self.browse_cache_action.setIcon(
             self.icon_manager.create_icon("fa6s.folder-open")
@@ -479,7 +479,7 @@ class XboxBackupManager(QMainWindow):
         file_menu.addAction(self.browse_cache_action)
 
         # Set Content directory action
-        self.browse_content_action = QAction("&Set Content Directory...", self)
+        self.browse_content_action = QAction("Set Content Directory...", self)
         self.browse_content_action.setShortcut("Ctrl+N")
         self.browse_content_action.setIcon(
             self.icon_manager.create_icon("fa6s.folder-open")
@@ -514,7 +514,7 @@ class XboxBackupManager(QMainWindow):
 
         file_menu.addSeparator()
 
-        self.exit_action = QAction("E&xit", self)
+        self.exit_action = QAction("&Quit", self)
         self.exit_action.setShortcut("Ctrl+Q")
         self.exit_action.setIcon(qta.icon("fa6s.xmark"))
         self.exit_action.triggered.connect(self.close)
@@ -589,7 +589,7 @@ class XboxBackupManager(QMainWindow):
         self.platform_action_group.addAction(self.xbox_action)
         platform_menu.addAction(self.xbox_action)
 
-        self.xbox360_action = QAction("&Xbox 360", self)
+        self.xbox360_action = QAction("Xbox &360", self)
         self.xbox360_action.setCheckable(True)
         self.xbox360_action.setChecked(True)
         self.xbox360_action.triggered.connect(lambda: self.switch_platform("xbox360"))
@@ -605,7 +605,7 @@ class XboxBackupManager(QMainWindow):
     def create_view_menu(self, menubar):
         """Create the View menu"""
         view_menu = menubar.addMenu("&View")
-        view_menu.setTitle("View")
+        view_menu.setTitle("&View")
 
         self.theme_menu = view_menu.addMenu("&Theme")
         self.theme_menu.setIcon(
