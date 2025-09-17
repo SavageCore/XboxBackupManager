@@ -664,46 +664,58 @@ class XboxUnity:
 
                     # Filter results - prefer ones that don't look garbled
                     def looks_valid(text, encoding):
+                        if not text or len(text) < 2:
+                            return False
+
                         # Check for obviously garbled Unicode
                         if any(ord(c) > 0xFFFF for c in text):
                             return False
 
-                        # For UTF-16 results, prefer ones with reasonable character ranges
+                        # For UTF-16 results, be more strict about validation
                         if encoding.startswith("utf-16"):
-                            # Check if most characters are in reasonable Unicode ranges
-                            reasonable_chars = 0
-                            for c in text:
-                                code_point = ord(c)
-                                # ASCII, Latin, CJK, etc. ranges
-                                if (
-                                    32 <= code_point <= 126  # ASCII
-                                    or 0x3040 <= code_point <= 0x309F  # Hiragana
-                                    or 0x30A0 <= code_point <= 0x30FF  # Katakana
-                                    or 0x4E00
-                                    <= code_point
-                                    <= 0x9FAF  # CJK Unified Ideographs
-                                    or 0xFF00 <= code_point <= 0xFFEF
-                                ):  # Fullwidth forms
-                                    reasonable_chars += 1
+                            # Check for common garbled patterns
+                            if "一⬀" in text or "Ā" in text or len(text) < 3:
+                                return False
 
-                            # If less than 50% reasonable chars, probably garbled
-                            if reasonable_chars / len(text) < 0.5:
+                            # Count different character types
+                            ascii_chars = sum(1 for c in text if 32 <= ord(c) <= 126)
+                            cjk_chars = sum(
+                                1 for c in text if 0x3040 <= ord(c) <= 0x9FAF
+                            )
+                            other_chars = len(text) - ascii_chars - cjk_chars
+
+                            # If mostly ASCII, it should be recognizable English
+                            if ascii_chars > len(text) * 0.7:
+                                # Check if it looks like readable English
+                                has_vowels = any(c.lower() in "aeiou" for c in text)
+                                has_consonants = any(
+                                    c.lower() in "bcdfghjklmnpqrstvwxyz" for c in text
+                                )
+                                return has_vowels and has_consonants
+
+                            # If mostly CJK, should be valid Japanese/Chinese
+                            elif cjk_chars > len(text) * 0.3:
+                                return True
+
+                            # Too many other/weird characters
+                            elif other_chars > len(text) * 0.5:
                                 return False
 
                         return True
 
-                    # Find the best result
+                    # Find the best result by comparing both encodings
                     best_result = None
 
-                    # Check if this might be a Japanese/Asian game by looking at Title ID ranges
-                    # Japanese games often have Title IDs starting with 584xxxxx
-                    is_likely_japanese = title_id and title_id.startswith("584")
-
-                    # Prioritize results based on game type and quality
-                    utf16_results = [
+                    # Get all valid results
+                    utf16_le_results = [
                         (enc, text)
                         for enc, text in results
-                        if enc.startswith("utf-16") and looks_valid(text, enc)
+                        if enc == "utf-16le" and looks_valid(text, enc)
+                    ]
+                    utf16_be_results = [
+                        (enc, text)
+                        for enc, text in results
+                        if enc == "utf-16be" and looks_valid(text, enc)
                     ]
                     ascii_results = [
                         (enc, text)
@@ -711,36 +723,53 @@ class XboxUnity:
                         if enc.startswith("ascii") and looks_valid(text, enc)
                     ]
 
-                    if is_likely_japanese and utf16_results:
-                        # For Japanese games, prefer UTF-16BE first, then UTF-16LE
-                        for encoding, text in utf16_results:
-                            if encoding == "utf-16be":
-                                best_result = text
-                                break
+                    # Score each result to pick the best one
+                    def score_result(text):
+                        if not text:
+                            return 0
 
-                        # If no valid UTF-16BE, try UTF-16LE
-                        if not best_result:
-                            for encoding, text in utf16_results:
-                                if encoding == "utf-16le":
-                                    best_result = text
-                                    break
-                    else:
-                        # For non-Japanese games, prefer UTF-16LE first
-                        for encoding, text in utf16_results:
-                            if encoding == "utf-16le":
-                                best_result = text
-                                break
+                        score = 0
+                        # Prefer results that look like real words
+                        ascii_chars = sum(1 for c in text if 32 <= ord(c) <= 126)
+                        cjk_chars = sum(1 for c in text if 0x3040 <= ord(c) <= 0x9FAF)
 
-                        # If no valid UTF-16LE, try UTF-16BE
-                        if not best_result:
-                            for encoding, text in utf16_results:
-                                if encoding == "utf-16be":
-                                    best_result = text
-                                    break
+                        # Bonus for having vowels/consonants (English words)
+                        if ascii_chars > len(text) * 0.5:
+                            has_vowels = any(c.lower() in "aeiou" for c in text)
+                            has_consonants = any(
+                                c.lower() in "bcdfghjklmnpqrstvwxyz" for c in text
+                            )
+                            if has_vowels and has_consonants:
+                                score += 10
 
-                    # Fallback to ASCII if no good UTF-16 result
-                    if not best_result and ascii_results:
-                        best_result = ascii_results[0][1]
+                        # Bonus for CJK characters (Japanese games)
+                        if cjk_chars > 0:
+                            score += 5
+
+                        # Penalty for short results
+                        if len(text) < 4:
+                            score -= 5
+
+                        # Penalty for garbled patterns
+                        if "一⬀" in text or "Ā" in text:
+                            score -= 20
+
+                        return score
+
+                    # Find the best result from all candidates
+                    candidates = []
+                    for results_list in [
+                        utf16_le_results,
+                        utf16_be_results,
+                        ascii_results,
+                    ]:
+                        for enc, text in results_list:
+                            candidates.append((score_result(text), text, enc))
+
+                    # Sort by score and pick the best
+                    if candidates:
+                        candidates.sort(key=lambda x: x[0], reverse=True)
+                        best_result = candidates[0][1]
 
                     display_name = best_result
 
