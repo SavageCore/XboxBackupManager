@@ -1,6 +1,6 @@
 black==25.1.0
 darkdetect==0.8.0
-psutil==7.0.0
+psutil==7.1.0
 pyinstaller==6.16.0
 PyQt6==6.9.1
 pyxbe==1.0.3
