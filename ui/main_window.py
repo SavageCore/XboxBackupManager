@@ -2487,7 +2487,7 @@ class XboxBackupManager(QMainWindow):
     def _configure_table_appearance(self):
         """Configure table appearance and styling"""
         # Table settings
-        self.games_table.setAlternatingRowColors(True)
+        self.games_table.setAlternatingRowColors(False)
         self.games_table.setSortingEnabled(True)
         self.games_table.setFrameStyle(0)  # Remove outer frame/border
         self.games_table.setShowGrid(False)  # Remove grid lines
