@@ -87,7 +87,7 @@ class IconDownloader(QThread):
 
         # Download from Xbox Unity or MobCat
         try:
-            if self.platform == "xbox360":
+            if self.platform in ["xbox360", "xbla"]:
                 # url = f"https://xboxunity.net/Resources/Lib/Icon.php?tid={title_id}&custom=1"
                 url = f"https://raw.githubusercontent.com/UncreativeXenon/XboxUnity-Scraper/refs/heads/master/Icons/{title_id}.png"
             else:
