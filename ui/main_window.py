@@ -1812,21 +1812,25 @@ class XboxBackupManager(QMainWindow):
 
     def apply_theme(self):
         """Apply the current theme"""
-        self.theme_manager.get_stylesheet()
-        # self.setStyleSheet(stylesheet)
+        stylesheet = self.theme_manager.get_stylesheet()
+        self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
-        # palette = self.theme_manager.get_palette()
+        palette = self.theme_manager.get_palette()
 
-        # # Update colours
-        # if self.theme_manager.should_use_dark_mode():
-        #     self.normal_color = palette.COLOR_TEXT_1
-        #     self.active_color = palette.COLOR_TEXT_1
-        #     self.disabled_color = palette.COLOR_DISABLED
-        # else:
-        #     self.normal_color = palette.COLOR_BACKGROUND_6
-        #     self.active_color = palette.COLOR_BACKGROUND_6
-        #     self.disabled_color = palette.COLOR_DISABLED
+        # Update colours
+        if self.theme_manager.should_use_dark_mode():
+            self.normal_color = palette.COLOR_TEXT_1
+            self.active_color = palette.COLOR_TEXT_1
+            self.disabled_color = palette.COLOR_DISABLED
+        else:
+            self.normal_color = palette.COLOR_BACKGROUND_6
+            self.active_color = palette.COLOR_BACKGROUND_6
+            self.disabled_color = palette.COLOR_DISABLED
+
+        # Refresh table styling to apply theme-aware colors
+        if hasattr(self, 'games_table'):
+            self._configure_table_appearance()
 
         self.icon_manager.update_all_icons()
 
@@ -2192,9 +2196,9 @@ class XboxBackupManager(QMainWindow):
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         # Center the checkbox both horizontally and vertically
-        checkbox_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
-        )
+        checkbox_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Remove any text to ensure only checkbox is shown
+        checkbox_item.setText("")
         self.games_table.setItem(row, col_index, checkbox_item)
         col_index += 1
 
@@ -2421,9 +2425,7 @@ class XboxBackupManager(QMainWindow):
 
         # Set up custom icon delegate for proper icon rendering
         icon_delegate = IconDelegate()
-        self.games_table.setItemDelegateForColumn(
-            1, icon_delegate
-        )  # Icon column is now 1
+        self.games_table.setItemDelegateForColumn(1, icon_delegate)  # Icon column
 
         # Configure column widths and resize modes
         self._setup_table_columns(show_dlcs)
@@ -2442,11 +2444,11 @@ class XboxBackupManager(QMainWindow):
 
         # Select column - fixed width
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 50)
+        header.resizeSection(0, 40)  # Reduced width for better checkbox centering
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(1, 90)
+        header.resizeSection(1, 70)  # Slightly reduced for better proportions
 
         # Other columns
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Title ID
@@ -2514,40 +2516,60 @@ class XboxBackupManager(QMainWindow):
         header.setSectionsClickable(True)
 
         # Apply custom styling
+        # Use theme-appropriate colors that work with qt-material
+        if self.theme_manager.should_use_dark_mode():
+            # Dark theme colors - use a lighter header that matches qt-material dark theme
+            header_bg_color = "#3a3a3a"  # Slightly lighter than main background
+            header_text_color = "#ffffff"
+            border_color = "#555555"
+        else:
+            # Light theme colors - use a slightly darker header than white
+            header_bg_color = "#f5f5f5"  # Very light gray
+            header_text_color = "#2d2d2d"
+            border_color = "#e0e0e0"
+        
         self.games_table.setStyleSheet(
-            """
-            QTableWidget {
+            f"""
+            QTableWidget {{
                 gridline-color: transparent;
                 border: none;
                 margin: 0px;
                 padding: 0px;
-            }
-            QTableWidget::item {
-                border-bottom: 1px solid palette(mid);
+            }}
+            QTableWidget::item {{
+                border-bottom: 1px solid {border_color};
                 padding: 4px;
-            }
-            QTableWidget::indicator {
+            }}
+            QTableWidget::indicator {{
                 width: 18px;
                 height: 18px;
-            }
-            QTableWidget::item:first-child {
+                margin: 0px;
+                padding: 0px;
+                border: none;
+                subcontrol-position: center;
+                subcontrol-origin: content;
+            }}
+            QTableWidget::item:first-child {{
                 text-align: center;
-            }
-            QHeaderView::down-arrow, QHeaderView::up-arrow {
+                padding: 0px;
+                margin: 0px;
+            }}
+            QHeaderView::down-arrow, QHeaderView::up-arrow {{
                 width: 12px;
                 height: 12px;
                 right: 4px;
-            }
-            QHeaderView {
+            }}
+            QHeaderView {{
                 margin: 0px;
                 padding: 0px;
-            }
-            QHeaderView::section {
-                background-color: palette(button);
-                color: palette(button-text);
-                border: 1px solid palette(mid);
+            }}
+            QHeaderView::section {{
+                background-color: {header_bg_color};
+                color: {header_text_color};
+                border: 1px solid {border_color};
                 padding: 4px;
-            }
+                font-weight: normal;
+            }}
         """
         )
 
@@ -5095,7 +5117,6 @@ class NonSortableHeaderView(QHeaderView):
     def _init_header_checkbox(self):
         """Initialize the header checkbox widget"""
         from PyQt6.QtWidgets import QCheckBox
-        from PyQt6.QtCore import Qt
 
         if self._header_checkbox is None:
             self._header_checkbox = QCheckBox()
