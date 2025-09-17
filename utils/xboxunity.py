@@ -609,7 +609,7 @@ class XboxUnity:
                         decoded = decoded.strip()
                         if decoded and len(decoded) > 1:
                             results.append(("utf-16le", decoded))
-                    except:
+                    except Exception:
                         pass
 
                     # Method 2: UTF-16BE with proper null termination
@@ -621,7 +621,7 @@ class XboxUnity:
                         decoded = decoded.strip()
                         if decoded and len(decoded) > 1:
                             results.append(("utf-16be", decoded))
-                    except:
+                    except Exception:
                         pass
 
                     # Method 3: ASCII extraction (fallback)
@@ -637,7 +637,7 @@ class XboxUnity:
                         ascii_result = "".join(ascii_chars).strip()
                         if ascii_result:
                             results.append(("ascii-le", ascii_result))
-                    except:
+                    except Exception:
                         pass
 
                     # Method 4: ASCII extraction (other byte order)
@@ -653,7 +653,7 @@ class XboxUnity:
                         ascii_result = "".join(ascii_chars).strip()
                         if ascii_result:
                             results.append(("ascii-be", ascii_result))
-                    except:
+                    except Exception:
                         pass
 
                     return results
