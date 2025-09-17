@@ -175,10 +175,8 @@ class DirectoryScanner(QThread):
             print(f"Error processing extracted ISO game {folder_path}: {e}")
             return None
 
-    def _process_xbox360_game(
-        self, folder_path: str, title_id: str
-    ) -> Optional[GameInfo]:
-        """Process an Xbox 360/XBLA game folder"""
+    def _process_god_game(self, folder_path: str, title_id: str) -> Optional[GameInfo]:
+        """Process an Xbox 360 GoD game folder"""
         try:
             # Try to extract detailed info from GoD header
             god_header_path = Path(folder_path) / "00007000"
@@ -238,8 +236,60 @@ class DirectoryScanner(QThread):
             print(f"Error processing Xbox 360 game {folder_path}: {e}")
             return None
 
+    def _process_xbla_game(
+        self, folder_path: str, title_id: str, xbla_exe: str
+    ) -> Optional[GameInfo]:
+        """Process an XBLA game folder"""
+        try:
+            header_file_path = xbla_exe
+
+            # Extract comprehensive GoD information
+            god_info = self.xbox_unity.get_god_info(header_file_path)
+
+            if god_info:
+                # Use extracted title_id if available and valid
+                if god_info.get("title_id") and god_info["title_id"] != "00000000":
+                    title_id = god_info["title_id"]
+
+                # Get media_id for title updates
+                media_id = god_info.get("media_id")
+
+                # Use display_name from GoD header if available
+                if god_info.get("display_name"):
+                    game_name = god_info["display_name"]
+
+                # Cache the icon if available
+                if god_info.get("icon_base64"):
+                    self._cache_god_icon(title_id, god_info["icon_base64"])
+
+            # Get title name - prioritize extracted name, then fallback to title ID
+            if game_name:
+                name = game_name
+            else:
+                name = f"XBLA Game ({title_id})"
+
+            # Calculate folder size
+            size_bytes = self._calculate_directory_size(folder_path)
+
+            # Create GameInfo object
+            game_info = GameInfo(
+                title_id=title_id,
+                name=name,
+                folder_path=folder_path,
+                size_bytes=size_bytes,
+                size_formatted=self._format_size(size_bytes),
+                media_id=media_id,
+                is_extracted_iso=False,  # XBLA games are not extracted ISOs
+            )
+
+            return game_info
+
+        except Exception as e:
+            print(f"Error processing XBLA game {folder_path}: {e}")
+            return None
+
     def _scan_xbox360_directory(self):
-        """Scan directory for Xbox 360/XBLA games (GoD format) and extracted ISO games"""
+        """Scan directory for Xbox 360/XBLA games (GoD format), XBLA games, and extracted ISO games"""
         folders = []
 
         # Get all subdirectories
@@ -253,7 +303,26 @@ class DirectoryScanner(QThread):
                 if os.path.exists(xex_path):
                     folders.append((item_path, None, "iso", xex_path))
                 else:
-                    folders.append((item_path, item.upper(), "god"))
+                    # Check if it's an XBLA game (has 000D0000 subfolder)
+                    xbla_folder = os.path.join(item_path, "000D0000")
+                    if os.path.isdir(xbla_folder):
+                        # There's only one file in the 000D0000 folder, get its path
+                        xbla_files = [
+                            f
+                            for f in os.listdir(xbla_folder)
+                            if os.path.isfile(os.path.join(xbla_folder, f))
+                        ]
+                        if xbla_files:
+                            xbla_exe = os.path.join(xbla_folder, xbla_files[0])
+                            folders.append((item_path, item.upper(), "xbla", xbla_exe))
+                    else:
+                        # GoD format if it has 00007000 subfolder
+                        god_folder = os.path.join(item_path, "00007000")
+                        if os.path.isdir(god_folder):
+                            folders.append((item_path, item.upper(), "god"))
+                        else:
+                            # Unknown format, skip
+                            continue
 
         total_folders = len(folders)
         self.progress.emit(0, total_folders)
@@ -264,7 +333,10 @@ class DirectoryScanner(QThread):
 
             if len(folder_info) == 3:  # GoD format
                 folder_path, title_id, game_type = folder_info
-                game_info = self._process_xbox360_game(folder_path, title_id)
+                game_info = self._process_god_game(folder_path, title_id)
+            elif folder_info[2] == "xbla":  # XBLA format
+                folder_path, title_id, game_type, xbla_exe = folder_info
+                game_info = self._process_xbla_game(folder_path, title_id, xbla_exe)
             else:  # Extracted ISO format
                 folder_path, _, game_type, xex_path = folder_info
                 game_info = self._process_extracted_iso_game(folder_path, xex_path)

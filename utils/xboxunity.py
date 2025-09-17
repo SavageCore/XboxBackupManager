@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 import shutil
@@ -556,7 +557,7 @@ class XboxUnity:
         Returns a dictionary containing:
         - title_id: The game's title ID
         - media_id: The media ID for title updates
-        - display_name: The game's display name
+        - display_name: The game's display name (with proper Unicode support)
         - description: Game description (if available)
         - publisher: Publisher name (if available)
         - title_name: Alternative title name (if available)
@@ -588,50 +589,201 @@ class XboxUnity:
                 else:
                     media_id = None
 
-                # Read Display Name (UTF-16, at offset 0x1691 in STFS header)
-                # This is the main game title we want to extract
-                f.seek(0x1691)
-                display_name_bytes = f.read(0x80)  # 128 bytes max
+                # Read Display Name with multiple encoding attempts
                 display_name = None
 
-                # Read Display Name - extract ASCII from UTF-16 data
-                # STFS files often have mixed language data, so we'll extract ASCII directly
-                f.seek(0x1691)
-                display_name_bytes = f.read(0x80)  # 128 bytes max
-                display_name = None
+                def try_decode_name(offset):
+                    """Try multiple decoding methods for display name"""
+                    f.seek(offset)
+                    name_bytes = f.read(0x80)  # 128 bytes max
+
+                    results = []
+
+                    # Method 1: UTF-16LE with proper null termination
+                    try:
+                        decoded = name_bytes.decode("utf-16le", errors="ignore")
+                        # Find null terminator
+                        null_pos = decoded.find("\x00")
+                        if null_pos != -1:
+                            decoded = decoded[:null_pos]
+                        decoded = decoded.strip()
+                        if decoded and len(decoded) > 1:
+                            results.append(("utf-16le", decoded))
+                    except:
+                        pass
+
+                    # Method 2: UTF-16BE with proper null termination
+                    try:
+                        decoded = name_bytes.decode("utf-16be", errors="ignore")
+                        null_pos = decoded.find("\x00")
+                        if null_pos != -1:
+                            decoded = decoded[:null_pos]
+                        decoded = decoded.strip()
+                        if decoded and len(decoded) > 1:
+                            results.append(("utf-16be", decoded))
+                    except:
+                        pass
+
+                    # Method 3: ASCII extraction (fallback)
+                    try:
+                        ascii_chars = []
+                        for i in range(0, len(name_bytes), 2):
+                            if i + 1 < len(name_bytes):
+                                char_byte = name_bytes[i]
+                                if 32 <= char_byte <= 126:
+                                    ascii_chars.append(chr(char_byte))
+                                elif char_byte == 0:
+                                    break
+                        ascii_result = "".join(ascii_chars).strip()
+                        if ascii_result:
+                            results.append(("ascii-le", ascii_result))
+                    except:
+                        pass
+
+                    # Method 4: ASCII extraction (other byte order)
+                    try:
+                        ascii_chars = []
+                        for i in range(1, len(name_bytes), 2):
+                            if i < len(name_bytes):
+                                char_byte = name_bytes[i]
+                                if 32 <= char_byte <= 126:
+                                    ascii_chars.append(chr(char_byte))
+                                elif char_byte == 0:
+                                    break
+                        ascii_result = "".join(ascii_chars).strip()
+                        if ascii_result:
+                            results.append(("ascii-be", ascii_result))
+                    except:
+                        pass
+
+                    return results
 
                 try:
-                    # Extract ASCII characters by taking every other byte (skip UTF-16 null bytes)
-                    # This should give us English characters from UTF-16 encoded data
-                    ascii_chars = []
-                    for i in range(0, len(display_name_bytes), 2):
-                        if i + 1 < len(display_name_bytes):
-                            # Get the first byte of each UTF-16 character pair
-                            char_byte = display_name_bytes[i]
-                            if 32 <= char_byte <= 126:  # Printable ASCII range
-                                ascii_chars.append(chr(char_byte))
-                            elif char_byte == 0:  # Null terminator
+                    # Try primary offset (0x1691)
+                    results = try_decode_name(0x1691)
+
+                    # Filter results - prefer ones that don't look garbled
+                    def looks_valid(text, encoding):
+                        # Check for obviously garbled Unicode
+                        if any(ord(c) > 0xFFFF for c in text):
+                            return False
+
+                        # For UTF-16 results, prefer ones with reasonable character ranges
+                        if encoding.startswith("utf-16"):
+                            # Check if most characters are in reasonable Unicode ranges
+                            reasonable_chars = 0
+                            for c in text:
+                                code_point = ord(c)
+                                # ASCII, Latin, CJK, etc. ranges
+                                if (
+                                    32 <= code_point <= 126  # ASCII
+                                    or 0x3040 <= code_point <= 0x309F  # Hiragana
+                                    or 0x30A0 <= code_point <= 0x30FF  # Katakana
+                                    or 0x4E00
+                                    <= code_point
+                                    <= 0x9FAF  # CJK Unified Ideographs
+                                    or 0xFF00 <= code_point <= 0xFFEF
+                                ):  # Fullwidth forms
+                                    reasonable_chars += 1
+
+                            # If less than 50% reasonable chars, probably garbled
+                            if reasonable_chars / len(text) < 0.5:
+                                return False
+
+                        return True
+
+                    # Find the best result
+                    best_result = None
+
+                    # Check if this might be a Japanese/Asian game by looking at Title ID ranges
+                    # Japanese games often have Title IDs starting with 584xxxxx
+                    is_likely_japanese = title_id and title_id.startswith("584")
+
+                    # Prioritize results based on game type and quality
+                    utf16_results = [
+                        (enc, text)
+                        for enc, text in results
+                        if enc.startswith("utf-16") and looks_valid(text, enc)
+                    ]
+                    ascii_results = [
+                        (enc, text)
+                        for enc, text in results
+                        if enc.startswith("ascii") and looks_valid(text, enc)
+                    ]
+
+                    if is_likely_japanese and utf16_results:
+                        # For Japanese games, prefer UTF-16BE first, then UTF-16LE
+                        for encoding, text in utf16_results:
+                            if encoding == "utf-16be":
+                                best_result = text
                                 break
 
-                    display_name = "".join(ascii_chars).strip()
-
-                    # If we didn't get a good result, try the opposite byte order
-                    if not display_name:
-                        ascii_chars = []
-                        for i in range(1, len(display_name_bytes), 2):
-                            if i < len(display_name_bytes):
-                                char_byte = display_name_bytes[i]
-                                if 32 <= char_byte <= 126:  # Printable ASCII range
-                                    ascii_chars.append(chr(char_byte))
-                                elif char_byte == 0:  # Null terminator
+                        # If no valid UTF-16BE, try UTF-16LE
+                        if not best_result:
+                            for encoding, text in utf16_results:
+                                if encoding == "utf-16le":
+                                    best_result = text
                                     break
-                        display_name = "".join(ascii_chars).strip()
+                    else:
+                        # For non-Japanese games, prefer UTF-16LE first
+                        for encoding, text in utf16_results:
+                            if encoding == "utf-16le":
+                                best_result = text
+                                break
 
+                        # If no valid UTF-16LE, try UTF-16BE
+                        if not best_result:
+                            for encoding, text in utf16_results:
+                                if encoding == "utf-16be":
+                                    best_result = text
+                                    break
+
+                    # Fallback to ASCII if no good UTF-16 result
+                    if not best_result and ascii_results:
+                        best_result = ascii_results[0][1]
+
+                    display_name = best_result
+
+                    # If no good result, try alternative offsets
                     if not display_name:
-                        display_name = None
+                        # Some games might have the name at slightly different offsets
+                        for alt_offset in [0x1689, 0x1699, 0x16A1]:
+                            alt_results = try_decode_name(alt_offset)
+                            for encoding, text in alt_results:
+                                if looks_valid(text, encoding):
+                                    display_name = text
+                                    break
+                            if display_name:
+                                break
 
-                except Exception:
+                except Exception as e:
+                    print(f"Error parsing display name: {e}")
                     display_name = None
+
+                # Extract additional metadata fields
+                # Try to get publisher name (at offset 0x1711)
+                publisher = None
+                try:
+                    f.seek(0x1711)
+                    publisher_bytes = f.read(0x80)  # 128 bytes max
+                    publisher = publisher_bytes.decode("utf-16le", errors="ignore")
+                    publisher = publisher.replace("\x00", "").strip()
+                    if not publisher:
+                        publisher = None
+                except Exception:
+                    publisher = None
+
+                # Try to get description (at offset 0x1791)
+                description = None
+                try:
+                    f.seek(0x1791)
+                    desc_bytes = f.read(0x100)  # 256 bytes max
+                    description = desc_bytes.decode("utf-16le", errors="ignore")
+                    description = description.replace("\x00", "").strip()
+                    if not description:
+                        description = None
+                except Exception:
+                    description = None
 
                 # Extract icon data (PNG format, typically at offset 0x171A)
                 icon_base64 = None
@@ -652,8 +804,6 @@ class XboxUnity:
                             icon_data = icon_data[: iend_pos + 8]
 
                             # Convert to base64 for consistent handling
-                            import base64
-
                             icon_base64 = base64.b64encode(icon_data).decode("ascii")
                 except Exception:
                     icon_base64 = None
@@ -662,6 +812,8 @@ class XboxUnity:
                     "title_id": title_id,
                     "media_id": media_id,
                     "display_name": display_name,
+                    "publisher": publisher,
+                    "description": description,
                     "icon_base64": icon_base64,
                 }
 
