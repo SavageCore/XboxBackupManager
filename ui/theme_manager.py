@@ -32,7 +32,7 @@ class ThemeManager(QObject):
             # Dark theme menu styling
             menu_styling = """
             QMenuBar {
-                background-color: #2d2d2d;
+                background-color: #262a2e;
                 color: #ffffff;
                 border: none;
             }
@@ -72,13 +72,16 @@ class ThemeManager(QObject):
                 background-color: #555555;
                 margin: 2px 0px;
             }
+            QStatusBar {
+                background-color: #262a2e;
+            }
             """
         else:
             apply_stylesheet(app, theme="light_teal.xml", invert_secondary=True)
             # Light theme menu styling with better contrast
             menu_styling = """
             QMenuBar {
-                background-color: #ffffff;
+                background-color: #f5f5f5;
                 color: #2d2d2d;
                 border: none;
             }
@@ -92,7 +95,7 @@ class ThemeManager(QObject):
                 color: #ffffff;
             }
             QMenuBar::item:pressed {
-                background-color: #00796b;
+                background-color: #009688;
                 color: #ffffff;
             }
             QMenu {
@@ -117,6 +120,9 @@ class ThemeManager(QObject):
                 height: 1px;
                 background-color: #cccccc;
                 margin: 2px 0px;
+            }
+            QStatusBar {
+                background-color: #f0f0f0;
             }
             """
 

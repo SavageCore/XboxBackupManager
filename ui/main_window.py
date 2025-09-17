@@ -2528,7 +2528,7 @@ class XboxBackupManager(QMainWindow):
             # Light theme colors - use a slightly darker header than white
             header_bg_color = "#f5f5f5"  # Very light gray
             header_bg_hover_color = "#dcdcdc"
-            header_text_color = "#2d2d2d"
+            header_text_color = "#3b3f42"
             border_color = "#e0e0e0"
             border_hover_color = "#f5f5f5"
 
