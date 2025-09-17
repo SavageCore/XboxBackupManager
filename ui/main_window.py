@@ -2476,7 +2476,7 @@ class XboxBackupManager(QMainWindow):
 
         # Select column - fixed width
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(0, 40)  # Reduced width for better checkbox centering
+        header.resizeSection(0, 50)  # Reduced width for better checkbox centering
 
         # Icon column - fixed width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
