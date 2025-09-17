@@ -2786,7 +2786,7 @@ class XboxBackupManager(QMainWindow):
         if not title_id:
             return
 
-        media_id = self._get_media_id_for_game(folder_path, title_id)
+        media_id = self.xboxunity.get_media_id(folder_path)
 
         if not media_id:
             QMessageBox.information(
@@ -3171,51 +3171,6 @@ class XboxBackupManager(QMainWindow):
 
         # Fallback to folder name
         return folder_name
-
-    def _get_media_id_for_game(self, folder_path: str, title_id: str) -> str:
-        """Get media ID for a game from its local folder only (used for context menu)"""
-        try:
-            # Always use local mode for context menu operations
-            folder_path_obj = Path(folder_path)
-
-            # First check if this is an extracted ISO game (has default.xex in root)
-            xex_path = folder_path_obj / "default.xex"
-            if xex_path.exists():
-                xex_info = SystemUtils.extract_xex_info(str(xex_path))
-                if xex_info and xex_info.get("media_id"):
-                    return xex_info["media_id"]
-                return None
-
-            # Check for other .xex files (non-default.xex)
-            xex_files = list(folder_path_obj.glob("*.xex"))
-            if xex_files:
-                return None
-
-            # If no .xex files, treat as GoD game
-            god_header_path = folder_path_obj / "00007000"
-            header_files = list(god_header_path.glob("*"))
-
-            if not header_files:
-                return None
-
-            # Filter for potential header files (should be hex and reasonable length)
-            for file_path in header_files:
-                if file_path.is_file():
-                    filename = file_path.name
-                    # Check for hex filename (8-20 characters for various formats)
-                    if (
-                        len(filename) >= 8
-                        and len(filename) <= 20
-                        and all(c in "0123456789ABCDEFabcdef" for c in filename)
-                    ):
-                        media_id = self.xboxunity.get_media_id(str(file_path))
-                        return media_id
-
-            return None
-
-        except Exception as e:
-            print(f"[ERROR] Local media ID extraction failed: {e}")
-            return None
 
     def _on_batch_progress(self, current: int, total: int):
         """Handle batch processing progress"""

@@ -3,15 +3,12 @@ Worker for batch processing title update downloads across multiple games
 """
 
 import os
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, List
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from utils.ftp_client import FTPClient
 from utils.settings_manager import SettingsManager
-from utils.system_utils import SystemUtils
 from utils.xboxunity import XboxUnity
 
 
@@ -74,7 +71,6 @@ class BatchTitleUpdateProcessor(QThread):
                 game_name = game.get("name", "Unknown")
                 title_id = game.get("title_id", "")
                 folder_path = game.get("folder_path", "")
-                is_extracted_iso = game.get("is_extracted_iso", False)
 
                 self.game_started.emit(game_name)
                 self.progress_update.emit(i + 1, total_games)
@@ -87,9 +83,8 @@ class BatchTitleUpdateProcessor(QThread):
 
                 try:
                     # Get media ID from game folder
-                    media_id = self._get_media_id_for_game(
-                        folder_path, title_id, is_extracted_iso
-                    )
+                    media_id = self.xbox_unity.get_media_id(folder_path)
+
                     if not media_id:
                         self._log_message(f"  No media ID found for {game_name}")
                         self.game_completed.emit(game_name, 0)
@@ -182,140 +177,6 @@ class BatchTitleUpdateProcessor(QThread):
             f"\nBatch processing complete. Total updates downloaded: {total_updates_downloaded}"
         )
         self.batch_complete.emit(total_games, total_updates_downloaded)
-
-    def _get_media_id_for_game(
-        self, folder_path: str, title_id: str, is_extracted_iso: bool = False
-    ) -> str:
-        """Get media ID for a game from its folder, handling both FTP and local modes"""
-        try:
-            if self.current_mode == "ftp":
-                # Handle FTP mode
-                ftp_client = self._get_ftp_connection()
-                if not ftp_client:
-                    return None
-
-                try:
-                    if is_extracted_iso:
-                        # Extracted ISO format, download and process default.xex
-                        default_xex_path = f"{folder_path.rstrip('/')}/default.xex"
-
-                        # Download default.xex temporarily to extract media ID
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=".xex"
-                        ) as temp_file:
-                            temp_path = temp_file.name
-
-                        try:
-                            success, message = ftp_client.download_file(
-                                default_xex_path, temp_path
-                            )
-                            if success:
-                                xex_info = SystemUtils.extract_xex_info(temp_path)
-                                if xex_info and xex_info.get("media_id"):
-                                    return xex_info["media_id"]
-                                else:
-                                    return None
-                            else:
-                                return None
-                        finally:
-                            # Clean up temporary file
-                            if os.path.exists(temp_path):
-                                os.unlink(temp_path)
-                    else:
-                        # GoD format game - extract media ID from header file
-                        god_header_path = f"{folder_path.rstrip('/')}/00007000"
-                        if not ftp_client.directory_exists(god_header_path):
-                            self._log_message(
-                                f"    GoD header directory not found: {god_header_path}"
-                            )
-                            return None
-
-                        # List contents of 00007000 directory to find header files
-                        success, items, error_msg = ftp_client.list_directory(
-                            god_header_path
-                        )
-                        if not success or not items:
-                            self._log_message(
-                                f"    Failed to list GoD directory or no files found: {error_msg}"
-                            )
-                            return None
-
-                        # Find header file (should be hex filename, can be 8-20 characters)
-                        header_file = None
-                        for item in items:
-                            if not item["is_directory"]:
-                                header_name = item["name"]
-                                # Check for hex filename (8-20 characters for various formats)
-                                if (
-                                    len(header_name) >= 8
-                                    and len(header_name) <= 20
-                                    and all(
-                                        c in "0123456789ABCDEFabcdef"
-                                        for c in header_name
-                                    )
-                                ):
-                                    header_file = item["full_path"]
-                                    break
-
-                        if not header_file:
-                            self._log_message(
-                                "    No header file found in GoD directory"
-                            )
-                            return None
-
-                        # Download header file temporarily to extract media ID
-                        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                            temp_path = temp_file.name
-
-                        try:
-                            success, message = ftp_client.download_file(
-                                header_file, temp_path
-                            )
-                            if success:
-                                media_id = self.xbox_unity.get_media_id(temp_path)
-                                return media_id
-                            else:
-                                self._log_message(
-                                    f"    Failed to download header file: {message}"
-                                )
-                                return None
-                        finally:
-                            # Clean up temporary file
-                            if os.path.exists(temp_path):
-                                os.unlink(temp_path)
-
-                except Exception as e:
-                    self._log_message(f"    FTP media ID extraction failed: {e}")
-                    return None
-                finally:
-                    ftp_client.disconnect()
-            else:
-                # Handle local mode
-                folder_path_obj = Path(folder_path)
-
-                if is_extracted_iso:
-                    # First check if this is an extracted ISO game (has default.xex in root)
-                    xex_path = folder_path_obj / "default.xex"
-                    if xex_path.exists():
-                        xex_info = SystemUtils.extract_xex_info(str(xex_path))
-                        if xex_info and xex_info.get("media_id"):
-                            return xex_info["media_id"]
-                    return None
-                else:
-                    # GoD format game
-                    god_header_path = folder_path_obj / "00007000"
-                    header_files = list(god_header_path.glob("*"))
-
-                    if not header_files:
-                        return None
-
-                    god_header_path = str(header_files[0])
-                    media_id = self.xbox_unity.get_media_id(god_header_path)
-                    return media_id
-
-        except Exception as e:
-            self._log_message(f"    Error getting media ID: {str(e)}")
-            return None
 
     def _is_update_installed(self, title_id: str, update: dict) -> bool:
         """Check if an update is already installed"""

@@ -3,7 +3,6 @@ import os
 import re
 import shutil
 import struct
-import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
@@ -522,7 +521,88 @@ class XboxUnity:
                 print("[ERROR] Cache folder not found in settings.")
                 return False
 
-    def get_media_id(self, god_header_path):
+    def get_media_id(self, file_or_folder_path):
+        """
+        Get media ID from a game file or folder.
+
+        Args:
+            file_or_folder_path: Can be either:
+                - Direct path to a GoD header file (legacy usage)
+                - Path to a game folder containing XEX or GoD files
+                - Path to an XEX file
+
+        Returns:
+            str: Media ID in uppercase hex format (without 0x prefix)
+        """
+        try:
+            from pathlib import Path
+            from utils.system_utils import SystemUtils
+
+            file_path = Path(file_or_folder_path)
+
+            # If it's a file, check what type
+            if file_path.is_file():
+                # Check if it's an XEX file
+                if file_path.suffix.lower() == ".xex":
+                    xex_info = SystemUtils.extract_xex_info(str(file_path))
+                    if xex_info and xex_info.get("media_id"):
+                        return xex_info["media_id"]
+                    return None
+
+                # Otherwise assume it's a GoD header file (legacy behavior)
+                return self._extract_media_id_from_god_header(str(file_path))
+
+            # If it's a folder, search for XEX or GoD files
+            elif file_path.is_dir():
+                # First check if this is an extracted ISO game (has default.xex in root)
+                xex_path = file_path / "default.xex"
+                if xex_path.exists():
+                    xex_info = SystemUtils.extract_xex_info(str(xex_path))
+                    if xex_info and xex_info.get("media_id"):
+                        return xex_info["media_id"]
+                    return None
+
+                # Check for other .xex files (non-default.xex)
+                xex_files = list(file_path.glob("*.xex"))
+                if xex_files:
+                    # Try the first XEX file found
+                    for xex_file in xex_files:
+                        xex_info = SystemUtils.extract_xex_info(str(xex_file))
+                        if xex_info and xex_info.get("media_id"):
+                            return xex_info["media_id"]
+                    return None
+
+                # If no .xex files, treat as GoD game
+                god_header_path = file_path / "00007000"
+                if god_header_path.exists():
+                    header_files = list(god_header_path.glob("*"))
+
+                    # Filter for potential header files (should be hex and reasonable length)
+                    for header_file in header_files:
+                        if header_file.is_file():
+                            filename = header_file.name
+                            # Check for hex filename (8-20 characters for various formats)
+                            if (
+                                len(filename) >= 8
+                                and len(filename) <= 20
+                                and all(c in "0123456789ABCDEFabcdef" for c in filename)
+                            ):
+                                return self._extract_media_id_from_god_header(
+                                    str(header_file)
+                                )
+
+                return None
+
+            else:
+                print(f"Error: Path '{file_or_folder_path}' does not exist.")
+                return None
+
+        except Exception as e:
+            print(f"Error extracting media ID: {e}")
+            return None
+
+    def _extract_media_id_from_god_header(self, god_header_path):
+        """Extract media ID from a GoD header file"""
         try:
             with open(god_header_path, "rb") as f:
                 # Optional: Verify it's an STFS package by checking magic (e.g., 'CON ', 'LIVE', or 'PIRS')
@@ -545,10 +625,10 @@ class XboxUnity:
                 return media_id
         except FileNotFoundError:
             print(f"Error: File '{god_header_path}' not found.")
-            sys.exit(1)
+            return None
         except Exception as e:
-            print(f"Error reading file: {e}")
-            sys.exit(1)
+            print(f"Error reading GoD header file: {e}")
+            return None
 
     def get_god_info(self, god_header_path):
         """
