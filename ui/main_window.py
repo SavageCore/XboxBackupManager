@@ -1382,7 +1382,7 @@ class XboxBackupManager(QMainWindow):
                 # Update transferred status column
                 # If Xbox, column is 5
                 # If XBLA or Xbox 360, column is 6 or 7 if DLCs
-                show_dlcs = self.current_platform in ["xbla"]
+                show_dlcs = self.current_platform == "xbla"
                 if self.current_platform in ["xbox360", "xbla"]:
                     status_column = 7 if show_dlcs else 6
                 else:
@@ -2153,7 +2153,7 @@ class XboxBackupManager(QMainWindow):
         self.games_table.setRowHeight(row, 72)
 
         # Determine if we should show DLCs column based on platform
-        show_dlcs = self.current_platform in ["xbla"]
+        show_dlcs = self.current_platform == "xbla"
 
         # Create table items
         self._create_table_items(row, game_info, show_dlcs)
@@ -2415,7 +2415,7 @@ class XboxBackupManager(QMainWindow):
     def setup_table(self):
         """Setup the games table widget"""
         # Determine if we should show DLCs column based on platform
-        show_dlcs = self.current_platform in ["xbla"]
+        show_dlcs = self.current_platform == "xbla"
 
         # Set columns and headers
         if show_dlcs:
@@ -2679,8 +2679,14 @@ class XboxBackupManager(QMainWindow):
             return
 
         row = item.row()
-        show_dlcs = self.current_platform in ["xbla"]
-        folder_path_column = 8 if show_dlcs else 7  # Adjusted for new Media ID column
+
+        # Determine folder path column based on platform
+        if self.current_platform == "xbla":
+            folder_path_column = 8  # XBLA: 9 columns, source path is last
+        elif self.current_platform == "xbox360":
+            folder_path_column = 7  # Xbox 360: 8 columns, source path is last
+        else:  # xbox
+            folder_path_column = 6  # Xbox: 7 columns, source path is last
 
         # Get the Source Path from the appropriate column
         folder_item = self.games_table.item(row, folder_path_column)
@@ -2694,8 +2700,16 @@ class XboxBackupManager(QMainWindow):
 
         title_id = self.games_table.item(row, 2).text()
         game_name = self.games_table.item(row, 3).text()
-        media_id = self.games_table.item(row, 4).text()
-        size_text = self.games_table.item(row, 5).text()
+
+        # Media ID and Size columns depend on platform
+        if self.current_platform == "xbox":
+            # Xbox has no Media ID column
+            media_id = ""
+            size_text = self.games_table.item(row, 4).text()
+        else:
+            # Xbox 360 and XBLA have Media ID column
+            media_id = self.games_table.item(row, 4).text()
+            size_text = self.games_table.item(row, 5).text()
 
         # Create context menu
         menu = QMenu(self)
@@ -2724,11 +2738,13 @@ class XboxBackupManager(QMainWindow):
             lambda: SystemUtils.copy_to_clipboard(game_name)
         )
 
-        copy_media_id_action = copy_submenu.addAction("Media ID")
-        copy_media_id_action.setIcon(self.icon_manager.create_icon("fa6s.id-card"))
-        copy_media_id_action.triggered.connect(
-            lambda: SystemUtils.copy_to_clipboard(media_id)
-        )
+        # Only add Media ID copy option for platforms that have it
+        if self.current_platform in ["xbox360", "xbla"]:
+            copy_media_id_action = copy_submenu.addAction("Media ID")
+            copy_media_id_action.setIcon(self.icon_manager.create_icon("fa6s.id-card"))
+            copy_media_id_action.triggered.connect(
+                lambda: SystemUtils.copy_to_clipboard(media_id)
+            )
 
         copy_size_action = copy_submenu.addAction("Size")
         copy_size_action.setIcon(self.icon_manager.create_icon("fa6s.weight-hanging"))
@@ -5030,7 +5046,7 @@ class XboxBackupManager(QMainWindow):
                 self.games_table.insertRow(row)
                 self.games_table.setRowHeight(row, 72)
 
-                show_dlcs = self.current_platform in ["xbla"]
+                show_dlcs = self.current_platform == "xbla"
                 self._create_table_items(row, game_info, show_dlcs)
 
             # Re-enable sorting
