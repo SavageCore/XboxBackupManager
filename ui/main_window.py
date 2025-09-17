@@ -179,7 +179,9 @@ class XboxBackupManager(QMainWindow):
         self.icon_manager.register_widget_icon(
             self.browse_target_action, "fa6s.bullseye"
         )
-        self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
+        self.icon_manager.register_widget_icon(
+            self.ftp_settings_action, "fa6s.network-wired"
+        )
         self.icon_manager.register_widget_icon(
             self.xbox_unity_settings_action, "fa6s.gear"
         )
@@ -187,7 +189,7 @@ class XboxBackupManager(QMainWindow):
         self.icon_manager.register_widget_icon(
             self.ftp_mode_action, "fa6s.network-wired"
         )
-        self.icon_manager.register_widget_icon(self.usb_mode_action, "fa6s.hard-drive")
+        self.icon_manager.register_widget_icon(self.usb_mode_action, "fa6b.usb")
         self.icon_manager.register_widget_icon(
             self.ftp_mode_action, "fa6s.network-wired"
         )
@@ -214,9 +216,9 @@ class XboxBackupManager(QMainWindow):
             for action in self.toolbar_actions:
                 icon_name = {
                     "Scan": "fa6s.magnifying-glass",
-                    "Transfer": "fa6s.download",
+                    "Transfer": "fa6s.arrow-right",
                     "Remove": "fa6s.trash",
-                    "Batch Title Updater": "fa6s.cloud-arrow-down",
+                    "Batch Title Updater": "fa6s.download",
                 }.get(action.text(), "fa6s.circle")
 
                 self.icon_manager.register_widget_icon(action, icon_name)
@@ -279,7 +281,7 @@ class XboxBackupManager(QMainWindow):
         # Transfer Selected
         self.toolbar_transfer_action = QAction("Transfer", self)
         self.toolbar_transfer_action.setIcon(
-            self.icon_manager.create_icon("fa6s.download")
+            self.icon_manager.create_icon("fa6s.arrow-right")
         )
         self.toolbar_transfer_action.setToolTip("Transfer selected games to target")
         self.toolbar_transfer_action.triggered.connect(self.transfer_selected_games)
@@ -297,7 +299,7 @@ class XboxBackupManager(QMainWindow):
         # Batch Title Updater
         self.toolbar_batch_tu_action = QAction("Batch Title Updater", self)
         self.toolbar_batch_tu_action.setIcon(
-            self.icon_manager.create_icon("fa6s.cloud-arrow-down")
+            self.icon_manager.create_icon("fa6s.download")
         )
         self.toolbar_batch_tu_action.setToolTip(
             "Download missing title updates for all transferred games"
@@ -446,7 +448,7 @@ class XboxBackupManager(QMainWindow):
         file_menu = menubar.addMenu("&File")
 
         # Set Source directory action
-        self.browse_action = QAction("Set Source Directory...", self)
+        self.browse_action = QAction("Set &Source Directory...", self)
         self.browse_action.setShortcut("Ctrl+O")
         self.browse_action.setIcon(self.icon_manager.create_icon("fa6s.folder-open"))
         self.icon_manager.register_widget_icon(self.browse_action, "fa6s.folder-open")
@@ -454,7 +456,7 @@ class XboxBackupManager(QMainWindow):
         file_menu.addAction(self.browse_action)
 
         # Set Target directory action
-        self.browse_target_action = QAction("Set Target Directory...", self)
+        self.browse_target_action = QAction("Set &Target Directory...", self)
         self.browse_target_action.setShortcut("Ctrl+T")
         self.browse_target_action.setIcon(
             self.icon_manager.create_icon("fa6s.bullseye")
@@ -466,26 +468,24 @@ class XboxBackupManager(QMainWindow):
         file_menu.addAction(self.browse_target_action)
 
         # Set Cache directory action
-        self.browse_cache_action = QAction("Set Cache Directory...", self)
+        self.browse_cache_action = QAction("Set C&ache Directory...", self)
         self.browse_cache_action.setShortcut("Ctrl+K")
-        self.browse_cache_action.setIcon(
-            self.icon_manager.create_icon("fa6s.folder-open")
-        )
+        self.browse_cache_action.setIcon(self.icon_manager.create_icon("fa6s.database"))
         self.icon_manager.register_widget_icon(
-            self.browse_cache_action, "fa6s.folder-open"
+            self.browse_cache_action, "fa6s.database"
         )
         self.browse_cache_action.setEnabled(True)
         self.browse_cache_action.triggered.connect(self.browse_cache_directory)
         file_menu.addAction(self.browse_cache_action)
 
         # Set Content directory action
-        self.browse_content_action = QAction("Set Content Directory...", self)
+        self.browse_content_action = QAction("Set C&ontent Directory...", self)
         self.browse_content_action.setShortcut("Ctrl+N")
         self.browse_content_action.setIcon(
-            self.icon_manager.create_icon("fa6s.folder-open")
+            self.icon_manager.create_icon("fa6s.folder-tree")
         )
         self.icon_manager.register_widget_icon(
-            self.browse_content_action, "fa6s.folder-open"
+            self.browse_content_action, "fa6s.folder-tree"
         )
         self.browse_content_action.setEnabled(True)
         self.browse_content_action.triggered.connect(self.browse_content_directory)
@@ -495,8 +495,12 @@ class XboxBackupManager(QMainWindow):
 
         # FTP settings action
         self.ftp_settings_action = QAction("&FTP Settings...", self)
-        self.ftp_settings_action.setIcon(self.icon_manager.create_icon("fa6s.gear"))
-        self.icon_manager.register_widget_icon(self.ftp_settings_action, "fa6s.gear")
+        self.ftp_settings_action.setIcon(
+            self.icon_manager.create_icon("fa6s.network-wired")
+        )
+        self.icon_manager.register_widget_icon(
+            self.ftp_settings_action, "fa6s.network-wired"
+        )
         self.ftp_settings_action.triggered.connect(self.show_ftp_settings)
         file_menu.addAction(self.ftp_settings_action)
 
@@ -545,7 +549,7 @@ class XboxBackupManager(QMainWindow):
         self.usb_mode_action.setCheckable(True)
         self.usb_mode_action.setIcon(
             qta.icon(
-                "fa6s.hard-drive",
+                "fa6b.usb",
                 # color=self.normal_color,
                 # color_active=self.active_color,
                 # color_disabled=self.disabled_color,
@@ -2653,30 +2657,51 @@ class XboxBackupManager(QMainWindow):
             folder_path = folder_item.text()  # Fallback to text if UserRole is empty
 
         title_id = self.games_table.item(row, 2).text()
+        game_name = self.games_table.item(row, 3).text()
+        size_text = self.games_table.item(row, 4).text()
 
         # Create context menu
         menu = QMenu(self)
 
         # Add "Open Folder" action
         open_folder_action = menu.addAction("Open Folder")
+        open_folder_action.setIcon(self.icon_manager.create_icon("fa6s.folder-open"))
         open_folder_action.triggered.connect(
             lambda: SystemUtils.open_folder_in_explorer(folder_path, self)
         )
 
-        # Add "Copy Source Path" action
-        copy_path_action = menu.addAction("Copy Source Path")
-        copy_path_action.triggered.connect(
-            lambda: SystemUtils.copy_to_clipboard(folder_path)
-        )
+        # Create Copy submenu
+        copy_submenu = menu.addMenu("Copy")
+        copy_submenu.setIcon(self.icon_manager.create_icon("fa6s.copy"))
 
-        # Add "Copy Title ID" action
-        copy_title_id_action = menu.addAction("Copy Title ID")
+        # Add copy actions to submenu
+        copy_title_id_action = copy_submenu.addAction("Title ID")
+        copy_title_id_action.setIcon(self.icon_manager.create_icon("fa6s.hashtag"))
         copy_title_id_action.triggered.connect(
             lambda: SystemUtils.copy_to_clipboard(title_id)
         )
 
+        copy_game_name_action = copy_submenu.addAction("Game Name")
+        copy_game_name_action.setIcon(self.icon_manager.create_icon("fa6s.tag"))
+        copy_game_name_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(game_name)
+        )
+
+        copy_size_action = copy_submenu.addAction("Size")
+        copy_size_action.setIcon(self.icon_manager.create_icon("fa6s.weight-hanging"))
+        copy_size_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(size_text)
+        )
+
+        copy_path_action = copy_submenu.addAction("Source Path")
+        copy_path_action.setIcon(self.icon_manager.create_icon("fa6s.route"))
+        copy_path_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(folder_path)
+        )
+
         # Add "Title Updates" action
         title_updates_action = menu.addAction("Title Updates")
+        title_updates_action.setIcon(self.icon_manager.create_icon("fa6s.download"))
         title_updates_action.triggered.connect(
             lambda: self._show_title_updates_dialog(folder_path, title_id)
         )
@@ -2686,10 +2711,12 @@ class XboxBackupManager(QMainWindow):
 
         # Add "Transfer" action
         transfer_action = menu.addAction("Transfer")
+        transfer_action.setIcon(self.icon_manager.create_icon("fa6s.arrow-right"))
         transfer_action.triggered.connect(lambda: self._transfer_single_game(row))
 
         # Add "Remove from Target" action
         remove_action = menu.addAction("Remove from Target")
+        remove_action.setIcon(self.icon_manager.create_icon("fa6s.trash"))
         remove_action.triggered.connect(self.create_remove_action(row, show_dlcs))
 
         # Show the menu at the cursor position
