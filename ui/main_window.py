@@ -758,11 +758,17 @@ class XboxBackupManager(QMainWindow):
             # Update the table item state
             row = self._find_game_row(game.title_id)
             if row is not None:
-                transferred_column = 5
+                # Determine the correct column index based on platform
+                # Xbox 360 and XBLA have an extra column for Media ID
+                if self.current_platform in ["xbox360", "xbla"]:
+                    transferred_column = 6
+                else:
+                    transferred_column = 5
 
+                # XBLA has an extra column for DLCs
                 show_dlcs = self.current_platform in ["xbla"]
                 if show_dlcs:
-                    transferred_column = 6
+                    transferred_column = 7
 
                 transferred_item = self.games_table.item(row, transferred_column)
                 if transferred_item:
@@ -1149,9 +1155,9 @@ class XboxBackupManager(QMainWindow):
                 title_id = self.games_table.item(row, 2).text()
                 game_name = self.games_table.item(row, 3).text()
                 if self.current_platform == "xbla":
-                    source_path = self.games_table.item(row, 7).text()
+                    source_path = self.games_table.item(row, 8).text()
                 else:
-                    source_path = self.games_table.item(row, 6).text()
+                    source_path = self.games_table.item(row, 7).text()
                 folder_name = os.path.basename(os.path.dirname(source_path))
 
                 self._remove_game_from_target(title_id, game_name, folder_name)
@@ -2167,8 +2173,11 @@ class XboxBackupManager(QMainWindow):
                 ):
                     selected_games += 1
 
-                    # Get size from the size column (column 4)
-                    size_item = self.games_table.item(row, 4)
+                    # Get size from the size column (column 5)
+                    if self.current_platform in ["xbox360", "xbla"]:
+                        size_item = self.games_table.item(row, 5)
+                    else:
+                        size_item = self.games_table.item(row, 4)
                     if size_item:
                         # Try to get the size from UserRole data first (for SizeTableWidgetItem)
                         if hasattr(size_item, "size_bytes"):
@@ -2239,6 +2248,15 @@ class XboxBackupManager(QMainWindow):
         name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.games_table.setItem(row, col_index, name_item)
         col_index += 1
+
+        # Media ID column
+        if self.current_platform in ["xbox360", "xbla"]:
+            media_id_text = game_info.media_id if game_info.media_id else ""
+            media_id_item = QTableWidgetItem(media_id_text)
+            media_id_item.setData(Qt.ItemDataRole.UserRole, media_id_text)
+            media_id_item.setFlags(media_id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.games_table.setItem(row, col_index, media_id_item)
+            col_index += 1
 
         # Size column
         size_item = SizeTableWidgetItem(game_info.size_formatted, game_info.size_bytes)
@@ -2396,18 +2414,32 @@ class XboxBackupManager(QMainWindow):
 
         # Set columns and headers
         if show_dlcs:
+            self.games_table.setColumnCount(9)
+            headers = [
+                "",
+                "Icon",
+                "Title ID",
+                "Game Name",
+                "Media ID",
+                "Size",
+                "DLCs",
+                "Transferred",
+                "Source Path",
+            ]
+        elif self.current_platform in ["xbox360", "xbla"]:
             self.games_table.setColumnCount(8)
             headers = [
                 "",
                 "Icon",
                 "Title ID",
                 "Game Name",
+                "Media ID",
                 "Size",
-                "DLCs",
                 "Transferred",
                 "Source Path",
             ]
         else:
+            # Xbox has no media ID or DLCs
             self.games_table.setColumnCount(7)
             headers = [
                 "",
@@ -2623,9 +2655,9 @@ class XboxBackupManager(QMainWindow):
 
     def create_remove_action(self, row, show_dlcs):
         if show_dlcs:
-            folder_item = self.games_table.item(row, 7)
+            folder_item = self.games_table.item(row, 8)
         else:
-            folder_item = self.games_table.item(row, 6)
+            folder_item = self.games_table.item(row, 7)
         if folder_item:
             folder_path = folder_item.text()
             folder_name = os.path.basename(folder_path)
@@ -2644,7 +2676,7 @@ class XboxBackupManager(QMainWindow):
 
         row = item.row()
         show_dlcs = self.current_platform in ["xbla"]
-        folder_path_column = 7 if show_dlcs else 6  # Adjusted for new columns
+        folder_path_column = 8 if show_dlcs else 7  # Adjusted for new Media ID column
 
         # Get the Source Path from the appropriate column
         folder_item = self.games_table.item(row, folder_path_column)
@@ -2658,7 +2690,8 @@ class XboxBackupManager(QMainWindow):
 
         title_id = self.games_table.item(row, 2).text()
         game_name = self.games_table.item(row, 3).text()
-        size_text = self.games_table.item(row, 4).text()
+        media_id = self.games_table.item(row, 4).text()
+        size_text = self.games_table.item(row, 5).text()
 
         # Create context menu
         menu = QMenu(self)
@@ -2685,6 +2718,12 @@ class XboxBackupManager(QMainWindow):
         copy_game_name_action.setIcon(self.icon_manager.create_icon("fa6s.tag"))
         copy_game_name_action.triggered.connect(
             lambda: SystemUtils.copy_to_clipboard(game_name)
+        )
+
+        copy_media_id_action = copy_submenu.addAction("Media ID")
+        copy_media_id_action.setIcon(self.icon_manager.create_icon("fa6s.id-card"))
+        copy_media_id_action.triggered.connect(
+            lambda: SystemUtils.copy_to_clipboard(media_id)
         )
 
         copy_size_action = copy_submenu.addAction("Size")
