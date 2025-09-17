@@ -758,17 +758,13 @@ class XboxBackupManager(QMainWindow):
             # Update the table item state
             row = self._find_game_row(game.title_id)
             if row is not None:
-                # Determine the correct column index based on platform
-                # Xbox 360 and XBLA have an extra column for Media ID
-                if self.current_platform in ["xbox360", "xbla"]:
-                    transferred_column = 6
-                else:
-                    transferred_column = 5
-
-                # XBLA has an extra column for DLCs
-                show_dlcs = self.current_platform in ["xbla"]
-                if show_dlcs:
-                    transferred_column = 7
+                match self.current_platform:
+                    case "xbox":
+                        transferred_column = 5
+                    case "xbox360":
+                        transferred_column = 6
+                    case "xbla":
+                        transferred_column = 7
 
                 transferred_item = self.games_table.item(row, transferred_column)
                 if transferred_item:
@@ -1152,15 +1148,9 @@ class XboxBackupManager(QMainWindow):
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
             # Remove selected rows
             for row in reversed(selected_rows):
-                title_id = self.games_table.item(row, 2).text()
-                game_name = self.games_table.item(row, 3).text()
-                if self.current_platform == "xbla":
-                    source_path = self.games_table.item(row, 8).text()
-                else:
-                    source_path = self.games_table.item(row, 7).text()
-                folder_name = os.path.basename(os.path.dirname(source_path))
+                game = self._get_game_from_row(row)
 
-                self._remove_game_from_target(title_id, game_name, folder_name)
+                self._remove_game_from_target(game)
 
                 # Uncheck the game after successful transfer
                 checkbox_item = self.games_table.item(row, 0)
@@ -1233,6 +1223,7 @@ class XboxBackupManager(QMainWindow):
                 self.current_target_directory,
                 max_workers=2,
                 buffer_size=2 * 1024 * 1024,
+                current_platform=self.current_platform,
             )
 
         # Connect signals (same for both transfer types)
@@ -1389,8 +1380,13 @@ class XboxBackupManager(QMainWindow):
             title_id_item = self.games_table.item(row, 2)  # Title ID column
             if title_id_item and title_id_item.text() == title_id:
                 # Update transferred status column
+                # If Xbox, column is 5
+                # If XBLA or Xbox 360, column is 6 or 7 if DLCs
                 show_dlcs = self.current_platform in ["xbla"]
-                status_column = 6 if show_dlcs else 5  # Transferred column
+                if self.current_platform in ["xbox360", "xbla"]:
+                    status_column = 7 if show_dlcs else 6
+                else:
+                    status_column = 5
                 status_item = self.games_table.item(row, status_column)
                 if status_item:
                     status_item.setText("✔️")
@@ -2653,20 +2649,22 @@ class XboxBackupManager(QMainWindow):
                 3, Qt.SortOrder.AscendingOrder
             )  # Game Name column
 
-    def create_remove_action(self, row, show_dlcs):
-        if show_dlcs:
-            folder_item = self.games_table.item(row, 8)
-        else:
-            folder_item = self.games_table.item(row, 7)
-        if folder_item:
-            folder_path = folder_item.text()
-            folder_name = os.path.basename(folder_path)
+    def _get_game_from_row(self, row: int) -> GameInfo:
+        """Retrieve GameInfo object for a given table row"""
+        title_id_item = self.games_table.item(row, 2)  # Title ID column
+        if not title_id_item:
+            return None
 
-        return lambda: self.remove_game_from_target(
-            title_id=self.games_table.item(row, 2).text(),
-            game_name=self.games_table.item(row, 3).text(),
-            folder_name=folder_name,
-        )
+        title_id = title_id_item.text()
+        for game in self.games:
+            if game.title_id == title_id:
+                return game
+        return None
+
+    def create_remove_action(self, row):
+        game = self._get_game_from_row(row)
+
+        return lambda: self.remove_game_from_target(game)
 
     def show_context_menu(self, position):
         """Show context menu when right-clicking on table"""
@@ -2756,7 +2754,7 @@ class XboxBackupManager(QMainWindow):
         # Add "Remove from Target" action
         remove_action = menu.addAction("Remove from Target")
         remove_action.setIcon(self.icon_manager.create_icon("fa6s.trash"))
-        remove_action.triggered.connect(self.create_remove_action(row, show_dlcs))
+        remove_action.triggered.connect(self.create_remove_action(row))
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
@@ -3264,10 +3262,20 @@ class XboxBackupManager(QMainWindow):
 
         self.status_manager.show_message("Batch title update download cancelled")
 
-    def remove_game_from_target(
-        self, title_id: str, game_name: str, folder_name: str = ""
-    ):
-        remove_target = title_id if self.current_platform != "xbox" else folder_name
+    def remove_game_from_target(self, game):
+        # Removed target is always title_id for XBLA and folder_name for Xbox
+        # Xbox 360 is either title_id or folder_name, we need to check both
+        match self.current_platform:
+            case "xbox":
+                remove_target = game.name
+            case "xbla":
+                remove_target = game.title_id
+            case "xbox360":
+                if game.is_extracted_iso:
+                    remove_target = game.name
+                else:
+                    remove_target = game.title_id
+
         if self.current_mode == "ftp":
             target_path = f"{self.current_target_directory.rstrip('/')}/{remove_target}"
         else:
@@ -3276,7 +3284,7 @@ class XboxBackupManager(QMainWindow):
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Confirm Removal")
         msg_box.setText(
-            f"Are you sure you want to remove {game_name}?\n\n{target_path}"
+            f"Are you sure you want to remove {game.name}?\n\n{target_path}"
         )
         msg_box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
@@ -3284,14 +3292,23 @@ class XboxBackupManager(QMainWindow):
         msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
 
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
-            self._remove_game_from_target(title_id, game_name, folder_name)
+            self._remove_game_from_target(game)
 
-    def _remove_game_from_target(
-        self, title_id: str, game_name: str, folder_name: str = ""
-    ):
+    def _remove_game_from_target(self, game):
         """Remove game from target directory"""
-        if title_id and game_name:
-            remove_target = title_id if self.current_platform != "xbox" else folder_name
+        if game.title_id and game.name:
+            # Xbox 360 we need to check both title_id and folder_name
+            match self.current_platform:
+                case "xbox":
+                    remove_target = game.name
+                case "xbla":
+                    remove_target = game.title_id
+                case "xbox360":
+                    if game.is_extracted_iso:
+                        remove_target = game.name
+                    else:
+                        remove_target = game.title_id
+
             if self.current_mode == "ftp":
                 # Handle FTP removal
                 target_path = (
@@ -3323,16 +3340,25 @@ class XboxBackupManager(QMainWindow):
 
                     if success:
                         self.status_manager.show_message(
-                            f"Removed {game_name} from FTP server"
+                            f"Removed {game.name} from FTP server"
                         )
 
                         # Update transferred status in table
                         for row in range(self.games_table.rowCount()):
                             title_item = self.games_table.item(row, 2)
-                            if title_item and title_item.text() == title_id:
-                                show_dlcs = self.current_platform in ["xbla"]
-                                status_column = 6 if show_dlcs else 5
-                                status_item = self.games_table.item(row, status_column)
+                            if title_item and title_item.text() == game.title_id:
+                                # Determine the correct column index based on platform
+                                # Xbox 360 and XBLA have an extra column for Media ID
+                                match self.current_platform:
+                                    case "xbox":
+                                        transferred_column = 5
+                                    case "xbox360":
+                                        transferred_column = 6
+                                    case "xbla":
+                                        transferred_column = 7
+                                status_item = self.games_table.item(
+                                    row, transferred_column
+                                )
                                 if status_item:
                                     status_item.setText("❌")
                                     status_item.setData(Qt.ItemDataRole.UserRole, False)
@@ -3341,14 +3367,14 @@ class XboxBackupManager(QMainWindow):
                         QMessageBox.warning(
                             self,
                             "FTP Removal Failed",
-                            f"Failed to remove {game_name} from FTP server:\n{message}",
+                            f"Failed to remove {game.name} from FTP server:\n{message}",
                         )
 
                 except Exception as e:
                     QMessageBox.critical(
                         self,
                         "FTP Error",
-                        f"An error occurred while removing {game_name}:\n{str(e)}",
+                        f"An error occurred while removing {game.name}:\n{str(e)}",
                     )
                 finally:
                     ftp_client.disconnect()
@@ -3361,16 +3387,25 @@ class XboxBackupManager(QMainWindow):
                     if target_path.exists():
                         shutil.rmtree(target_path, ignore_errors=True)
                         self.status_manager.show_message(
-                            f"Removed {game_name} from target directory"
+                            f"Removed {game.name} from target directory"
                         )
 
                         # Update transferred status in table
                         for row in range(self.games_table.rowCount()):
                             title_item = self.games_table.item(row, 2)
-                            if title_item and title_item.text() == title_id:
-                                show_dlcs = self.current_platform in ["xbla"]
-                                status_column = 6 if show_dlcs else 5
-                                status_item = self.games_table.item(row, status_column)
+                            if title_item and title_item.text() == game.title_id:
+                                # Determine the correct column index based on platform
+                                # Xbox 360 and XBLA have an extra column for Media ID
+                                match self.current_platform:
+                                    case "xbox":
+                                        transferred_column = 5
+                                    case "xbox360":
+                                        transferred_column = 6
+                                    case "xbla":
+                                        transferred_column = 7
+                                status_item = self.games_table.item(
+                                    row, transferred_column
+                                )
                                 if status_item:
                                     status_item.setText("❌")
                                     status_item.setData(Qt.ItemDataRole.UserRole, False)
@@ -3385,7 +3420,7 @@ class XboxBackupManager(QMainWindow):
                     QMessageBox.critical(
                         self,
                         "Removal Error",
-                        f"Failed to remove {game_name}:\n{str(e)}",
+                        f"Failed to remove {game.name}:\n{str(e)}",
                     )
 
     def _toggle_row_selection(self, row: int):

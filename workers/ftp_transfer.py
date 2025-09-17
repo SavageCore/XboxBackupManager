@@ -25,6 +25,7 @@ class FTPTransferWorker(QThread):
         ftp_target_path,
         ftp_port=21,
         buffer_size=8192,
+        current_platform=None,
     ):
         super().__init__()
         self.games_to_transfer = games_to_transfer
@@ -36,6 +37,7 @@ class FTPTransferWorker(QThread):
         self.buffer_size = buffer_size
         self.current_game_index = 0
         self.should_stop = False
+        self.current_platform = current_platform
 
     def run(self):
         ftp_client = FTPClient()
@@ -81,7 +83,16 @@ class FTPTransferWorker(QThread):
         self._last_speed_update = time.time()
 
         # Create target directory on FTP server
-        target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.name}"
+        if self.current_platform == "xbla":
+            target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.title_id}"
+        elif self.current_platform == "xbox360":
+            if game.is_extracted_iso:
+                target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.name}"
+            else:
+                target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.title_id}"
+        else:  # Xbox
+            target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.name}"
+
         success, message = ftp_client.create_directory(target_ftp_path)
         if not success:
             raise Exception(
