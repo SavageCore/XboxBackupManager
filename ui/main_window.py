@@ -54,6 +54,8 @@ from constants import APP_NAME, VERSION
 # Import our modular components
 from managers.directory_manager import DirectoryManager
 from managers.game_manager import GameManager
+from managers.table_manager import TableManager
+from managers.transfer_manager import TransferManager
 from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
@@ -68,7 +70,6 @@ from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
-from widgets.icon_delegate import IconDelegate
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_connection_tester import FTPConnectionTester
 from workers.ftp_transfer import FTPTransferWorker
@@ -116,6 +117,19 @@ class XboxBackupManager(QMainWindow):
         self.game_manager.scan_progress.connect(self._on_scan_progress)
         self.game_manager.scan_complete.connect(self._on_scan_complete)
         self.game_manager.scan_error.connect(self._on_scan_error)
+
+        # Initialize table manager (will be set up properly after UI creation)
+        self.table_manager = None
+
+        # Initialize transfer manager
+        self.transfer_manager = TransferManager(self)
+
+        # Connect transfer manager signals
+        self.transfer_manager.transfer_started.connect(self._on_transfer_started)
+        self.transfer_manager.transfer_progress.connect(self._on_transfer_progress)
+        self.transfer_manager.transfer_complete.connect(self._on_transfer_complete)
+        self.transfer_manager.transfer_error.connect(self._on_transfer_error)
+        self.transfer_manager.transfer_cancelled.connect(self._on_transfer_cancelled)
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
@@ -429,6 +443,12 @@ class XboxBackupManager(QMainWindow):
         self.games_table.mouseMoveEvent = self._table_mouse_move_event
 
         main_layout.addWidget(self.games_table)
+
+        # Initialize table manager now that table is created
+        self.table_manager = TableManager(self.games_table, self)
+
+        # Connect table manager signals
+        self.table_manager.selection_changed.connect(self._update_transfer_button_state)
 
     def create_progress_bar(self, main_layout):
         """Create the progress bar"""
@@ -2112,9 +2132,9 @@ class XboxBackupManager(QMainWindow):
         """Handle scan completion from GameManager"""
         self.games = games
 
-        # Populate the table with all games
-        for game in games:
-            self._add_game_to_table(game)
+        # Populate the table using TableManager - use refresh to replace all data
+        if self.table_manager:
+            self.table_manager.refresh_games(games)
 
         self._finalize_scan()
 
@@ -2129,6 +2149,71 @@ class XboxBackupManager(QMainWindow):
         UIUtils.show_critical(
             self, "Scan Error", f"Failed to scan directory: {error_message}"
         )
+
+    def _on_transfer_started(self):
+        """Handle transfer start from TransferManager"""
+        self.directory_manager.stop_watching_directory()
+
+        # Disable UI elements during transfer
+        self.toolbar_transfer_action.setEnabled(False)
+        self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+    def _on_transfer_progress(self, current: int, total: int, current_game: str):
+        """Handle transfer progress from TransferManager"""
+        if total > 0:
+            percentage = int((current / total) * 100)
+            self.progress_bar.setValue(percentage)
+            self.status_manager.show_permanent_message(
+                f"Transferring {current_game} ({current}/{total})"
+            )
+
+    def _on_transfer_complete(self):
+        """Handle transfer completion from TransferManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.directory_manager.start_watching_directory()
+        self.status_manager.show_message("Transfer completed successfully")
+        self._update_transfer_button_state()
+
+    def _on_transfer_error(self, error_message: str):
+        """Handle transfer error from TransferManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.directory_manager.start_watching_directory()
+        UIUtils.show_critical(
+            self, "Transfer Error", f"Transfer failed: {error_message}"
+        )
+        self._update_transfer_button_state()
+
+    def _on_transfer_cancelled(self):
+        """Handle transfer cancellation from TransferManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.directory_manager.start_watching_directory()
+        self.status_manager.show_message("Transfer cancelled")
+        self._update_transfer_button_state()
 
     def delayed_scan(self):
         """Perform delayed scan after directory changes"""
@@ -2505,69 +2590,11 @@ class XboxBackupManager(QMainWindow):
         self.status_manager.show_message("Icon downloads completed")
 
     def setup_table(self):
-        """Setup the games table widget"""
-        # Determine if we should show DLCs column based on platform
-        show_dlcs = self.current_platform == "xbla"
-
-        # Set columns and headers
-        if show_dlcs:
-            self.games_table.setColumnCount(9)
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Media ID",
-                "Size",
-                "DLCs",
-                "Transferred",
-                "Source Path",
-            ]
-        elif self.current_platform in ["xbox360", "xbla"]:
-            self.games_table.setColumnCount(8)
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Media ID",
-                "Size",
-                "Transferred",
-                "Source Path",
-            ]
-        else:
-            # Xbox has no media ID or DLCs
-            self.games_table.setColumnCount(7)
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Size",
-                "Transferred",
-                "Source Path",
-            ]
-
-        self.games_table.setHorizontalHeaderLabels(headers)
-
-        # Set custom header to disable sorting on columns 0 and 1 (Select and Icon)
-        custom_header = NonSortableHeaderView(
-            Qt.Orientation.Horizontal, self.games_table
-        )
-        self.games_table.setHorizontalHeader(custom_header)
-
-        # Set up custom icon delegate for proper icon rendering
-        icon_delegate = IconDelegate(self.theme_manager)
-        self.games_table.setItemDelegateForColumn(1, icon_delegate)  # Icon column
-
-        # Configure column widths and resize modes
-        self._setup_table_columns(show_dlcs)
-
-        # Configure table appearance and behavior
-        self._configure_table_appearance()
-
-        # Load saved table settings
-        self._load_table_settings()
+        """Setup the games table widget using TableManager"""
+        if self.table_manager:
+            self.table_manager.set_platform(self.current_platform)
+            # Don't load saved table settings as they override our fixed column widths
+            # self._load_table_settings()  # Commented out to preserve TableManager settings
 
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""

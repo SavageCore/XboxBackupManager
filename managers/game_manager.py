@@ -53,7 +53,10 @@ class GameManager(QObject):
 
     def _on_game_found(self, game: GameInfo):
         """Handle a game found during scanning"""
-        self.games.append(game)
+        # Check if game already exists (by title_id) before adding
+        existing_game = self.find_game_by_title_id(game.title_id)
+        if not existing_game:
+            self.games.append(game)
 
     def _on_scan_complete(self):
         """Handle scan completion"""
@@ -114,7 +117,7 @@ class GameManager(QObject):
         """Mark a game as transferred"""
         game = self.find_game_by_title_id(title_id)
         if game:
-            game.is_transferred = True
+            game.transferred = True
 
     def update_transferred_states(self, target_directory: str):
         """Update the transferred state for all games"""
@@ -122,7 +125,7 @@ class GameManager(QObject):
             return
 
         for game in self.games:
-            game.is_transferred = self._check_if_transferred(game, target_directory)
+            game.transferred = self._check_if_transferred(game, target_directory)
 
     def _check_if_transferred(self, game: GameInfo, target_directory: str) -> bool:
         """Check if a game has been transferred to target directory"""
@@ -132,3 +135,19 @@ class GameManager(QObject):
         return (target_path_by_name.exists() and target_path_by_name.is_dir()) or (
             target_path_by_id.exists() and target_path_by_id.is_dir()
         )
+
+    def clear_games(self):
+        """Clear all games"""
+        self.games = []
+
+    def refresh_scan(self, directory: str, platform: str):
+        """Clear existing games and start fresh scan"""
+        self.clear_games()
+        return self.start_scan(directory, platform)
+
+    def get_icon_path(self, title_id: str) -> Optional[str]:
+        """Get the icon path for a game by title ID"""
+        icon_path = Path("cache/icons") / f"{title_id}.png"
+        if icon_path.exists():
+            return str(icon_path)
+        return None

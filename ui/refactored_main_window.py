@@ -3,9 +3,7 @@
 Refactored Main Window - Example showing how to use the new manager classes
 This demonstrates the architectural improvements possible with the manager pattern
 """
-
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QTableWidget
+from PyQt6.QtWidgets import QMainWindow, QTableWidget, QVBoxLayout, QWidget
 
 from managers.directory_manager import DirectoryManager
 from managers.game_manager import GameManager
