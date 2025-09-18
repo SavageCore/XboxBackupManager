@@ -112,7 +112,7 @@ class TableManager(QObject):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
 
         # Icon column - fixed width for proper icon display
-        self.table.setColumnWidth(1, 80)
+        self.table.setColumnWidth(1, 70)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
 
         # Set row height to accommodate larger icons
@@ -196,13 +196,15 @@ class TableManager(QObject):
         col_index = 0
 
         # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")
+        checkbox_item = QTableWidgetItem("")  # Empty text is important
         checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         checkbox_item.setCheckState(Qt.CheckState.Unchecked)
         checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        # Center the checkbox both horizontally and vertically
         checkbox_item.setTextAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
+        # Ensure no text content interferes with checkbox positioning
         checkbox_item.setText("")
         checkbox_item.setData(Qt.ItemDataRole.DisplayRole, "")
         self.table.setItem(row, col_index, checkbox_item)
