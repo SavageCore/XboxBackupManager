@@ -2405,8 +2405,8 @@ class XboxBackupManager(QMainWindow):
             pixmap = self.icon_cache[game_info.title_id]
             # Scale pixmap to proper size
             scaled_pixmap = pixmap.scaled(
-                48,
-                48,
+                64,
+                64,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -2447,14 +2447,8 @@ class XboxBackupManager(QMainWindow):
 
         # DLCs column (XBLA only)
         if show_dlcs:
-            dlc_folder = Path(game_info.folder_path) / "00000002"
-            if dlc_folder.exists() and dlc_folder.is_dir():
-                dlcs_count = len([f for f in dlc_folder.iterdir() if f.is_file()])
-            else:
-                dlcs_count = 0
-
-            dlc_item = QTableWidgetItem(str(dlcs_count))
-            dlc_item.setData(Qt.ItemDataRole.UserRole, dlcs_count)
+            dlc_item = QTableWidgetItem(str(game_info.dlc_count))
+            dlc_item.setData(Qt.ItemDataRole.UserRole, game_info.dlc_count)
             dlc_item.setFlags(dlc_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             dlc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.games_table.setItem(row, col_index, dlc_item)
@@ -5059,10 +5053,9 @@ class XboxBackupManager(QMainWindow):
                     "size_formatted": game.size_formatted,
                     "transferred": game.transferred,
                     "last_modified": getattr(game, "last_modified", 0),
-                    "media_id": getattr(game, "media_id", None),  # Save media_id
-                    "is_extracted_iso": getattr(
-                        game, "is_extracted_iso", False
-                    ),  # Save extracted ISO flag
+                    "media_id": getattr(game, "media_id", None),
+                    "is_extracted_iso": getattr(game, "is_extracted_iso", False),
+                    "dlc_count": getattr(game, "dlc_count", 0),
                 }
                 cache_data["games"].append(game_data)
 
@@ -5105,9 +5098,8 @@ class XboxBackupManager(QMainWindow):
                     folder_path=game_data["folder_path"],
                     size_bytes=game_data["size_bytes"],
                     size_formatted=game_data["size_formatted"],
-                    is_extracted_iso=game_data.get(
-                        "is_extracted_iso", False
-                    ),  # Handle new field
+                    is_extracted_iso=game_data.get("is_extracted_iso", False),
+                    dlc_count=game_data.get("dlc_count", 0),
                 )
                 game_info.transferred = game_data.get("transferred", False)
                 game_info.last_modified = game_data.get("last_modified", 0)

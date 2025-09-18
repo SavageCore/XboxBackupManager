@@ -172,7 +172,7 @@ class TableManager(QObject):
         existing_title_ids = set()
         for row in range(self.table.rowCount()):
             title_id_item = self.table.item(row, 2)  # Title ID is always column 2
-            if title_id_item:
+            if title_id_item:  # Ensure item exists
                 existing_title_ids.add(title_id_item.text())
 
         # Add only new games
@@ -232,23 +232,6 @@ class TableManager(QObject):
                 # If icon loading fails, just leave it empty
                 pass
 
-        # if hasattr(game, "icon_path") and game.icon_path:
-        #     try:
-        #         print(f"Icon path: {game.icon_path}")
-        #         pixmap = QPixmap(game.icon_path)
-        #         if not pixmap.isNull():
-        #             # Scale to 64x64 for better visibility
-        #             scaled_pixmap = pixmap.scaled(
-        #                 64,
-        #                 64,
-        #                 Qt.AspectRatioMode.KeepAspectRatio,
-        #                 Qt.TransformationMode.SmoothTransformation,
-        #             )
-        #             icon_item.setIcon(QIcon(scaled_pixmap))
-        #     except Exception:
-        #         # If icon loading fails, just leave it empty
-        #         pass
-
         self.table.setItem(row, col_index, icon_item)
         col_index += 1
 
@@ -288,8 +271,8 @@ class TableManager(QObject):
         # DLCs column (XBLA only)
         if self.current_platform == "xbla":
             # This would need to be implemented based on folder structure
-            dlc_item = QTableWidgetItem("0")  # Placeholder
-            dlc_item.setData(Qt.ItemDataRole.UserRole, 0)
+            dlc_item = QTableWidgetItem(str(game.dlc_count) or "0")  # Placeholder
+            dlc_item.setData(Qt.ItemDataRole.UserRole, game.dlc_count or 0)
             dlc_item.setFlags(dlc_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             dlc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, col_index, dlc_item)
