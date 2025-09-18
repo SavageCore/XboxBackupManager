@@ -1847,6 +1847,10 @@ class XboxBackupManager(QMainWindow):
         if hasattr(self, "games_table"):
             self._configure_table_appearance()
 
+        # Ensure table header remains visible after theme changes
+        if hasattr(self, "table_manager") and self.table_manager:
+            self.table_manager.ensure_header_visible()
+
         self.icon_manager.update_all_icons()
 
     def update_theme_menu_state(self):
@@ -2295,9 +2299,6 @@ class XboxBackupManager(QMainWindow):
 
         # Apply the previous sort order, or default to Game Name
         if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
-            # Adjust sort column if needed (because we added checkbox column)
-            if self.current_sort_column >= 1:
-                self.current_sort_column += 1  # Shift right due to checkbox column
             self.games_table.sortItems(
                 self.current_sort_column, self.current_sort_order
             )
@@ -2513,6 +2514,8 @@ class XboxBackupManager(QMainWindow):
         """Setup the games table widget using TableManager"""
         if self.table_manager:
             self.table_manager.set_platform(self.current_platform)
+            # Reapply table appearance styling after platform change
+            self._configure_table_appearance()
             self._load_table_settings()
 
     def _setup_table_columns(self, show_dlcs: bool):

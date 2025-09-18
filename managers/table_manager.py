@@ -15,6 +15,24 @@ from utils.ui_utils import UIUtils
 from widgets.icon_delegate import IconDelegate
 
 
+class SelectiveSortHeaderView(QHeaderView):
+    """Custom header view that disables sorting for specific columns"""
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self.non_sortable_columns = {0, 1}  # Checkbox and Icon columns
+
+    def mousePressEvent(self, event):
+        """Override mouse press to prevent sorting on specific columns"""
+        section = self.logicalIndexAt(event.pos())
+        if section in self.non_sortable_columns:
+            # Ignore the event for non-sortable columns
+            event.ignore()
+            return
+        # Let Qt handle sorting for other columns
+        super().mousePressEvent(event)
+
+
 class TableManager(QObject):
     """Manages the games table display and interactions"""
 
@@ -26,6 +44,7 @@ class TableManager(QObject):
         super().__init__(parent)
         self.table = table_widget
         self.current_platform = "xbox360"
+        self._non_sortable_columns = {0, 1}  # Checkbox and Icon columns
         self._setup_table()
 
     def _setup_table(self):
@@ -100,8 +119,11 @@ class TableManager(QObject):
         # Set up icon delegate for the first column
         self.table.setItemDelegateForColumn(0, IconDelegate())
 
-        # Configure column properties
-        self._configure_columns()
+        # Set row height to accommodate larger icons
+        self.table.verticalHeader().setDefaultSectionSize(70)
+
+        # Disable sorting for checkbox and icon columns (this also configures columns)
+        self._disable_sorting_for_specific_columns()
 
     def _configure_columns(self):
         """Configure table column properties"""
@@ -165,6 +187,115 @@ class TableManager(QObject):
 
             # Source path - stretch
             header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+
+    def _disable_sorting_for_specific_columns(self):
+        """Disable sorting for checkbox (column 0) and icon (column 1) columns"""
+
+        # Enable sorting for the table first
+        self.table.setSortingEnabled(True)
+
+        # Create and set our custom header that prevents sorting on specific columns
+        custom_header = SelectiveSortHeaderView(Qt.Orientation.Horizontal, self.table)
+        self.table.setHorizontalHeader(custom_header)
+
+        # Ensure header is visible
+        custom_header.setVisible(True)
+
+        # Apply column configuration to the new header
+        self._apply_column_configuration_to_current_header()
+
+        # Store which columns should not be sortable
+        self._non_sortable_columns = {0, 1}  # Checkbox and Icon columns
+
+        # Re-apply column configuration to the new header
+        self._apply_column_configuration_to_current_header()
+
+    def ensure_header_visible(self):
+        """Ensure the header is visible - call this after theme changes"""
+        header = self.table.horizontalHeader()
+        if not header.isVisible():
+            header.setVisible(True)
+            header.show()
+
+    def _apply_column_configuration_to_current_header(self):
+        """Apply column configuration to whatever header is currently set"""
+        header = self.table.horizontalHeader()
+
+        # Checkbox column - fixed width
+        self.table.setColumnWidth(0, 50)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+
+        # Icon column - fixed width for proper icon display
+        self.table.setColumnWidth(1, 70)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+
+        # Title ID column - fixed width
+        self.table.setColumnWidth(2, 120)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+
+        # Game name column - fixed width (column 3)
+        self.table.setColumnWidth(3, 300)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+
+        # Platform-specific column widths
+        if self.current_platform in ["xbox360", "xbla"]:
+            # Media ID column
+            self.table.setColumnWidth(4, 100)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+
+            # Size column
+            self.table.setColumnWidth(5, 80)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+
+            if self.current_platform == "xbla":
+                # DLCs column
+                self.table.setColumnWidth(6, 70)
+                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+
+                # Transferred column
+                self.table.setColumnWidth(7, 120)
+                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+
+                # Source path - stretch
+                header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
+            else:  # xbox360
+                # Transferred column
+                self.table.setColumnWidth(6, 120)
+                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+
+                # Source path - stretch
+                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+        else:  # xbox
+            # Size column
+            self.table.setColumnWidth(4, 80)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+
+            # Transferred column
+            self.table.setColumnWidth(5, 120)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+
+            # Source path - stretch
+            header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+
+    def get_sort_state(self):
+        """Get current sort state, excluding non-sortable columns"""
+        header = self.table.horizontalHeader()
+        current_sort_column = header.sortIndicatorSection()
+        current_sort_order = header.sortIndicatorOrder()
+
+        if (
+            current_sort_column not in self._non_sortable_columns
+            and current_sort_column >= 0
+        ):
+            return current_sort_column, current_sort_order
+        else:
+            # Return a default sortable column (Title ID)
+            return 2, Qt.SortOrder.AscendingOrder
+
+    def set_sort_state(self, column, order):
+        """Set sort state, but only for sortable columns"""
+        if column not in self._non_sortable_columns:
+            self.table.sortItems(column, order)
 
     def populate_games(self, games: List[GameInfo]):
         """Populate table with game data, preserving existing entries"""
