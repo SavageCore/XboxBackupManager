@@ -825,7 +825,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             version_layout.addWidget(path_filename_label)
 
             action_button = QPushButton("Uninstall" if is_installed else "Download")
-            action_button.setFixedWidth(90)  # Fixed width for consistent sizing
+            action_button.setFixedWidth(100)  # Fixed width for consistent sizing
             action_button.setStyleSheet(
                 f"""
                 QPushButton {{
