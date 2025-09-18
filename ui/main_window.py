@@ -162,18 +162,6 @@ class XboxBackupManager(QMainWindow):
         self._current_transfer_file = ""
         self._current_transfer_speed = ""  # For storing current transfer speed
 
-        # Get the current palette from your theme manager
-        # palette = self.theme_manager.get_palette()
-
-        # Extract colors from the palette for different states
-        # self.normal_color = palette.COLOR_BACKGROUND_6
-        # self.active_color = palette.COLOR_BACKGROUND_6
-        # self.disabled_color = palette.COLOR_DISABLED
-
-        # File system monitoring is now handled by DirectoryManager
-        # self.file_watcher = QFileSystemWatcher()
-        # self.file_watcher.directoryChanged.connect(self.on_directory_changed)
-
         # Timer to debounce file system events
         self.scan_timer = QTimer()
         self.scan_timer.setSingleShot(True)
@@ -2470,68 +2458,6 @@ class XboxBackupManager(QMainWindow):
         path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.games_table.setItem(row, col_index, path_item)
 
-    # Old scan completion method - now handled by GameManager
-    # def scan_finished(self):
-    #     """Handle scan completion"""
-    #     self.progress_bar.setVisible(False)
-    #     self.toolbar_scan_action.setEnabled(True)
-    #     self.browse_action.setEnabled(True)
-    #     self.browse_target_action.setEnabled(True)
-    #
-    #     self._is_scanning = False
-    #
-    #     # Clean up scanner reference
-    #     if hasattr(self, "scanner"):
-    #         self.scanner = None
-    #
-    #     game_count = len(self.games)
-    #     total_size = sum(game.size_bytes for game in self.games)
-    #
-    #     # Format total size
-    #     size_formatted = total_size
-    #     for unit in ["B", "KB", "MB", "GB", "TB"]:
-    #         if size_formatted < 1024.0:
-    #             break
-    #         size_formatted /= 1024.0
-    #
-    #     # Re-enable sorting and restore previous sort settings
-    #     self.games_table.setSortingEnabled(True)
-    #
-    #     # Connect the checkbox signal AFTER all items are created
-    #     self.games_table.itemChanged.connect(self._on_checkbox_changed)
-    #
-    #     # Apply the previous sort order, or default to Game Name
-    #     if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
-    #         # Adjust sort column if needed (because we added checkbox column)
-    #         if self.current_sort_column >= 1:
-    #             self.current_sort_column += 1  # Shift right due to checkbox column
-    #         self.games_table.sortItems(
-    #             self.current_sort_column, self.current_sort_order
-    #         )
-    #     else:
-    #         # Default sort (Game Name column is now column 3)
-    #         self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
-    #
-    #     # Re-apply search filter if search bar is visible
-    #     if self.search_input.isVisible() and self.search_input.text():
-    #         self.filter_games(self.search_input.text())
-    #
-    #     # Update transfer button state
-    #     self._update_transfer_button_state()
-    #
-    #     # Save scan results to cache
-    #     if game_count > 0:
-    #         self._save_scan_cache()
-    #
-    #     # Download icons for games that don't have them cached
-    #     if game_count > 0:
-    #         self.download_missing_icons()
-    #
-    #     if game_count == 0:
-    #         self.status_manager.show_permanent_message("Scan complete - no games found")
-    #     else:
-    #         self.status_manager.show_games_status()
-
     def download_missing_icons(self):
         """Download icons for games that don't have them cached"""
         missing_title_ids = []
@@ -2587,8 +2513,7 @@ class XboxBackupManager(QMainWindow):
         """Setup the games table widget using TableManager"""
         if self.table_manager:
             self.table_manager.set_platform(self.current_platform)
-            # Don't load saved table settings as they override our fixed column widths
-            # self._load_table_settings()  # Commented out to preserve TableManager settings
+            self._load_table_settings()
 
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""
