@@ -64,6 +64,7 @@ from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
+from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
 from widgets.icon_delegate import IconDelegate
 from workers.directory_scanner import DirectoryScanner
@@ -865,7 +866,7 @@ class XboxBackupManager(QMainWindow):
                 self._rescan_transferred_state()
             else:
                 # Selected directory is not accessible
-                QMessageBox.warning(
+                UIUtils.show_warning(
                     self,
                     "Directory Not Accessible",
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
@@ -913,7 +914,7 @@ class XboxBackupManager(QMainWindow):
                 )
             else:
                 # Selected directory is not accessible
-                QMessageBox.warning(
+                UIUtils.show_warning(
                     self,
                     "Directory Not Accessible",
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
@@ -961,7 +962,7 @@ class XboxBackupManager(QMainWindow):
                 )
             else:
                 # Selected directory is not accessible
-                QMessageBox.warning(
+                UIUtils.show_warning(
                     self,
                     "Directory Not Accessible",
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
@@ -1056,7 +1057,7 @@ class XboxBackupManager(QMainWindow):
                             break
 
         if not selected_games:
-            QMessageBox.information(
+            UIUtils.show_information(
                 self,
                 "No Games Selected",
                 "Please select games to transfer by checking the boxes.",
@@ -1065,7 +1066,7 @@ class XboxBackupManager(QMainWindow):
 
         # Calculate total size and check disk space
         total_size = sum(game.size_bytes for game in selected_games)
-        size_formatted = self._format_size(total_size)
+        size_formatted = UIUtils.format_file_size(total_size)
 
         if self.current_mode == "usb":
             # Check available disk space
@@ -1080,14 +1081,14 @@ class XboxBackupManager(QMainWindow):
                     "The transfer may fail if there is insufficient space.",
                 )
             elif total_size > available_space:
-                available_formatted = self._format_size(available_space)
+                available_formatted = UIUtils.format_file_size(available_space)
                 QMessageBox.critical(
                     self,
                     "Insufficient Disk Space",
                     f"Not enough space on target device!\n\n"
                     f"Required: {size_formatted}\n"
                     f"Available: {available_formatted}\n"
-                    f"Additional space needed: {self._format_size(total_size - available_space)}",
+                    f"Additional space needed: {UIUtils.format_file_size(total_size - available_space)}",
                 )
                 return
         else:
@@ -1095,9 +1096,9 @@ class XboxBackupManager(QMainWindow):
 
         # Show confirmation with disk space info
         if available_space is not None and self.current_mode == "usb":
-            available_formatted = self._format_size(available_space)
+            available_formatted = UIUtils.format_file_size(available_space)
             remaining_after = available_space - total_size
-            remaining_formatted = self._format_size(remaining_after)
+            remaining_formatted = UIUtils.format_file_size(remaining_after)
 
             space_info = (
                 f"Available space: {available_formatted}\n"
@@ -1179,15 +1180,6 @@ class XboxBackupManager(QMainWindow):
                     return statvfs.f_frsize * statvfs.f_bavail
             except Exception:
                 return None
-
-    def _format_size(self, size_bytes: int) -> str:
-        """Format size in bytes to human readable format"""
-        size_formatted = float(size_bytes)
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if size_formatted < 1024.0:
-                break
-            size_formatted /= 1024.0
-        return f"{size_formatted:.1f} {unit}"
 
     def _start_transfer(self, games_to_transfer: List[GameInfo]):
         """Start the transfer process"""
@@ -2196,7 +2188,7 @@ class XboxBackupManager(QMainWindow):
             if selected_games > 0:
                 plural = "s" if selected_games > 1 else ""
                 self.status_manager.show_permanent_message(
-                    f"{selected_games} game{plural} selected ({self._format_size(selected_size)})"
+                    f"{selected_games} game{plural} selected ({UIUtils.format_file_size(selected_size)})"
                 )
             else:
                 self.status_bar.clearMessage()

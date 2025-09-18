@@ -2,6 +2,8 @@ from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from utils.ui_utils import UIUtils
+
 
 class FileTransferWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current_game, total_games, game_name
@@ -48,15 +50,16 @@ class FileTransferWorker(QThread):
         """Transfer a single game with file-level progress tracking"""
         source_path = Path(game.folder_path)
 
-        if self.current_platform == "xbla":
-            target_path = Path(self.target_directory) / game.title_id
-        elif self.current_platform == "xbox360":
-            if game.is_extracted_iso:
-                target_path = Path(self.target_directory) / game.name
-            else:
-                target_path = Path(self.target_directory) / game.title_id
-        else:  # Xbox
-            target_path = Path(self.target_directory) / game.name
+        # Use UIUtils to build target path consistently
+        target_path = Path(
+            UIUtils.build_target_path(
+                self.target_directory,
+                self.current_platform,
+                game.name,
+                game.title_id,
+                game.is_extracted_iso,
+            )
+        )
 
         # Calculate total size and file count for this game
         total_files = 0

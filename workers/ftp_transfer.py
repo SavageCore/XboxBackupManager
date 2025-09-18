@@ -5,6 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from utils.ftp_client import FTPClient
+from utils.ui_utils import UIUtils
 
 
 class FTPTransferWorker(QThread):
@@ -82,16 +83,14 @@ class FTPTransferWorker(QThread):
         self._transfer_start_time = time.time()
         self._last_speed_update = time.time()
 
-        # Create target directory on FTP server
-        if self.current_platform == "xbla":
-            target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.title_id}"
-        elif self.current_platform == "xbox360":
-            if game.is_extracted_iso:
-                target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.name}"
-            else:
-                target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.title_id}"
-        else:  # Xbox
-            target_ftp_path = f"{self.ftp_target_path.rstrip('/')}/{game.name}"
+        # Create target directory on FTP server using consolidated logic
+        target_ftp_path = UIUtils.build_target_path(
+            self.ftp_target_path.rstrip("/"),
+            self.current_platform,
+            game.name,
+            game.title_id,
+            game.is_extracted_iso,
+        )
 
         success, message = ftp_client.create_directory(target_ftp_path)
         if not success:

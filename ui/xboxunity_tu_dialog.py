@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
 
 from utils.ftp_client import FTPClient
 from utils.settings_manager import SettingsManager
+from utils.title_update_utils import TitleUpdateUtils
+from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
 from workers.title_update_downloader import TitleUpdateDownloadWorker
 
@@ -173,57 +175,9 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         content_folder = self.settings_manager.load_usb_content_directory()
         cache_folder = self.settings_manager.load_usb_cache_directory()
 
-        if content_folder and not content_folder.endswith("0000000000000000"):
-            content_folder = os.path.join(content_folder, "0000000000000000")
-
-        possible_paths = [
-            (
-                f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-                "Content",
-            ),
-            (cache_folder, "Cache"),
-        ]
-
-        title_update_info = update.get("cached_info")
-        if not title_update_info:
-            return None
-
-        expected_filename = title_update_info.get("fileName", "")
-
-        for base_path, location_type in possible_paths:
-            if base_path and os.path.exists(base_path):
-                for root, dirs, files in os.walk(base_path):
-                    for file in files:
-                        if (
-                            file.upper() == expected_filename.upper()
-                            and os.path.getsize(os.path.join(root, file))
-                            == title_update_info.get("size", 0)
-                        ):
-                            relative_path = (
-                                os.path.relpath(root, base_path)
-                                if root != base_path
-                                else ""
-                            )
-                            if location_type == "Content":
-                                # For Content, show the full path structure
-                                full_location = (
-                                    f"Content/0000000000000000/{title_id}/000B0000"
-                                )
-                                if relative_path:
-                                    full_location += f"/{relative_path}"
-                            else:
-                                # For Cache, keep existing behavior
-                                full_location = (
-                                    f"{location_type}/{relative_path}".rstrip("/")
-                                    if relative_path
-                                    else location_type
-                                )
-                            return {
-                                "filename": file,
-                                "location": full_location,
-                                "full_path": os.path.join(root, file),
-                            }
-        return None
+        return TitleUpdateUtils.find_install_info(
+            title_id, update, content_folder, cache_folder, is_ftp=False
+        )
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
@@ -235,61 +189,14 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             content_folder = self.settings_manager.load_ftp_content_directory()
             cache_folder = self.settings_manager.load_ftp_cache_directory()
 
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
-
-            possible_paths = [
-                (
-                    f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-                    "Content",
-                ),
-                (cache_folder, "Cache"),
-            ]
-
-            title_update_info = update.get("cached_info")
-            if not title_update_info:
-                return None
-
-            expected_filename = title_update_info.get("fileName", "")
-            expected_size = title_update_info.get("size", 0)
-
-            for base_path, location_type in possible_paths:
-                if not base_path:
-                    continue
-
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
-
-                for file_path, filename, file_size in files:
-                    if (
-                        filename.upper() == expected_filename.upper()
-                        and file_size == expected_size
-                    ):
-                        # Extract relative path for location
-                        relative_path = (
-                            os.path.dirname(file_path).replace(base_path, "").strip("/")
-                        )
-                        if location_type == "Content":
-                            # For Content, show the full path structure
-                            full_location = (
-                                f"Content/0000000000000000/{title_id}/000B0000"
-                            )
-                            if relative_path:
-                                full_location += f"/{relative_path}"
-                        else:
-                            # For Cache, keep existing behavior
-                            full_location = (
-                                f"{location_type}/{relative_path}".rstrip("/")
-                                if relative_path
-                                else location_type
-                            )
-                        return {
-                            "filename": filename,
-                            "location": full_location,
-                            "full_path": file_path,
-                        }
-
-            return None
-
+            return TitleUpdateUtils.find_install_info(
+                title_id,
+                update,
+                content_folder,
+                cache_folder,
+                is_ftp=True,
+                ftp_client=ftp_client,
+            )
         finally:
             ftp_client.disconnect()
 
