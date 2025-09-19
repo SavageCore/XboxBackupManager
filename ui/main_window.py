@@ -2325,6 +2325,10 @@ class XboxBackupManager(QMainWindow):
         if game_count > 0:
             self.download_missing_icons()
 
+        # Update transferred states after scan completion
+        if game_count > 0:
+            QTimer.singleShot(100, self._rescan_transferred_state)
+
         if game_count == 0:
             self.status_manager.show_permanent_message("Scan complete - no games found")
         else:
@@ -5038,6 +5042,7 @@ class XboxBackupManager(QMainWindow):
 
             # Use TableManager to populate the table consistently
             self.games = cached_games
+
             if self.table_manager:
                 print("Loading games into table from cache...")
                 self.table_manager.refresh_games(self.games)
