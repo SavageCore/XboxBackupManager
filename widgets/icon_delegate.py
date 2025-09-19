@@ -3,13 +3,15 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QStyledItemDelegate
 
+from ui.theme_manager import ThemeManager
+
 
 class IconDelegate(QStyledItemDelegate):
     """Custom delegate for rendering icons properly in table cells"""
 
-    def __init__(self, theme_manager=None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.theme_manager = theme_manager
+        self.theme_manager = ThemeManager()
 
     def paint(self, painter, option, index):
         """Custom paint method for icon rendering"""

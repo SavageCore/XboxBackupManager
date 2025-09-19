@@ -44,7 +44,6 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +51,10 @@ from PyQt6.QtWidgets import (
 from constants import APP_NAME, VERSION
 
 # Import our modular components
+from managers.directory_manager import DirectoryManager
+from managers.game_manager import GameManager
+from managers.table_manager import TableManager
+from managers.transfer_manager import TransferManager
 from models.game_info import GameInfo
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
@@ -64,9 +67,8 @@ from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
+from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
-from widgets.icon_delegate import IconDelegate
-from workers.directory_scanner import DirectoryScanner
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_connection_tester import FTPConnectionTester
 from workers.ftp_transfer import FTPTransferWorker
@@ -96,6 +98,37 @@ class XboxBackupManager(QMainWindow):
         self.theme_manager = ThemeManager()
         self.icon_manager = IconManager(self.theme_manager)
         self.xboxunity = XboxUnity()
+
+        # Initialize directory manager
+        self.directory_manager = DirectoryManager(self)
+
+        # Connect directory manager signals
+        self.directory_manager.directory_changed.connect(self._on_directory_changed)
+        self.directory_manager.directory_files_changed.connect(
+            self._on_directory_files_changed
+        )
+
+        # Initialize game manager
+        self.game_manager = GameManager(self)
+
+        # Connect game manager signals
+        self.game_manager.scan_started.connect(self._on_scan_started)
+        self.game_manager.scan_progress.connect(self._on_scan_progress)
+        self.game_manager.scan_complete.connect(self._on_scan_complete)
+        self.game_manager.scan_error.connect(self._on_scan_error)
+
+        # Initialize table manager (will be set up properly after UI creation)
+        self.table_manager = None
+
+        # Initialize transfer manager
+        self.transfer_manager = TransferManager(self)
+
+        # Connect transfer manager signals
+        self.transfer_manager.transfer_started.connect(self._on_transfer_started)
+        self.transfer_manager.transfer_progress.connect(self._on_transfer_progress)
+        self.transfer_manager.transfer_complete.connect(self._on_transfer_complete)
+        self.transfer_manager.transfer_error.connect(self._on_transfer_error)
+        self.transfer_manager.transfer_cancelled.connect(self._on_transfer_cancelled)
 
         self.status_bar = self.statusBar()
         self.status_manager = StatusManager(self.status_bar, self)
@@ -128,18 +161,6 @@ class XboxBackupManager(QMainWindow):
         self._current_transfer_file = ""
         self._current_transfer_speed = ""  # For storing current transfer speed
 
-        # Get the current palette from your theme manager
-        # palette = self.theme_manager.get_palette()
-
-        # Extract colors from the palette for different states
-        # self.normal_color = palette.COLOR_BACKGROUND_6
-        # self.active_color = palette.COLOR_BACKGROUND_6
-        # self.disabled_color = palette.COLOR_DISABLED
-
-        # File system monitoring
-        self.file_watcher = QFileSystemWatcher()
-        self.file_watcher.directoryChanged.connect(self.on_directory_changed)
-
         # Timer to debounce file system events
         self.scan_timer = QTimer()
         self.scan_timer.setSingleShot(True)
@@ -155,7 +176,7 @@ class XboxBackupManager(QMainWindow):
         self.browse_target_action.setEnabled(True)
         if self.current_directory:
             self.toolbar_scan_action.setEnabled(True)
-            self.start_watching_directory()
+            # Directory watching is now handled by DirectoryManager in load_settings()
             self.scan_directory()
 
         self.setup_colors()
@@ -409,6 +430,12 @@ class XboxBackupManager(QMainWindow):
         self.games_table.mouseMoveEvent = self._table_mouse_move_event
 
         main_layout.addWidget(self.games_table)
+
+        # Initialize table manager now that table is created
+        self.table_manager = TableManager(self.games_table, self)
+
+        # Connect table manager signals
+        self.table_manager.selection_changed.connect(self._update_transfer_button_state)
 
     def create_progress_bar(self, main_layout):
         """Create the progress bar"""
@@ -865,7 +892,7 @@ class XboxBackupManager(QMainWindow):
                 self._rescan_transferred_state()
             else:
                 # Selected directory is not accessible
-                QMessageBox.warning(
+                UIUtils.show_warning(
                     self,
                     "Directory Not Accessible",
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
@@ -913,7 +940,7 @@ class XboxBackupManager(QMainWindow):
                 )
             else:
                 # Selected directory is not accessible
-                QMessageBox.warning(
+                UIUtils.show_warning(
                     self,
                     "Directory Not Accessible",
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
@@ -961,7 +988,7 @@ class XboxBackupManager(QMainWindow):
                 )
             else:
                 # Selected directory is not accessible
-                QMessageBox.warning(
+                UIUtils.show_warning(
                     self,
                     "Directory Not Accessible",
                     f"The selected directory is not accessible:\n{normalized_directory}\n\n"
@@ -1056,7 +1083,7 @@ class XboxBackupManager(QMainWindow):
                             break
 
         if not selected_games:
-            QMessageBox.information(
+            UIUtils.show_information(
                 self,
                 "No Games Selected",
                 "Please select games to transfer by checking the boxes.",
@@ -1065,7 +1092,7 @@ class XboxBackupManager(QMainWindow):
 
         # Calculate total size and check disk space
         total_size = sum(game.size_bytes for game in selected_games)
-        size_formatted = self._format_size(total_size)
+        size_formatted = UIUtils.format_file_size(total_size)
 
         if self.current_mode == "usb":
             # Check available disk space
@@ -1080,14 +1107,14 @@ class XboxBackupManager(QMainWindow):
                     "The transfer may fail if there is insufficient space.",
                 )
             elif total_size > available_space:
-                available_formatted = self._format_size(available_space)
+                available_formatted = UIUtils.format_file_size(available_space)
                 QMessageBox.critical(
                     self,
                     "Insufficient Disk Space",
                     f"Not enough space on target device!\n\n"
                     f"Required: {size_formatted}\n"
                     f"Available: {available_formatted}\n"
-                    f"Additional space needed: {self._format_size(total_size - available_space)}",
+                    f"Additional space needed: {UIUtils.format_file_size(total_size - available_space)}",
                 )
                 return
         else:
@@ -1095,9 +1122,9 @@ class XboxBackupManager(QMainWindow):
 
         # Show confirmation with disk space info
         if available_space is not None and self.current_mode == "usb":
-            available_formatted = self._format_size(available_space)
+            available_formatted = UIUtils.format_file_size(available_space)
             remaining_after = available_space - total_size
-            remaining_formatted = self._format_size(remaining_after)
+            remaining_formatted = UIUtils.format_file_size(remaining_after)
 
             space_info = (
                 f"Available space: {available_formatted}\n"
@@ -1180,18 +1207,9 @@ class XboxBackupManager(QMainWindow):
             except Exception:
                 return None
 
-    def _format_size(self, size_bytes: int) -> str:
-        """Format size in bytes to human readable format"""
-        size_formatted = float(size_bytes)
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if size_formatted < 1024.0:
-                break
-            size_formatted /= 1024.0
-        return f"{size_formatted:.1f} {unit}"
-
     def _start_transfer(self, games_to_transfer: List[GameInfo]):
         """Start the transfer process"""
-        self.stop_watching_directory()
+        self.directory_manager.stop_watching_directory()
 
         # Disable UI elements during transfer
         self.toolbar_transfer_action.setEnabled(False)
@@ -1312,7 +1330,7 @@ class XboxBackupManager(QMainWindow):
         self._remove_cancel_button()
 
         # Restart watching directory
-        self.start_watching_directory()
+        self.directory_manager.start_watching_directory()
 
         self.status_manager.show_message("Transfer cancelled")
 
@@ -1413,7 +1431,7 @@ class XboxBackupManager(QMainWindow):
 
         self._remove_cancel_button()
 
-        self.start_watching_directory()
+        self.directory_manager.start_watching_directory()
 
         self.status_manager.show_message("Transfer completed successfully")
 
@@ -1436,7 +1454,7 @@ class XboxBackupManager(QMainWindow):
 
         self._remove_cancel_button()
 
-        self.start_watching_directory()
+        self.directory_manager.start_watching_directory()
 
     def _on_tu_download_started(self, update_name: str):
         """Handle title update download started"""
@@ -1529,42 +1547,24 @@ class XboxBackupManager(QMainWindow):
                 ) or (target_path_by_id.exists() and target_path_by_id.is_dir())
 
     def browse_directory(self):
-        """Open directory selection dialog"""
+        """Open directory selection dialog using DirectoryManager"""
         start_dir = (
             self.current_directory
             if self.current_directory
             else os.path.expanduser("~")
         )
 
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            f"Select {self.platform_names[self.current_platform]} Games Directory",
-            start_dir,
+        directory = self.directory_manager.browse_directory(
+            self, self.platform_names[self.current_platform], start_dir
         )
 
         if directory:
-            # Stop watching old directory
-            self.stop_watching_directory()
-
-            # Clear cache for old directory
-            self._clear_cache_for_directory()
-
-            # Normalize the path for consistent display and usage
-            normalized_directory = os.path.normpath(directory)
-
-            self.current_directory = normalized_directory
-            self.platform_directories[self.current_platform] = normalized_directory
-            self.directory_label.setText(normalized_directory)
-            self.toolbar_scan_action.setEnabled(True)
-            self.status_manager.show_message(
-                f"Selected directory: {normalized_directory}"
-            )
-
-            # Start watching new directory
-            self.start_watching_directory()
-
-            # Start scanning the directory
-            self.scan_directory(force=True)
+            # Use DirectoryManager to set the directory
+            if self.directory_manager.set_current_directory(
+                directory, self.current_platform
+            ):
+                # The signal handlers will take care of updating UI and starting scan
+                pass
 
     def switch_mode(self, mode: str):
         """Switch between FTP and USB modes with proper timeout handling"""
@@ -1625,6 +1625,10 @@ class XboxBackupManager(QMainWindow):
         # Stop any running scanner first
         self._stop_current_scan()
 
+        # Clear current games list
+        self.games.clear()
+        self.game_manager.clear_games()  # Also clear GameManager's games
+
         # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
@@ -1648,7 +1652,7 @@ class XboxBackupManager(QMainWindow):
         )
 
         # Stop watching current directory
-        self.stop_watching_directory()
+        self.directory_manager.stop_watching_directory()
 
         # Switch to new platform
         self.current_platform = platform
@@ -1663,7 +1667,9 @@ class XboxBackupManager(QMainWindow):
         if self.platform_directories[platform]:
             self.current_directory = self.platform_directories[platform]
             self.directory_label.setText(self.current_directory)
-            self.start_watching_directory()
+            # Update DirectoryManager and start watching
+            self.directory_manager.current_directory = self.current_directory
+            self.directory_manager.start_watching_directory()
             self.scan_directory()
         else:
             self.current_directory = ""
@@ -1828,21 +1834,25 @@ class XboxBackupManager(QMainWindow):
         self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
-        # Update colours
-        if self.theme_manager.should_use_dark_mode():
-            self.normal_color = palette.COLOR_TEXT_1
-            self.active_color = palette.COLOR_TEXT_1
-            self.disabled_color = palette.COLOR_DISABLED
-        else:
-            self.normal_color = palette.COLOR_BACKGROUND_6
-            self.active_color = palette.COLOR_BACKGROUND_6
-            self.disabled_color = palette.COLOR_DISABLED
+        # # Update colours
+        # if self.theme_manager.should_use_dark_mode():
+        #     self.normal_color = palette.COLOR_TEXT_1
+        #     self.active_color = palette.COLOR_TEXT_1
+        #     self.disabled_color = palette.COLOR_DISABLED
+        # else:
+        #     self.normal_color = palette.COLOR_BACKGROUND_6
+        #     self.active_color = palette.COLOR_BACKGROUND_6
+        #     self.disabled_color = palette.COLOR_DISABLED
 
         # Refresh table styling to apply theme-aware colors
         if hasattr(self, "games_table"):
             self._configure_table_appearance()
+
+        # Ensure table header remains visible after theme changes
+        if hasattr(self, "table_manager") and self.table_manager:
+            self.table_manager.ensure_header_visible()
 
         self.icon_manager.update_all_icons()
 
@@ -1892,24 +1902,23 @@ class XboxBackupManager(QMainWindow):
             f"{APP_NAME} - {self.platform_names[self.current_platform]} - v{VERSION}"
         )
 
-        # Restore platform directories
-        self.platform_directories = self.settings_manager.load_platform_directories()
+        # Load directories using DirectoryManager
+        self.directory_manager.load_directories_from_settings(self.settings_manager)
 
-        # Load USB target directories
-        self.usb_target_directories = (
-            self.settings_manager.load_usb_target_directories()
-        )
-
-        # Load USB cache directory
-        self.usb_cache_directory = self.settings_manager.load_usb_cache_directory()
-
-        # Load USB content directory
-        self.usb_content_directory = self.settings_manager.load_usb_content_directory()
+        # Update local references from DirectoryManager
+        self.platform_directories = self.directory_manager.platform_directories
+        self.usb_target_directories = self.directory_manager.usb_target_directories
+        self.ftp_target_directories = self.directory_manager.ftp_target_directories
+        self.usb_cache_directory = self.directory_manager.usb_cache_directory
+        self.usb_content_directory = self.directory_manager.usb_content_directory
 
         # Set current source directory
         if self.platform_directories[self.current_platform]:
             self.current_directory = self.platform_directories[self.current_platform]
             self.directory_label.setText(self.current_directory)
+            # Use DirectoryManager for watching
+            self.directory_manager.current_directory = self.current_directory
+            self.directory_manager.start_watching_directory()
 
         # Load FTP settings
         self.ftp_settings = self.settings_manager.load_ftp_settings()
@@ -1996,21 +2005,19 @@ class XboxBackupManager(QMainWindow):
         # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
+            self.directory_manager.platform_directories[self.current_platform] = (
+                self.current_directory
+            )
 
-        # Save all platform directories
-        self.settings_manager.save_platform_directories(self.platform_directories)
+        # Update DirectoryManager with current state
+        self.directory_manager.platform_directories = self.platform_directories
+        self.directory_manager.usb_target_directories = self.usb_target_directories
+        self.directory_manager.ftp_target_directories = self.ftp_target_directories
+        self.directory_manager.usb_cache_directory = self.usb_cache_directory
+        self.directory_manager.usb_content_directory = self.usb_content_directory
 
-        # Save USB target directories
-        self.settings_manager.save_usb_target_directories(self.usb_target_directories)
-
-        # Save USB cache directory
-        self.settings_manager.save_usb_cache_directory(self.usb_cache_directory)
-
-        # Save USB content directory
-        self.settings_manager.save_usb_content_directory(self.usb_content_directory)
-
-        # Save FTP target directories
-        self.settings_manager.save_ftp_target_directories(self.ftp_target_directories)
+        # Save all directories using DirectoryManager
+        self.directory_manager.save_directories_to_settings(self.settings_manager)
 
         # Save FTP settings
         self.settings_manager.save_ftp_settings(self.ftp_settings)
@@ -2029,25 +2036,26 @@ class XboxBackupManager(QMainWindow):
                 self.current_platform, header, sort_column, sort_order
             )
 
-    def start_watching_directory(self):
-        """Start watching the current directory for changes"""
-        if not self.current_directory:
-            return
-
-        # Remove previous paths from watcher
-        watched_paths = self.file_watcher.directories()
-        if watched_paths:
-            self.file_watcher.removePaths(watched_paths)
-
-        # Add current directory to watcher
-        if os.path.exists(self.current_directory):
-            self.file_watcher.addPath(self.current_directory)
-
-    def stop_watching_directory(self):
-        """Stop watching the current directory"""
-        watched_paths = self.file_watcher.directories()
-        if watched_paths:
-            self.file_watcher.removePaths(watched_paths)
+    # Directory watching is now handled by DirectoryManager
+    # def start_watching_directory(self):
+    #     """Start watching the current directory for changes"""
+    #     if not self.current_directory:
+    #         return
+    #
+    #     # Remove previous paths from watcher
+    #     watched_paths = self.file_watcher.directories()
+    #     if watched_paths:
+    #         self.file_watcher.removePaths(watched_paths)
+    #
+    #     # Add current directory to watcher
+    #     if os.path.exists(self.current_directory):
+    #         self.file_watcher.addPath(self.current_directory)
+    #
+    # def stop_watching_directory(self):
+    #     """Stop watching the current directory"""
+    #     watched_paths = self.file_watcher.directories()
+    #     if watched_paths:
+    #         self.file_watcher.removePaths(watched_paths)
 
     def on_directory_changed(self, path: str):
         """Handle directory changes detected by file system watcher"""
@@ -2061,55 +2069,40 @@ class XboxBackupManager(QMainWindow):
                 f"Directory changed - rescanning in {self.scan_delay//1000}s..."
             )
 
-    def delayed_scan(self):
-        """Perform delayed scan after directory changes"""
-        if self.current_directory and os.path.exists(self.current_directory):
-            self.scan_directory()
+    def _on_directory_changed(self, new_directory: str):
+        """Handle directory change from DirectoryManager"""
+        self.current_directory = new_directory
+        self.platform_directories[self.current_platform] = new_directory
+        self.directory_label.setText(new_directory)
+        self.toolbar_scan_action.setEnabled(True)
+        self.status_manager.show_message(f"Selected directory: {new_directory}")
 
-    def _stop_current_scan(self):
-        """Stop any currently running scan"""
-        if hasattr(self, "scanner") and self.scanner and self.scanner.isRunning():
-            self.scanner.should_stop = True
-            self.scanner.terminate()
-            self.scanner.wait(1000)  # Wait up to 1 second for clean shutdown
+        # Clear cache for old directory
+        self._clear_cache_for_directory()
 
-            # Reset UI state
-            self.progress_bar.setVisible(False)
-            self.toolbar_scan_action.setEnabled(True)
-            self.browse_action.setEnabled(True)
-            self.browse_target_action.setEnabled(True)
+        # Start scanning the new directory
+        self.scan_directory(force=True)
 
-    def scan_directory(self, force: bool = False):
-        """Start scanning the selected directory"""
-        if not self.current_directory:
-            return
+    def _on_directory_files_changed(self):
+        """Handle file changes in watched directory"""
+        # Clear cache when directory changes
+        self._clear_cache_for_directory()
+        # Use timer to debounce rapid file system events
+        self.scan_timer.stop()
+        self.scan_timer.start(self.scan_delay)
+        self.status_manager.show_message(
+            f"Directory changed - rescanning in {self.scan_delay//1000}s..."
+        )
 
-        # Stop any existing scan first
-        self._stop_current_scan()
-
+    def _on_scan_started(self):
+        """Handle scan start from GameManager"""
         self._is_scanning = True
-
         # Disconnect the itemChanged signal to prevent firing during bulk operations
         try:
             self.games_table.itemChanged.disconnect(self._on_checkbox_changed)
         except TypeError:
             # Signal wasn't connected, which is fine
             pass
-
-        # Try to load from cache first
-        if self._load_scan_cache() and not force:
-            self._is_scanning = False
-            self.status_manager.show_games_status()
-
-            # Update transferred states in background
-            QTimer.singleShot(100, self._rescan_transferred_state)
-            return
-
-        # Store current sort settings before clearing table
-        if hasattr(self.games_table, "horizontalHeader"):
-            header = self.games_table.horizontalHeader()
-            self.current_sort_column = header.sortIndicatorSection()
-            self.current_sort_order = header.sortIndicatorOrder()
 
         # Clear previous results
         self.games.clear()
@@ -2122,44 +2115,191 @@ class XboxBackupManager(QMainWindow):
         self.browse_action.setEnabled(False)
         self.browse_target_action.setEnabled(False)
 
-        # Start scanning thread
-        self.scanner = DirectoryScanner(
-            self.current_directory,
-            platform=self.current_platform,
-        )
-        self.scanner.progress.connect(self.update_progress)
-        self.scanner.game_found.connect(self.add_game)
-        self.scanner.finished.connect(self.scan_finished)
-        self.scanner.error.connect(self.scan_error)
-        self.scanner.start()
-
         self.status_manager.show_permanent_message("Scanning directory...")
 
-    def update_progress(self, current: int, total: int):
-        """Update progress bar"""
+    def _on_scan_progress(self, current: int, total: int):
+        """Handle scan progress from GameManager"""
         if total > 0:
             percentage = int((current / total) * 100)
             self.progress_bar.setValue(percentage)
 
-    def add_game(self, game_info: GameInfo):
-        """Add a game to the table"""
-        self.games.append(game_info)
+    def _on_scan_complete(self, games: List[GameInfo]):
+        """Handle scan completion from GameManager"""
+        self.games = games
 
-        # Disable sorting during bulk insertion
-        self.games_table.setSortingEnabled(False)
+        # Populate the table using TableManager - use refresh to replace all data
+        if self.table_manager:
+            self.table_manager.refresh_games(games)
 
-        row = self.games_table.rowCount()
-        self.games_table.insertRow(row)
-        self.games_table.setRowHeight(row, 72)
+        self._finalize_scan()
 
-        # Determine if we should show DLCs column based on platform
-        show_dlcs = self.current_platform == "xbla"
+    def _on_scan_error(self, error_message: str):
+        """Handle scan error from GameManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_scan_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        self._is_scanning = False
 
-        # Create table items
-        self._create_table_items(row, game_info, show_dlcs)
+        UIUtils.show_critical(
+            self, "Scan Error", f"Failed to scan directory: {error_message}"
+        )
 
-        # Update status
-        self.status_manager.show_permanent_message(f"Found {len(self.games)} games...")
+    def _on_transfer_started(self):
+        """Handle transfer start from TransferManager"""
+        self.directory_manager.stop_watching_directory()
+
+        # Disable UI elements during transfer
+        self.toolbar_transfer_action.setEnabled(False)
+        self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Show progress bar
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+    def _on_transfer_progress(self, current: int, total: int, current_game: str):
+        """Handle transfer progress from TransferManager"""
+        if total > 0:
+            percentage = int((current / total) * 100)
+            self.progress_bar.setValue(percentage)
+            self.status_manager.show_permanent_message(
+                f"Transferring {current_game} ({current}/{total})"
+            )
+
+    def _on_transfer_complete(self):
+        """Handle transfer completion from TransferManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.directory_manager.start_watching_directory()
+        self.status_manager.show_message("Transfer completed successfully")
+        self._update_transfer_button_state()
+
+    def _on_transfer_error(self, error_message: str):
+        """Handle transfer error from TransferManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.directory_manager.start_watching_directory()
+        UIUtils.show_critical(
+            self, "Transfer Error", f"Transfer failed: {error_message}"
+        )
+        self._update_transfer_button_state()
+
+    def _on_transfer_cancelled(self):
+        """Handle transfer cancellation from TransferManager"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self.directory_manager.start_watching_directory()
+        self.status_manager.show_message("Transfer cancelled")
+        self._update_transfer_button_state()
+
+    def delayed_scan(self):
+        """Perform delayed scan after directory changes"""
+        if self.current_directory and os.path.exists(self.current_directory):
+            self.scan_directory()
+
+    def _stop_current_scan(self):
+        """Stop any currently running scan"""
+        # Use GameManager's safe stop method
+        if self.game_manager.is_scanning:
+            self.game_manager.stop_scan()
+
+            # Reset UI state
+            self.progress_bar.setVisible(False)
+            self.toolbar_scan_action.setEnabled(True)
+            self.browse_action.setEnabled(True)
+            self.browse_target_action.setEnabled(True)
+
+    def scan_directory(self, force: bool = False):
+        """Start scanning the selected directory using GameManager"""
+        if not self.current_directory:
+            return
+
+        # Stop any existing scan first
+        self._stop_current_scan()
+
+        # Try to load from cache first
+        if self._load_scan_cache() and not force:
+            self.status_manager.show_games_status()
+            # Update transferred states in background
+            QTimer.singleShot(100, self._rescan_transferred_state)
+            return
+
+        # Store current sort settings before clearing table
+        if hasattr(self.games_table, "horizontalHeader"):
+            header = self.games_table.horizontalHeader()
+            self.current_sort_column = header.sortIndicatorSection()
+            self.current_sort_order = header.sortIndicatorOrder()
+
+        # Start scan using GameManager - use refresh_scan to clear previous games
+        self.game_manager.refresh_scan(self.current_directory, self.current_platform)
+
+    def _finalize_scan(self):
+        """Finalize the scan process"""
+        self.progress_bar.setVisible(False)
+        self.toolbar_scan_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+
+        self._is_scanning = False
+
+        game_count = len(self.games)
+
+        # Re-enable sorting and restore previous sort settings
+        self.games_table.setSortingEnabled(True)
+
+        # Connect the checkbox signal AFTER all items are created
+        self.games_table.itemChanged.connect(self._on_checkbox_changed)
+
+        # Apply the previous sort order, or default to Game Name
+        if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
+            self.games_table.sortItems(
+                self.current_sort_column, self.current_sort_order
+            )
+        else:
+            # Default sort (Game Name column is now column 3)
+            self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
+
+        # Re-apply search filter if search bar is visible
+        if self.search_input.isVisible() and self.search_input.text():
+            self.filter_games(self.search_input.text())
+
+        # Update transfer button state
+        self._update_transfer_button_state()
+
+        # Save scan results to cache
+        if game_count > 0:
+            self._save_scan_cache()
+
+        # Download icons for games that don't have them cached
+        if game_count > 0:
+            self.download_missing_icons()
+
+        # Update transferred states after scan completion
+        if game_count > 0:
+            QTimer.singleShot(100, self._rescan_transferred_state)
+
+        if game_count == 0:
+            self.status_manager.show_permanent_message("Scan complete - no games found")
+        else:
+            self.status_manager.show_games_status()
 
     def _on_checkbox_changed(self, item):
         """Handle checkbox state changes"""
@@ -2196,170 +2336,10 @@ class XboxBackupManager(QMainWindow):
             if selected_games > 0:
                 plural = "s" if selected_games > 1 else ""
                 self.status_manager.show_permanent_message(
-                    f"{selected_games} game{plural} selected ({self._format_size(selected_size)})"
+                    f"{selected_games} game{plural} selected ({UIUtils.format_file_size(selected_size)})"
                 )
             else:
                 self.status_bar.clearMessage()
-
-    def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
-        """Create and populate table items for a game row"""
-        col_index = 0
-
-        # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")  # Empty text is important
-        checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
-        checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        # Center the checkbox both horizontally and vertically
-        checkbox_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
-        )
-        # Ensure no text content interferes with checkbox positioning
-        checkbox_item.setText("")
-        checkbox_item.setData(Qt.ItemDataRole.DisplayRole, "")
-        self.games_table.setItem(row, col_index, checkbox_item)
-        col_index += 1
-
-        # Icon column
-        icon_item = QTableWidgetItem("")  # Empty text
-        icon_item.setFlags(icon_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-        # Add icon if we have it cached
-        if game_info.title_id in self.icon_cache:
-            pixmap = self.icon_cache[game_info.title_id]
-            # Scale pixmap to proper size
-            scaled_pixmap = pixmap.scaled(
-                48,
-                48,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            icon = QIcon(scaled_pixmap)
-            icon_item.setIcon(icon)
-
-        self.games_table.setItem(row, col_index, icon_item)
-        col_index += 1
-
-        # Title ID column
-        title_id_item = QTableWidgetItem(game_info.title_id)
-        title_id_item.setData(Qt.ItemDataRole.UserRole, game_info.title_id)
-        title_id_item.setFlags(title_id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, title_id_item)
-        col_index += 1
-
-        # Game Name column
-        name_item = QTableWidgetItem(game_info.name)
-        name_item.setData(Qt.ItemDataRole.UserRole, game_info.name)
-        name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, name_item)
-        col_index += 1
-
-        # Media ID column
-        if self.current_platform in ["xbox360", "xbla"]:
-            media_id_text = game_info.media_id if game_info.media_id else ""
-            media_id_item = QTableWidgetItem(media_id_text)
-            media_id_item.setData(Qt.ItemDataRole.UserRole, media_id_text)
-            media_id_item.setFlags(media_id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.games_table.setItem(row, col_index, media_id_item)
-            col_index += 1
-
-        # Size column
-        size_item = SizeTableWidgetItem(game_info.size_formatted, game_info.size_bytes)
-        size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, size_item)
-        col_index += 1
-
-        # DLCs column (XBLA only)
-        if show_dlcs:
-            dlc_folder = Path(game_info.folder_path) / "00000002"
-            if dlc_folder.exists() and dlc_folder.is_dir():
-                dlcs_count = len([f for f in dlc_folder.iterdir() if f.is_file()])
-            else:
-                dlcs_count = 0
-
-            dlc_item = QTableWidgetItem(str(dlcs_count))
-            dlc_item.setData(Qt.ItemDataRole.UserRole, dlcs_count)
-            dlc_item.setFlags(dlc_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            dlc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.games_table.setItem(row, col_index, dlc_item)
-            col_index += 1
-
-        # Transferred status column - centered
-        is_transferred = self._check_if_transferred(game_info)
-        status_text = "✔️" if is_transferred else "❌"
-        status_item = QTableWidgetItem(status_text)
-        status_item.setData(Qt.ItemDataRole.UserRole, is_transferred)
-        status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.games_table.setItem(row, col_index, status_item)
-        col_index += 1
-
-        # Source Path column (always last)
-        path_item = QTableWidgetItem(game_info.folder_path)
-        path_item.setData(Qt.ItemDataRole.UserRole, game_info.folder_path)
-        path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, path_item)
-
-    def scan_finished(self):
-        """Handle scan completion"""
-        self.progress_bar.setVisible(False)
-        self.toolbar_scan_action.setEnabled(True)
-        self.browse_action.setEnabled(True)
-        self.browse_target_action.setEnabled(True)
-
-        self._is_scanning = False
-
-        # Clean up scanner reference
-        if hasattr(self, "scanner"):
-            self.scanner = None
-
-        game_count = len(self.games)
-        total_size = sum(game.size_bytes for game in self.games)
-
-        # Format total size
-        size_formatted = total_size
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if size_formatted < 1024.0:
-                break
-            size_formatted /= 1024.0
-
-        # Re-enable sorting and restore previous sort settings
-        self.games_table.setSortingEnabled(True)
-
-        # Connect the checkbox signal AFTER all items are created
-        self.games_table.itemChanged.connect(self._on_checkbox_changed)
-
-        # Apply the previous sort order, or default to Game Name
-        if hasattr(self, "current_sort_column") and hasattr(self, "current_sort_order"):
-            # Adjust sort column if needed (because we added checkbox column)
-            if self.current_sort_column >= 1:
-                self.current_sort_column += 1  # Shift right due to checkbox column
-            self.games_table.sortItems(
-                self.current_sort_column, self.current_sort_order
-            )
-        else:
-            # Default sort (Game Name column is now column 3)
-            self.games_table.sortItems(3, Qt.SortOrder.AscendingOrder)
-
-        # Re-apply search filter if search bar is visible
-        if self.search_input.isVisible() and self.search_input.text():
-            self.filter_games(self.search_input.text())
-
-        # Update transfer button state
-        self._update_transfer_button_state()
-
-        # Save scan results to cache
-        if game_count > 0:
-            self._save_scan_cache()
-
-        # Download icons for games that don't have them cached
-        if game_count > 0:
-            self.download_missing_icons()
-
-        if game_count == 0:
-            self.status_manager.show_permanent_message("Scan complete - no games found")
-        else:
-            self.status_manager.show_games_status()
 
     def download_missing_icons(self):
         """Download icons for games that don't have them cached"""
@@ -2413,69 +2393,12 @@ class XboxBackupManager(QMainWindow):
         self.status_manager.show_message("Icon downloads completed")
 
     def setup_table(self):
-        """Setup the games table widget"""
-        # Determine if we should show DLCs column based on platform
-        show_dlcs = self.current_platform == "xbla"
-
-        # Set columns and headers
-        if show_dlcs:
-            self.games_table.setColumnCount(9)
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Media ID",
-                "Size",
-                "DLCs",
-                "Transferred",
-                "Source Path",
-            ]
-        elif self.current_platform in ["xbox360", "xbla"]:
-            self.games_table.setColumnCount(8)
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Media ID",
-                "Size",
-                "Transferred",
-                "Source Path",
-            ]
-        else:
-            # Xbox has no media ID or DLCs
-            self.games_table.setColumnCount(7)
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Size",
-                "Transferred",
-                "Source Path",
-            ]
-
-        self.games_table.setHorizontalHeaderLabels(headers)
-
-        # Set custom header to disable sorting on columns 0 and 1 (Select and Icon)
-        custom_header = NonSortableHeaderView(
-            Qt.Orientation.Horizontal, self.games_table
-        )
-        self.games_table.setHorizontalHeader(custom_header)
-
-        # Set up custom icon delegate for proper icon rendering
-        icon_delegate = IconDelegate(self.theme_manager)
-        self.games_table.setItemDelegateForColumn(1, icon_delegate)  # Icon column
-
-        # Configure column widths and resize modes
-        self._setup_table_columns(show_dlcs)
-
-        # Configure table appearance and behavior
-        self._configure_table_appearance()
-
-        # Load saved table settings
-        self._load_table_settings()
+        """Setup the games table widget using TableManager"""
+        if self.table_manager:
+            self.table_manager.set_platform(self.current_platform)
+            # Reapply table appearance styling after platform change
+            self._configure_table_appearance()
+            self._load_table_settings()
 
     def _setup_table_columns(self, show_dlcs: bool):
         """Setup table column widths and resize modes"""
@@ -3432,7 +3355,7 @@ class XboxBackupManager(QMainWindow):
     def closeEvent(self, event):
         """Handle application close event"""
         # Stop file system watcher
-        self.stop_watching_directory()
+        self.directory_manager.stop_watching_directory()
 
         # Stop any running scans
         self._stop_current_scan()
@@ -4940,10 +4863,9 @@ class XboxBackupManager(QMainWindow):
                     "size_formatted": game.size_formatted,
                     "transferred": game.transferred,
                     "last_modified": getattr(game, "last_modified", 0),
-                    "media_id": getattr(game, "media_id", None),  # Save media_id
-                    "is_extracted_iso": getattr(
-                        game, "is_extracted_iso", False
-                    ),  # Save extracted ISO flag
+                    "media_id": getattr(game, "media_id", None),
+                    "is_extracted_iso": getattr(game, "is_extracted_iso", False),
+                    "dlc_count": getattr(game, "dlc_count", 0),
                 }
                 cache_data["games"].append(game_data)
 
@@ -4974,10 +4896,7 @@ class XboxBackupManager(QMainWindow):
 
             # Load games from cache
             self.games.clear()
-            self.games_table.setRowCount(0)
-
-            # Disable sorting during bulk insertion
-            self.games_table.setSortingEnabled(False)
+            cached_games = []
 
             for game_data in cache_data["games"]:
                 game_info = GameInfo(
@@ -4986,29 +4905,20 @@ class XboxBackupManager(QMainWindow):
                     folder_path=game_data["folder_path"],
                     size_bytes=game_data["size_bytes"],
                     size_formatted=game_data["size_formatted"],
-                    is_extracted_iso=game_data.get(
-                        "is_extracted_iso", False
-                    ),  # Handle new field
+                    is_extracted_iso=game_data.get("is_extracted_iso", False),
+                    dlc_count=game_data.get("dlc_count", 0),
                 )
                 game_info.transferred = game_data.get("transferred", False)
                 game_info.last_modified = game_data.get("last_modified", 0)
                 game_info.media_id = game_data.get("media_id")  # Handle media_id field
 
-                self.games.append(game_info)
+                cached_games.append(game_info)
 
-                # Add to table
-                row = self.games_table.rowCount()
-                self.games_table.insertRow(row)
-                self.games_table.setRowHeight(row, 72)
+            # Use TableManager to populate the table consistently
+            self.games = cached_games
 
-                show_dlcs = self.current_platform == "xbla"
-                self._create_table_items(row, game_info, show_dlcs)
-
-            # Re-enable sorting
-            self.games_table.setSortingEnabled(True)
-
-            # Connect checkbox signal
-            self.games_table.itemChanged.connect(self._on_checkbox_changed)
+            if self.table_manager:
+                self.table_manager.refresh_games(self.games)
 
             # Update status
             game_count = len(self.games)
@@ -5347,17 +5257,3 @@ class NonSortableHeaderView(QHeaderView):
     def leaveEvent(self, event):
         self.setCursor(Qt.CursorShape.ArrowCursor)
         super().leaveEvent(event)
-
-
-class SizeTableWidgetItem(QTableWidgetItem):
-    """Custom table widget item that sorts by byte values instead of text"""
-
-    def __init__(self, formatted_text: str, size_bytes: int):
-        super().__init__(formatted_text)
-        self.size_bytes = size_bytes
-
-    def __lt__(self, other):
-        """Override less than operator for proper sorting"""
-        if isinstance(other, SizeTableWidgetItem):
-            return self.size_bytes < other.size_bytes
-        return super().__lt__(other)

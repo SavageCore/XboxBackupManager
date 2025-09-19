@@ -262,6 +262,9 @@ class DirectoryScanner(QThread):
                 if god_info.get("icon_base64"):
                     self._cache_god_icon(title_id, god_info["icon_base64"])
 
+                # Get DLC count
+                dlc_count = self.get_dlc_count(folder_path)
+
             # Get title name - prioritize extracted name, then fallback to title ID
             if game_name:
                 name = game_name
@@ -280,6 +283,7 @@ class DirectoryScanner(QThread):
                 size_formatted=self._format_size(size_bytes),
                 media_id=media_id,
                 is_extracted_iso=False,  # XBLA games are not extracted ISOs
+                dlc_count=dlc_count,  # Set DLC count
             )
 
             return game_info
@@ -418,3 +422,13 @@ class DirectoryScanner(QThread):
 
         except Exception as e:
             print(f"Failed to cache XBE icon for {title_id}: {e}")
+
+    def get_dlc_count(self, folder_path: str) -> int:
+        """Get the number of DLCs associated with a game by title ID"""
+        dlc_folder = Path(folder_path) / "00000002"
+        if dlc_folder.exists() and dlc_folder.is_dir():
+            dlcs_count = len([f for f in dlc_folder.iterdir() if f.is_file()])
+        else:
+            dlcs_count = 0
+
+        return dlcs_count
