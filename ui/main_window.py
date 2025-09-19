@@ -1626,6 +1626,10 @@ class XboxBackupManager(QMainWindow):
         # Stop any running scanner first
         self._stop_current_scan()
 
+        # Clear current games list
+        self.games.clear()
+        self.game_manager.clear_games()  # Also clear GameManager's games
+
         # Save current directories for current platform
         if self.current_directory:
             self.platform_directories[self.current_platform] = self.current_directory
@@ -2255,8 +2259,8 @@ class XboxBackupManager(QMainWindow):
             self.current_sort_column = header.sortIndicatorSection()
             self.current_sort_order = header.sortIndicatorOrder()
 
-        # Start scan using GameManager
-        self.game_manager.start_scan(self.current_directory, self.current_platform)
+        # Start scan using GameManager - use refresh_scan to clear previous games
+        self.game_manager.refresh_scan(self.current_directory, self.current_platform)
 
     # Old progress method - now handled by GameManager signals
     # def update_progress(self, current: int, total: int):
@@ -5014,10 +5018,7 @@ class XboxBackupManager(QMainWindow):
 
             # Load games from cache
             self.games.clear()
-            self.games_table.setRowCount(0)
-
-            # Disable sorting during bulk insertion
-            self.games_table.setSortingEnabled(False)
+            cached_games = []
 
             for game_data in cache_data["games"]:
                 game_info = GameInfo(
@@ -5033,21 +5034,13 @@ class XboxBackupManager(QMainWindow):
                 game_info.last_modified = game_data.get("last_modified", 0)
                 game_info.media_id = game_data.get("media_id")  # Handle media_id field
 
-                self.games.append(game_info)
+                cached_games.append(game_info)
 
-                # Add to table
-                row = self.games_table.rowCount()
-                self.games_table.insertRow(row)
-                self.games_table.setRowHeight(row, 72)
-
-                show_dlcs = self.current_platform == "xbla"
-                self._create_table_items(row, game_info, show_dlcs)
-
-            # Re-enable sorting
-            self.games_table.setSortingEnabled(True)
-
-            # Connect checkbox signal
-            self.games_table.itemChanged.connect(self._on_checkbox_changed)
+            # Use TableManager to populate the table consistently
+            self.games = cached_games
+            if self.table_manager:
+                print("Loading games into table from cache...")
+                self.table_manager.refresh_games(self.games)
 
             # Update status
             game_count = len(self.games)

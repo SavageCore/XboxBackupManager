@@ -299,6 +299,12 @@ class TableManager(QObject):
 
     def populate_games(self, games: List[GameInfo]):
         """Populate table with game data, preserving existing entries"""
+        # Store current sorting state
+        was_sorting_enabled = self.table.isSortingEnabled()
+
+        # Temporarily disable sorting during population
+        self.table.setSortingEnabled(False)
+
         # Get existing title IDs to avoid duplicates
         existing_title_ids = set()
         for row in range(self.table.rowCount()):
@@ -313,10 +319,24 @@ class TableManager(QObject):
                 self.table.insertRow(row)
                 self._add_game_row(row, game)
 
+        # Restore sorting state
+        self.table.setSortingEnabled(was_sorting_enabled)
+
     def refresh_games(self, games: List[GameInfo]):
         """Completely refresh table with new games"""
+        # Get current sort state before clearing
+        sort_column, sort_order = self.get_sort_state()
+
+        # Temporarily disable sorting to prevent interference during population
+        self.table.setSortingEnabled(False)
+
+        # Clear and populate table
         self.table.setRowCount(0)
         self.populate_games(games)
+
+        # Re-enable sorting and apply the previous sort state
+        self.table.setSortingEnabled(True)
+        self.set_sort_state(sort_column, sort_order)
 
     def clear_games(self):
         """Clear all games from table"""
