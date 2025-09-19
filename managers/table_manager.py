@@ -116,8 +116,8 @@ class TableManager(QObject):
 
         self.table.setHorizontalHeaderLabels(headers)
 
-        # Set up icon delegate for the first column
-        self.table.setItemDelegateForColumn(0, IconDelegate())
+        # Set up icon delegate for the icon column (column 1)
+        self.table.setItemDelegateForColumn(1, IconDelegate())
 
         # Set row height to accommodate larger icons
         self.table.verticalHeader().setDefaultSectionSize(70)

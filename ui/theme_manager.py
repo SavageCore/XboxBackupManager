@@ -1,8 +1,9 @@
 import darkdetect  # type: ignore
 from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication
-from qdarkstyle.dark.palette import DarkPalette  # type: ignore
-from qdarkstyle.light.palette import LightPalette  # type: ignore
+
+# from qdarkstyle.dark.palette import DarkPalette  # type: ignore
+# from qdarkstyle.light.palette import LightPalette  # type: ignore
 from qt_material import apply_stylesheet  # type: ignore
 
 
@@ -127,12 +128,12 @@ class ThemeManager(QObject):
             current_stylesheet = app.styleSheet()
             app.setStyleSheet(current_stylesheet + menu_styling)
 
-    def get_palette(self):
-        """Get the current color palette"""
-        if self.should_use_dark_mode():
-            return DarkPalette
-        else:
-            return LightPalette
+    # def get_palette(self):
+    #     """Get the current color palette"""
+    #     if self.should_use_dark_mode():
+    #         return DarkPalette
+    #     else:
+    #         return LightPalette
 
     def set_override(self, override_value):
         """Set theme override"""

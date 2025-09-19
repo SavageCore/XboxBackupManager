@@ -1831,17 +1831,17 @@ class XboxBackupManager(QMainWindow):
         self.setStyleSheet(stylesheet)
         self.update_theme_menu_state()
 
-        palette = self.theme_manager.get_palette()
+        # palette = self.theme_manager.get_palette()
 
-        # Update colours
-        if self.theme_manager.should_use_dark_mode():
-            self.normal_color = palette.COLOR_TEXT_1
-            self.active_color = palette.COLOR_TEXT_1
-            self.disabled_color = palette.COLOR_DISABLED
-        else:
-            self.normal_color = palette.COLOR_BACKGROUND_6
-            self.active_color = palette.COLOR_BACKGROUND_6
-            self.disabled_color = palette.COLOR_DISABLED
+        # # Update colours
+        # if self.theme_manager.should_use_dark_mode():
+        #     self.normal_color = palette.COLOR_TEXT_1
+        #     self.active_color = palette.COLOR_TEXT_1
+        #     self.disabled_color = palette.COLOR_DISABLED
+        # else:
+        #     self.normal_color = palette.COLOR_BACKGROUND_6
+        #     self.active_color = palette.COLOR_BACKGROUND_6
+        #     self.disabled_color = palette.COLOR_DISABLED
 
         # Refresh table styling to apply theme-aware colors
         if hasattr(self, "games_table"):
