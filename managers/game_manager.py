@@ -61,13 +61,33 @@ class GameManager(QObject):
     def _on_scan_complete(self):
         """Handle scan completion"""
         self.is_scanning = False
-        self.current_scanner = None
+
+        # Safely clean up the scanner thread
+        if self.current_scanner:
+            # Disconnect signals to prevent any late emissions
+            self.current_scanner.disconnect()
+            # Wait for thread to finish properly
+            if self.current_scanner.isRunning():
+                self.current_scanner.wait(2000)  # Wait up to 2 seconds
+            # Clear reference
+            self.current_scanner = None
+
         self.scan_complete.emit(self.games)
 
     def _on_scan_error(self, error_message: str):
         """Handle scan error"""
         self.is_scanning = False
-        self.current_scanner = None
+
+        # Safely clean up the scanner thread
+        if self.current_scanner:
+            # Disconnect signals to prevent any late emissions
+            self.current_scanner.disconnect()
+            # Wait for thread to finish properly
+            if self.current_scanner.isRunning():
+                self.current_scanner.wait(2000)  # Wait up to 2 seconds
+            # Clear reference
+            self.current_scanner = None
+
         self.scan_error.emit(error_message)
 
     def get_games(self) -> List[GameInfo]:
@@ -135,6 +155,28 @@ class GameManager(QObject):
         return (target_path_by_name.exists() and target_path_by_name.is_dir()) or (
             target_path_by_id.exists() and target_path_by_id.is_dir()
         )
+
+    def stop_scan(self):
+        """Stop the current scan safely"""
+        if self.is_scanning and self.current_scanner:
+            # Set stop flag
+            self.current_scanner.should_stop = True
+
+            # Disconnect signals to prevent issues during cleanup
+            self.current_scanner.disconnect()
+
+            # Terminate and wait for thread to finish
+            self.current_scanner.terminate()
+            if not self.current_scanner.wait(3000):  # Wait up to 3 seconds
+                # Force quit if still running after 3 seconds
+                self.current_scanner.quit()
+                self.current_scanner.wait(1000)
+
+            # Clear scanner reference
+            self.current_scanner = None
+
+        # Always reset scanning state
+        self.is_scanning = False
 
     def clear_games(self):
         """Clear all games"""

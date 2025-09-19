@@ -2217,19 +2217,9 @@ class XboxBackupManager(QMainWindow):
 
     def _stop_current_scan(self):
         """Stop any currently running scan"""
-        # Stop scan via GameManager
+        # Use GameManager's safe stop method
         if self.game_manager.is_scanning:
-            if (
-                hasattr(self.game_manager, "current_scanner")
-                and self.game_manager.current_scanner
-            ):
-                self.game_manager.current_scanner.should_stop = True
-                self.game_manager.current_scanner.terminate()
-                self.game_manager.current_scanner.wait(1000)
-
-            # Reset GameManager state
-            self.game_manager.is_scanning = False
-            self.game_manager.current_scanner = None
+            self.game_manager.stop_scan()
 
             # Reset UI state
             self.progress_bar.setVisible(False)
@@ -4928,7 +4918,6 @@ class XboxBackupManager(QMainWindow):
             self.games = cached_games
 
             if self.table_manager:
-                print("Loading games into table from cache...")
                 self.table_manager.refresh_games(self.games)
 
             # Update status
