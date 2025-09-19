@@ -44,7 +44,6 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -2262,28 +2261,6 @@ class XboxBackupManager(QMainWindow):
         # Start scan using GameManager - use refresh_scan to clear previous games
         self.game_manager.refresh_scan(self.current_directory, self.current_platform)
 
-    # Old progress method - now handled by GameManager signals
-    # def update_progress(self, current: int, total: int):
-    #     """Update progress bar"""
-    #     if total > 0:
-    #         percentage = int((current / total) * 100)
-    #         self.progress_bar.setValue(percentage)
-
-    def _add_game_to_table(self, game_info: GameInfo):
-        """Add a game to the table"""
-        # Disable sorting during bulk insertion
-        self.games_table.setSortingEnabled(False)
-
-        row = self.games_table.rowCount()
-        self.games_table.insertRow(row)
-        self.games_table.setRowHeight(row, 72)
-
-        # Determine if we should show DLCs column based on platform
-        show_dlcs = self.current_platform == "xbla"
-
-        # Create table items
-        self._create_table_items(row, game_info, show_dlcs)
-
     def _finalize_scan(self):
         """Finalize the scan process"""
         self.progress_bar.setVisible(False)
@@ -2373,99 +2350,6 @@ class XboxBackupManager(QMainWindow):
                 )
             else:
                 self.status_bar.clearMessage()
-
-    def _create_table_items(self, row: int, game_info: GameInfo, show_dlcs: bool):
-        """Create and populate table items for a game row"""
-        col_index = 0
-
-        # Select checkbox column - properly centered
-        checkbox_item = QTableWidgetItem("")  # Empty text is important
-        checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        checkbox_item.setCheckState(Qt.CheckState.Unchecked)
-        checkbox_item.setFlags(checkbox_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        # Center the checkbox both horizontally and vertically
-        checkbox_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
-        )
-        # Ensure no text content interferes with checkbox positioning
-        checkbox_item.setText("")
-        checkbox_item.setData(Qt.ItemDataRole.DisplayRole, "")
-        self.games_table.setItem(row, col_index, checkbox_item)
-        col_index += 1
-
-        # Icon column
-        icon_item = QTableWidgetItem("")  # Empty text
-        icon_item.setFlags(icon_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-        # Add icon if we have it cached
-        if game_info.title_id in self.icon_cache:
-            pixmap = self.icon_cache[game_info.title_id]
-            # Scale pixmap to proper size
-            scaled_pixmap = pixmap.scaled(
-                64,
-                64,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            icon = QIcon(scaled_pixmap)
-            icon_item.setIcon(icon)
-
-        self.games_table.setItem(row, col_index, icon_item)
-        col_index += 1
-
-        # Title ID column
-        title_id_item = QTableWidgetItem(game_info.title_id)
-        title_id_item.setData(Qt.ItemDataRole.UserRole, game_info.title_id)
-        title_id_item.setFlags(title_id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, title_id_item)
-        col_index += 1
-
-        # Game Name column
-        name_item = QTableWidgetItem(game_info.name)
-        name_item.setData(Qt.ItemDataRole.UserRole, game_info.name)
-        name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, name_item)
-        col_index += 1
-
-        # Media ID column
-        if self.current_platform in ["xbox360", "xbla"]:
-            media_id_text = game_info.media_id if game_info.media_id else ""
-            media_id_item = QTableWidgetItem(media_id_text)
-            media_id_item.setData(Qt.ItemDataRole.UserRole, media_id_text)
-            media_id_item.setFlags(media_id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.games_table.setItem(row, col_index, media_id_item)
-            col_index += 1
-
-        # Size column
-        size_item = SizeTableWidgetItem(game_info.size_formatted, game_info.size_bytes)
-        size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, size_item)
-        col_index += 1
-
-        # DLCs column (XBLA only)
-        if show_dlcs:
-            dlc_item = QTableWidgetItem(str(game_info.dlc_count))
-            dlc_item.setData(Qt.ItemDataRole.UserRole, game_info.dlc_count)
-            dlc_item.setFlags(dlc_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            dlc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.games_table.setItem(row, col_index, dlc_item)
-            col_index += 1
-
-        # Transferred status column - centered
-        is_transferred = self._check_if_transferred(game_info)
-        status_text = "✔️" if is_transferred else "❌"
-        status_item = QTableWidgetItem(status_text)
-        status_item.setData(Qt.ItemDataRole.UserRole, is_transferred)
-        status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.games_table.setItem(row, col_index, status_item)
-        col_index += 1
-
-        # Source Path column (always last)
-        path_item = QTableWidgetItem(game_info.folder_path)
-        path_item.setData(Qt.ItemDataRole.UserRole, game_info.folder_path)
-        path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.games_table.setItem(row, col_index, path_item)
 
     def download_missing_icons(self):
         """Download icons for games that don't have them cached"""
@@ -5384,17 +5268,3 @@ class NonSortableHeaderView(QHeaderView):
     def leaveEvent(self, event):
         self.setCursor(Qt.CursorShape.ArrowCursor)
         super().leaveEvent(event)
-
-
-class SizeTableWidgetItem(QTableWidgetItem):
-    """Custom table widget item that sorts by byte values instead of text"""
-
-    def __init__(self, formatted_text: str, size_bytes: int):
-        super().__init__(formatted_text)
-        self.size_bytes = size_bytes
-
-    def __lt__(self, other):
-        """Override less than operator for proper sorting"""
-        if isinstance(other, SizeTableWidgetItem):
-            return self.size_bytes < other.size_bytes
-        return super().__lt__(other)

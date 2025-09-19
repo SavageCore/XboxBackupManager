@@ -33,6 +33,20 @@ class SelectiveSortHeaderView(QHeaderView):
         super().mousePressEvent(event)
 
 
+class SizeTableWidgetItem(QTableWidgetItem):
+    """Custom table widget item that sorts by byte values instead of text"""
+
+    def __init__(self, formatted_text: str, size_bytes: int):
+        super().__init__(formatted_text)
+        self.size_bytes = size_bytes
+
+    def __lt__(self, other):
+        """Override less than operator for proper sorting"""
+        if isinstance(other, SizeTableWidgetItem):
+            return self.size_bytes < other.size_bytes
+        return super().__lt__(other)
+
+
 class TableManager(QObject):
     """Manages the games table display and interactions"""
 
@@ -125,68 +139,9 @@ class TableManager(QObject):
         # Disable sorting for checkbox and icon columns (this also configures columns)
         self._disable_sorting_for_specific_columns()
 
-    def _configure_columns(self):
-        """Configure table column properties"""
-        header = self.table.horizontalHeader()
-
-        # Checkbox column - fixed width
-        self.table.setColumnWidth(0, 50)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-
-        # Icon column - fixed width for proper icon display
-        self.table.setColumnWidth(1, 70)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-
-        # Set row height to accommodate larger icons
-        self.table.verticalHeader().setDefaultSectionSize(70)
-
-        # Title ID column - fixed width
-        self.table.setColumnWidth(2, 120)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-
-        # Game name column - stretch (column 3)
-        self.table.setColumnWidth(3, 300)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-
-        # Platform-specific column widths
-        if self.current_platform in ["xbox360", "xbla"]:
-            # Media ID column
-            self.table.setColumnWidth(4, 100)
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-
-            # Size column
-            self.table.setColumnWidth(5, 80)
-            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-
-            if self.current_platform == "xbla":
-                # DLCs column
-                self.table.setColumnWidth(6, 70)
-                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-
-                # Transferred column
-                self.table.setColumnWidth(7, 120)
-                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-
-                # Source path - stretch
-                header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
-            else:  # xbox360
-                # Transferred column
-                self.table.setColumnWidth(6, 120)
-                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-
-                # Source path - stretch
-                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
-        else:  # xbox
-            # Size column
-            self.table.setColumnWidth(4, 80)
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-
-            # Transferred column
-            self.table.setColumnWidth(5, 120)
-            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-
-            # Source path - stretch
-            header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+    def _set_custom_size_column(self):
+        """Set the size column to use SizeTableWidgetItem for proper sorting"""
+        # custom_item = SizeTableWidgetItem
 
     def _disable_sorting_for_specific_columns(self):
         """Disable sorting for checkbox (column 0) and icon (column 1) columns"""
@@ -413,10 +368,7 @@ class TableManager(QObject):
 
         # Size column
         size_text = UIUtils.format_file_size(game.size_bytes)
-        size_item = QTableWidgetItem(size_text)
-        size_item.setData(
-            Qt.ItemDataRole.UserRole, game.size_bytes
-        )  # Store raw bytes for sorting
+        size_item = SizeTableWidgetItem(size_text, game.size_bytes)
         size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(row, col_index, size_item)
         col_index += 1
