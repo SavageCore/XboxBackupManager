@@ -25,7 +25,7 @@ class ZipExtractorWorker(QThread):
         self.should_stop = False
 
     def run(self):
-        """Extract the ZIP file with progress reporting"""
+        """Extract the ZIP file with progress reporting using optimized I/O"""
         try:
             # Ensure extraction directory exists
             os.makedirs(self.extract_to, exist_ok=True)
@@ -40,30 +40,53 @@ class ZipExtractorWorker(QThread):
 
                 extracted_files = []
 
-                for i, file_info in enumerate(file_list):
-                    if self.should_stop:
-                        break
-
+                # Use extractall for better performance on large archives
+                if total_files > 100:  # For large archives, use extractall
                     try:
-                        # Extract individual file
-                        zip_ref.extract(file_info, self.extract_to)
-                        extracted_path = os.path.join(
-                            self.extract_to, file_info.filename
-                        )
-                        extracted_files.append(extracted_path)
+                        zip_ref.extractall(self.extract_to)
 
-                        # Emit signals
-                        self.file_extracted.emit(file_info.filename)
+                        # Emit progress in chunks for large extractions
+                        for i in range(0, 101, 10):  # Progress every 10%
+                            if self.should_stop:
+                                break
+                            self.progress.emit(i)
+                            # Small delay to allow UI updates
+                            self.msleep(50)
 
-                        # Calculate and emit progress
-                        progress = int(((i + 1) / total_files) * 100)
-                        self.progress.emit(progress)
+                        if not self.should_stop:
+                            self.progress.emit(100)
 
                     except Exception as e:
                         self.extraction_error.emit(
-                            f"Failed to extract {file_info.filename}: {str(e)}"
+                            f"Failed to extract archive: {str(e)}"
                         )
                         return
+
+                else:  # For smaller archives, extract individually with progress
+                    for i, file_info in enumerate(file_list):
+                        if self.should_stop:
+                            break
+
+                        try:
+                            # Extract individual file
+                            zip_ref.extract(file_info, self.extract_to)
+                            extracted_path = os.path.join(
+                                self.extract_to, file_info.filename
+                            )
+                            extracted_files.append(extracted_path)
+
+                            # Emit signals
+                            self.file_extracted.emit(file_info.filename)
+
+                            # Calculate and emit progress
+                            progress = int(((i + 1) / total_files) * 100)
+                            self.progress.emit(progress)
+
+                        except Exception as e:
+                            self.extraction_error.emit(
+                                f"Failed to extract {file_info.filename}: {str(e)}"
+                            )
+                            return
 
                 if not self.should_stop:
                     # Look for ISO files in extracted content

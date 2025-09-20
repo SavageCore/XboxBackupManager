@@ -3,11 +3,13 @@ import os
 import re
 import shutil
 import struct
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
 
 from utils.settings_manager import SettingsManager
+from utils.system_utils import SystemUtils
 
 # API Configuration
 BASE_URL = "https://xboxunity.net/Api"
@@ -535,9 +537,6 @@ class XboxUnity:
             str: Media ID in uppercase hex format (without 0x prefix)
         """
         try:
-            from pathlib import Path
-            from utils.system_utils import SystemUtils
-
             file_path = Path(file_or_folder_path)
 
             # If it's a file, check what type

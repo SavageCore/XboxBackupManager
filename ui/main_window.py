@@ -19,7 +19,7 @@ from typing import Dict, List
 
 import qtawesome as qta
 import requests
-from PyQt6.QtCore import QFileSystemWatcher, QProcess, QRect, QSize, Qt, QTimer, QUrl
+from PyQt6.QtCore import QFileSystemWatcher, QRect, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
@@ -31,6 +31,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -56,6 +57,7 @@ from managers.game_manager import GameManager
 from managers.table_manager import TableManager
 from managers.transfer_manager import TransferManager
 from models.game_info import GameInfo
+from ui.file_processing_dialog import FileProcessingDialog
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.icon_manager import IconManager
@@ -69,6 +71,7 @@ from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
+from workers.batch_tu_processor import BatchTitleUpdateProcessor
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_connection_tester import FTPConnectionTester
 from workers.ftp_transfer import FTPTransferWorker
@@ -160,6 +163,9 @@ class XboxBackupManager(QMainWindow):
         self._current_transfer_speed = ""
         self._current_transfer_file = ""
         self._current_transfer_speed = ""  # For storing current transfer speed
+
+        # Current processing dialog (to reuse during batch operations)
+        self._current_processing_dialog = None
 
         # Timer to debounce file system events
         self.scan_timer = QTimer()
@@ -2742,8 +2748,6 @@ class XboxBackupManager(QMainWindow):
 
     def batch_download_title_updates(self):
         """Batch download missing title updates for all games in target"""
-        from workers.batch_tu_processor import BatchTitleUpdateProcessor
-
         # Get all games in target directory
         target_games = self._get_all_target_games()
 
@@ -3859,10 +3863,6 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        self.status_manager.show_message(
-            f"Extracting file 1 of {self.total_extraction_batch_files}..."
-        )
-
         # Start with first file
         self._extract_next_batch_file()
 
@@ -3877,13 +3877,6 @@ class XboxBackupManager(QMainWindow):
             self.current_extraction_batch_index
         ]
 
-        # Update status
-        current_file = self.current_extraction_batch_index + 1
-        filename = os.path.basename(self.iso_path)
-        self.status_manager.show_message(
-            f"Extracting file {current_file} of {self.total_extraction_batch_files}: {filename}"
-        )
-
         # Extract current file - this will call the sequential extraction logic
         self._extract_iso()
 
@@ -3895,9 +3888,21 @@ class XboxBackupManager(QMainWindow):
             )
             return
 
-        # If a zip file, extract it first
+        # If a zip file, the unified dialog will handle ZIP extraction automatically
         if self.iso_path.lower().endswith(".zip"):
-            self._extract_zip_then_iso(self.iso_path)
+            # Extract to directory named after ZIP file
+            folder_path = (
+                os.path.dirname(self.iso_path)
+                + f"/{os.path.basename(self.iso_path).replace('.zip', '')}"
+            )
+            # Check if we're in batch mode and not the first file
+            is_batch_mode = hasattr(self, "current_extraction_batch")
+            is_first_file = (
+                not is_batch_mode or self.current_extraction_batch_index == 0
+            )
+            self._extract_iso_directly(
+                self.iso_path, folder_path, reuse_dialog=not is_first_file
+            )
         else:
             # ISO selected directly, extract to its own directory
             folder_path = (
@@ -3907,7 +3912,14 @@ class XboxBackupManager(QMainWindow):
 
             self.temp_iso_path = self.iso_path  # Store for cleanup later
 
-            self._extract_iso_directly(self.iso_path, folder_path)
+            # Check if we're in batch mode and not the first file
+            is_batch_mode = hasattr(self, "current_extraction_batch")
+            is_first_file = (
+                not is_batch_mode or self.current_extraction_batch_index == 0
+            )
+            self._extract_iso_directly(
+                self.iso_path, folder_path, reuse_dialog=not is_first_file
+            )
 
     def _extract_zip_then_iso(self, zip_path):
         """Extract ZIP file first, then extract the ISO"""
@@ -3960,7 +3972,11 @@ class XboxBackupManager(QMainWindow):
             # Store the temp ISO path for cleanup later
             self.temp_iso_path = extracted_iso_path
 
-            self._extract_iso_directly(extracted_iso_path, extract_to_dir)
+            # Use reuse_dialog for batch operations
+            reuse_dialog = hasattr(self, "current_extraction_batch")
+            self._extract_iso_directly(
+                extracted_iso_path, extract_to_dir, reuse_dialog=reuse_dialog
+            )
         else:
             self.status_manager.show_message("ZIP extracted, but no ISO file found")
 
@@ -3974,18 +3990,57 @@ class XboxBackupManager(QMainWindow):
                     f"ZIP file extracted successfully, but no ISO file was found in:\n{extracted_iso_path}",
                 )
 
-    def _extract_iso_directly(self, iso_path, extract_to_dir):
-        """Extract ISO directly with xdvdfs"""
-        self.status_manager.show_message("Extracting ISO...")
-
+    def _extract_iso_directly(self, iso_path, extract_to_dir, reuse_dialog=False):
+        """Extract ISO directly with xdvdfs using progress dialog"""
         # Ensure the output directory exists
         os.makedirs(extract_to_dir, exist_ok=True)
 
-        extraction_process = QProcess(self)
-        extraction_process.setProgram("xdvdfs.exe")
-        extraction_process.setArguments(["unpack", iso_path, extract_to_dir])
-        extraction_process.finished.connect(self._on_extraction_finished)
-        extraction_process.start()
+        if reuse_dialog and self._current_processing_dialog:
+            # Reuse existing dialog for batch operations
+            dialog = self._current_processing_dialog
+            # Reset with explicit parameter names to ensure correct assignment
+            dialog.reset_for_new_operation(
+                operation_type="extract",
+                input_path=iso_path,
+                output_path=extract_to_dir,
+                is_batch_mode=True,
+            )
+            dialog.output_text.clear()
+
+            # Reconnect signals for new operation
+            dialog.processing_complete.disconnect()
+            dialog.processing_error.disconnect()
+            dialog.processing_complete.connect(self._on_extraction_finished)
+            dialog.processing_error.connect(self._on_extraction_failed)
+        else:
+            # Create new dialog
+            dialog = FileProcessingDialog(
+                self,
+                operation_type="extract",
+                input_path=iso_path,
+                output_path=extract_to_dir,
+            )
+
+            # Connect unified signals
+            dialog.processing_complete.connect(self._on_extraction_finished)
+            dialog.processing_error.connect(self._on_extraction_failed)
+
+            # Store reference for potential reuse
+            self._current_processing_dialog = dialog
+
+        # Start the extraction process
+        if not dialog.start_processing():
+            # Failed to start extraction
+            return
+
+        if not reuse_dialog:
+            # Show the dialog (modal) and handle the result
+            result = dialog.exec()
+            if result == QDialog.DialogCode.Rejected:
+                # User cancelled or dialog was closed
+                self._current_processing_dialog = None
+                self._on_extraction_cancelled()
+        # When reusing dialog, it's already shown - just continue processing
 
     def _update_zip_progress(self, progress: int):
         """Update progress bar for ZIP extraction"""
@@ -3994,12 +4049,10 @@ class XboxBackupManager(QMainWindow):
     def _on_file_extracted(self, filename: str):
         """Handle individual file extraction"""
         self.file_path = filename
-        self.status_manager.show_message(f"Extracting: {filename}")
 
     def _on_zip_extraction_error(self, error_message: str):
         """Handle ZIP extraction error"""
         self.progress_bar.setVisible(False)
-        self.status_manager.show_message("ZIP extraction failed")
 
         QMessageBox.critical(
             self,
@@ -4009,8 +4062,67 @@ class XboxBackupManager(QMainWindow):
 
     def _on_extraction_finished(self):
         """Handle extraction process finished"""
-        self.status_manager.show_message("Extraction finished")
+        # Clean up temporary ISO file if it exists
+        if hasattr(self, "temp_iso_path") and self.temp_iso_path:
+            try:
+                if os.path.exists(self.temp_iso_path):
+                    os.remove(self.temp_iso_path)
 
+                    # Also clean up the temp directory if it's empty
+                    temp_dir = os.path.dirname(self.temp_iso_path)
+                    if temp_dir and os.path.basename(temp_dir) == "xbbm_zip_extract":
+                        try:
+                            os.rmdir(temp_dir)  # Only removes if empty
+                        except OSError:
+                            # Directory not empty or other error, ignore
+                            pass
+
+            except OSError as e:
+                print(f"Failed to delete temporary ISO: {e}")
+            finally:
+                # Clear the reference
+                self.temp_iso_path = None
+
+        # If we're in batch mode, move to next file
+        if hasattr(self, "current_extraction_batch"):
+            self._move_to_next_extraction_file()
+
+    def _on_extraction_failed(self, error_message: str):
+        """Handle extraction process failed"""
+        # Clean up temporary ISO file if it exists
+        if hasattr(self, "temp_iso_path") and self.temp_iso_path:
+            try:
+                if os.path.exists(self.temp_iso_path):
+                    os.remove(self.temp_iso_path)
+
+                    # Also clean up the temp directory if it's empty
+                    temp_dir = os.path.dirname(self.temp_iso_path)
+                    if temp_dir and os.path.basename(temp_dir) == "xbbm_zip_extract":
+                        try:
+                            os.rmdir(temp_dir)  # Only removes if empty
+                        except OSError:
+                            # Directory not empty or other error, ignore
+                            pass
+
+            except OSError as e:
+                print(f"Failed to delete temporary ISO: {e}")
+            finally:
+                # Clear the reference
+                self.temp_iso_path = None
+
+        # Show error message
+        QMessageBox.critical(
+            self,
+            "Extraction Error",
+            f"Failed to extract ISO file:\n{error_message}",
+        )
+
+        # If we're in batch mode, move to next file
+        if hasattr(self, "current_extraction_batch"):
+            self._move_to_next_extraction_file()
+
+    def _on_extraction_cancelled(self):
+        """Handle extraction process cancelled"""
         # Clean up temporary ISO file if it exists
         if hasattr(self, "temp_iso_path") and self.temp_iso_path:
             try:
@@ -4058,19 +4170,6 @@ class XboxBackupManager(QMainWindow):
             delattr(self, "current_extraction_batch")
         if hasattr(self, "current_extraction_batch_index"):
             delattr(self, "current_extraction_batch_index")
-        if hasattr(self, "total_extraction_batch_files"):
-            total_completed = self.total_extraction_batch_files
-            delattr(self, "total_extraction_batch_files")
-        else:
-            total_completed = 0
-
-        self.status_manager.show_message("Batch extraction completed")
-
-        QMessageBox.information(
-            self,
-            "Batch Extraction Complete",
-            f"Successfully extracted {total_completed} files.",
-        )
 
     def browse_for_god_creation(self):
         """Browse for ISO files to convert to GOD format"""
@@ -4131,10 +4230,6 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        self.status_manager.show_message(
-            f"Processing file 1 of {self.total_god_batch_files}..."
-        )
-
         # Start with first file
         self._create_next_god_file()
 
@@ -4147,19 +4242,22 @@ class XboxBackupManager(QMainWindow):
 
         self.god_file_path = self.current_god_batch[self.current_god_batch_index]
 
-        # Update status
-        current_file = self.current_god_batch_index + 1
-        filename = os.path.basename(self.god_file_path)
-        self.status_manager.show_message(
-            f"Processing file {current_file} of {self.total_god_batch_files}: {filename}"
-        )
+        # Check if it's a ZIP or ISO - the unified dialog will handle ZIP extraction automatically
+        # Use reuse_dialog=True for batch operations to replace instead of showing new dialogs
+        # Only show dialog for the first file, others reuse silently
+        is_first_file = self.current_god_batch_index == 0
 
-        # Check if it's a ZIP or ISO
         if self.god_file_path.lower().endswith(".zip"):
-            self._extract_zip_then_create_god_batch(self.god_file_path)
+            self._create_god_directly(
+                self.god_file_path,
+                reuse_dialog=not is_first_file,
+            )
         else:
             # ISO file directly
-            self._create_god_directly(self.god_file_path, self.current_directory)
+            self._create_god_directly(
+                self.god_file_path,
+                reuse_dialog=not is_first_file,
+            )
 
     def _extract_zip_then_create_god_batch(self, zip_path):
         """Extract ZIP file in batch mode for GOD creation"""
@@ -4195,8 +4293,8 @@ class XboxBackupManager(QMainWindow):
             # Store temp ISO for cleanup
             self.god_temp_isos.append(extracted_iso_path)
 
-            # Create GOD from extracted ISO
-            self._create_god_directly(extracted_iso_path, self.current_directory)
+            # Create GOD from extracted ISO - use reuse_dialog for batch operations
+            self._create_god_directly(extracted_iso_path, reuse_dialog=True)
         else:
             # No ISO found, move to next file
             self._move_to_next_god_file()
@@ -4220,20 +4318,42 @@ class XboxBackupManager(QMainWindow):
         else:
             self._cancel_batch_god_creation()
 
+    def _cancel_batch_god_creation(self):
+        """Cancel the batch GOD creation process"""
+        self.progress_bar.setVisible(False)
+
+        # Clean up any temp files created so far
+        self._cleanup_god_temp_isos()
+
     def _on_god_creation_finished(self):
         """Handle GOD creation process finished"""
-        self.status_manager.show_message("GOD creation finished")
-
         # Clean up temp ISOs for single file
         self._cleanup_god_temp_isos()
 
-        # Rescan directory to show new GOD files
-        if self.current_directory:
-            self.scan_directory(force=True)
+        # If we're in batch mode, move to next file
+        if hasattr(self, "current_god_batch"):
+            self._move_to_next_god_file()
+        else:
+            # Single file mode - rescan directory to show new GOD files
+            if self.current_directory and self.current_platform == "xbox360":
+                self.scan_directory(force=True)
 
     def _on_batch_god_creation_finished(self):
         """Handle individual GOD creation completion in batch"""
         self._move_to_next_god_file()
+
+    def _move_to_next_god_file(self):
+        """Move to the next file in GOD batch"""
+        self.current_god_batch_index += 1
+
+        # Update overall progress
+        overall_progress = (
+            self.current_god_batch_index / self.total_god_batch_files
+        ) * 100
+        self.progress_bar.setValue(int(overall_progress))
+
+        # Create next GOD file
+        self._create_next_god_file()
 
     def _on_batch_god_creation_complete(self):
         """Handle completion of entire GOD batch"""
@@ -4250,26 +4370,9 @@ class XboxBackupManager(QMainWindow):
         if hasattr(self, "total_god_batch_files"):
             delattr(self, "total_god_batch_files")
 
-        self.status_manager.show_message("Batch GOD creation completed")
-
-        QMessageBox.information(
-            self,
-            "Batch GOD Creation Complete",
-            f"Successfully created GOD files from {self.total_god_batch_files} files.",
-        )
-
         # Rescan directory to show new GOD files
-        if self.current_directory:
+        if self.current_directory and self.current_platform == "xbox360":
             self.scan_directory(force=True)
-
-    def _cancel_batch_god_creation(self):
-        """Cancel the batch GOD creation process"""
-        self.progress_bar.setVisible(False)
-
-        # Clean up any temp files created so far
-        self._cleanup_god_temp_isos()
-
-        self.status_manager.show_message("Batch GOD creation cancelled")
 
     def _cleanup_god_temp_isos(self):
         """Clean up temporary ISO files from GOD creation"""
@@ -4313,17 +4416,15 @@ class XboxBackupManager(QMainWindow):
             )
             return
 
-        # Check if it's a ZIP file
+        # Check if it's a ZIP file - the unified dialog will handle ZIP extraction automatically
         if self.god_file_path.lower().endswith(".zip"):
-            self._extract_zip_then_create_god(self.god_file_path)
+            self._create_god_directly(self.god_file_path)
         else:
             # ISO file directly
-            self._create_god_directly(self.god_file_path, self.current_directory)
+            self._create_god_directly(self.god_file_path)
 
     def _extract_zip_then_create_god(self, zip_path):
         """Extract ZIP file first, then create GOD from the ISO"""
-        self.status_manager.show_message("Extracting ZIP archive for GOD creation...")
-
         # Show progress bar
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -4361,103 +4462,91 @@ class XboxBackupManager(QMainWindow):
             self.god_temp_isos.append(extracted_iso_path)
 
             # Create GOD from extracted ISO
-            self._create_god_directly(extracted_iso_path, self.current_directory)
-        else:
-            self.status_manager.show_message("ZIP extracted, but no ISO file found")
-            QMessageBox.information(
-                self,
-                "No ISO Found",
-                f"ZIP file extracted successfully, but no ISO file was found in:\n{extracted_iso_path}",
-            )
+            self._create_god_directly(extracted_iso_path)
 
     def _on_god_zip_extraction_error(self, error_message: str):
         """Handle ZIP extraction error during GOD creation"""
         self.progress_bar.setVisible(False)
-        self.status_manager.show_message("ZIP extraction failed")
 
-        QMessageBox.critical(
-            self,
-            "ZIP Extraction Error",
-            f"Failed to extract ZIP file for GOD creation:\n{error_message}",
-        )
-
-    def _create_god_directly(self, iso_path, dest_dir):
-        """Create GOD file directly with iso2god-x86_64-windows.exe"""
-        self.status_manager.show_message("Creating GOD file...")
+    def _create_god_directly(self, iso_path, reuse_dialog=False):
+        """Create GOD file directly with iso2god-x86_64-windows.exe using progress dialog"""
+        usb_content_dir = self.settings_manager.load_usb_content_directory()
+        dest_dir = os.path.join(usb_content_dir, "0000000000000000")
 
         # Ensure the output directory exists
         os.makedirs(dest_dir, exist_ok=True)
 
-        god_process = QProcess(self)
-        god_process.setProgram("iso2god-x86_64-windows.exe")
+        if reuse_dialog and self._current_processing_dialog:
+            # Reuse existing dialog for batch operations
+            dialog = self._current_processing_dialog
+            # Reset with explicit parameter names to ensure correct assignment
+            dialog.reset_for_new_operation(
+                operation_type="create_god",
+                input_path=iso_path,
+                output_path=dest_dir,
+                is_batch_mode=True,
+            )
 
-        god_process.setArguments(["--trim", iso_path, dest_dir])
-
-        # Connect appropriate finished handler based on batch mode
-        if hasattr(self, "current_god_batch"):
-            god_process.finished.connect(self._on_batch_god_creation_finished)
+            # Reconnect signals for new operation
+            dialog.processing_complete.disconnect()
+            dialog.processing_error.disconnect()
+            # Use unified handler that checks for batch mode
+            dialog.processing_complete.connect(self._on_god_creation_finished)
+            dialog.processing_error.connect(self._on_god_creation_failed)
         else:
-            god_process.finished.connect(self._on_god_creation_finished)
+            # Create new dialog
+            dialog = FileProcessingDialog(
+                self,
+                operation_type="create_god",
+                input_path=iso_path,
+                output_path=dest_dir,
+            )
 
-        god_process.start()
+            # Connect unified signals
+            dialog.processing_complete.connect(self._on_god_creation_finished)
+            dialog.processing_error.connect(self._on_god_creation_failed)
 
-    def _on_god_creation_finished(self):
-        """Handle GOD creation process finished"""
-        self.status_manager.show_message("GOD creation finished")
+            # Store reference for potential reuse
+            self._current_processing_dialog = dialog
 
-        # Clean up temp ISOs for single file
+        # Start the GOD creation process
+        if not dialog.start_processing():
+            # Failed to start GOD creation
+            return
+
+        if not reuse_dialog:
+            # Show the dialog (modal) and handle the result
+            result = dialog.exec()
+            if result == QDialog.DialogCode.Rejected:
+                # User cancelled or dialog was closed
+                self._current_processing_dialog = None
+                self._on_god_creation_cancelled()
+        # When reusing dialog, it's already shown - just continue processing
+
+    def _on_god_creation_failed(self, error_message: str):
+        """Handle GOD creation process failed"""
+        # Clean up temporary ISO files if they exist
         self._cleanup_god_temp_isos()
 
-        # Rescan directory to show new GOD files
-        if self.current_directory:
-            self.scan_directory(force=True)
-
-    def _on_batch_god_creation_finished(self):
-        """Handle individual GOD creation completion in batch"""
-        self._move_to_next_god_file()
-
-    def _move_to_next_god_file(self):
-        """Move to the next file in GOD batch"""
-        self.current_god_batch_index += 1
-
-        # Update overall progress
-        overall_progress = (
-            self.current_god_batch_index / self.total_god_batch_files
-        ) * 100
-        self.progress_bar.setValue(int(overall_progress))
-
-        # Create next GOD file
-        self._create_next_god_file()
-
-    def _on_batch_god_creation_complete(self):
-        """Handle completion of entire GOD batch"""
-        self.progress_bar.setVisible(False)
-
-        # Clean up all temp ISOs from batch
-        self._cleanup_god_temp_isos()
-
-        # Clear batch variables
-        if hasattr(self, "current_god_batch"):
-            delattr(self, "current_god_batch")
-        if hasattr(self, "current_god_batch_index"):
-            delattr(self, "current_god_batch_index")
-        if hasattr(self, "total_god_batch_files"):
-            total_completed = self.total_god_batch_files  # Store before deletion
-            delattr(self, "total_god_batch_files")
-        else:
-            total_completed = 0
-
-        self.status_manager.show_message("Batch GOD creation completed")
-
-        QMessageBox.information(
+        # Show error message
+        QMessageBox.critical(
             self,
-            "Batch GOD Creation Complete",
-            f"Successfully created GOD files from {total_completed} files.",
+            "GOD Creation Error",
+            f"Failed to create GOD file:\n{error_message}",
         )
 
-        # Rescan directory to show new GOD files
-        if self.current_directory:
-            self.scan_directory(force=True)
+        # If we're in batch mode, move to next file
+        if hasattr(self, "current_god_batch"):
+            self._move_to_next_god_file()
+
+    def _on_god_creation_cancelled(self):
+        """Handle GOD creation process cancelled"""
+        # Clean up temporary ISO files if they exist
+        self._cleanup_god_temp_isos()
+
+        # If we're in batch mode, move to next file
+        if hasattr(self, "current_god_batch"):
+            self._move_to_next_god_file()
 
     def _check_required_tools(self):
         """Check for required executables and set up watchers"""
@@ -5138,8 +5227,6 @@ class NonSortableHeaderView(QHeaderView):
 
     def _init_header_checkbox(self):
         """Initialize the header checkbox widget"""
-        from PyQt6.QtWidgets import QCheckBox
-
         if self._header_checkbox is None:
             self._header_checkbox = QCheckBox()
             self._header_checkbox.setParent(self)
