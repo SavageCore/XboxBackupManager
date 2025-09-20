@@ -4,7 +4,7 @@ XboxBackupManager.ini
 build/
 dist/
 *.spec
-extract-xiso.exe
+xdvdfs.exe
 iso2god-x86_64-windows.exe
 xextool.exe
 batch_tu_download_log.txt
