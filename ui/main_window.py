@@ -1810,7 +1810,7 @@ class XboxBackupManager(QMainWindow):
             "• <a href='https://pypi.org/project/requests/'>requests</a> (Apache Software License (Apache-2.0))<br>"
             "• <a href='https://pypi.org/project/semver/'>semver</a> (BSD License (BSD-3-Clause))<br>"
             "<br>"
-            "Thanks to the developers of <a href='https://github.com/XboxDev/extract-xiso'>extract-xiso</a>, <a href='https://github.com/iliazeus/iso2god-rs'>iso2god-rs</a> and <a href='https://github.com/mLoaDs/XexTool'>XexTool</a>.<br>"
+            "Thanks to the developers of <a href='https://github.com/antangelo/xdvdfs'>xdvdfs</a>, <a href='https://github.com/iliazeus/iso2god-rs'>iso2god-rs</a> and <a href='https://github.com/mLoaDs/XexTool'>XexTool</a>.<br>"
             "<br>"
             "pyxbe is used to extract Xbox icons and metadata.<br>"
             "XexTool is used to extract Xbox 360 icons and metadata.<br>"
@@ -3888,7 +3888,7 @@ class XboxBackupManager(QMainWindow):
         self._extract_iso()
 
     def _extract_iso(self):
-        """Extract ISO with extract-xiso.exe"""
+        """Extract ISO with xdvdfs"""
         if not self.iso_path:
             QMessageBox.warning(
                 self, "No files selected", "Please select an ISO/ZIP file to extract."
@@ -3975,15 +3975,15 @@ class XboxBackupManager(QMainWindow):
                 )
 
     def _extract_iso_directly(self, iso_path, extract_to_dir):
-        """Extract ISO directly with extract-xiso.exe"""
+        """Extract ISO directly with xdvdfs"""
         self.status_manager.show_message("Extracting ISO...")
 
         # Ensure the output directory exists
         os.makedirs(extract_to_dir, exist_ok=True)
 
         extraction_process = QProcess(self)
-        extraction_process.setProgram("extract-xiso.exe")
-        extraction_process.setArguments(["-d", extract_to_dir, iso_path])
+        extraction_process.setProgram("xdvdfs.exe")
+        extraction_process.setArguments(["unpack", iso_path, extract_to_dir])
         extraction_process.finished.connect(self._on_extraction_finished)
         extraction_process.start()
 
@@ -4461,11 +4461,11 @@ class XboxBackupManager(QMainWindow):
 
     def _check_required_tools(self):
         """Check for required executables and set up watchers"""
-        self.extract_xiso_path = os.path.join(os.getcwd(), "extract-xiso.exe")
+        self.xdvdfs_path = os.path.join(os.getcwd(), "xdvdfs.exe")
         self.iso2god_path = os.path.join(os.getcwd(), "iso2god-x86_64-windows.exe")
         self.xextool_path = os.path.join(os.getcwd(), "XexTool.exe")
 
-        self.extract_xiso_found = os.path.exists(self.extract_xiso_path)
+        self.xdvdfs_found = os.path.exists(self.xdvdfs_path)
         self.iso2god_found = os.path.exists(self.iso2god_path)
         self.xextool_found = os.path.exists(self.xextool_path)
 
@@ -4473,7 +4473,7 @@ class XboxBackupManager(QMainWindow):
         self._update_tools_status()
 
         # If all tools are found, no need for dialog
-        if self.extract_xiso_found and self.iso2god_found and self.xextool_found:
+        if self.xdvdfs_found and self.iso2god_found and self.xextool_found:
             return
 
         # Set up file system watchers
@@ -4484,16 +4484,16 @@ class XboxBackupManager(QMainWindow):
 
     def _update_tools_status(self):
         """Update status bar with tools status"""
-        extract_status = "✔️" if self.extract_xiso_found else "❌"
+        xdvdfs_status = "✔️" if self.xdvdfs_found else "❌"
         iso2god_status = "✔️" if self.iso2god_found else "❌"
         xextool_status = "✔️" if self.xextool_found else "❌"
 
         # Update download button
-        if self.extract_xiso_found:
-            xiso_button = self.findChild(QPushButton, "extract_xiso_download_button")
-            if xiso_button:
-                xiso_button.setEnabled(False)
-                xiso_button.setText("✔️ Downloaded")
+        if self.xdvdfs_found:
+            xdvdfs_button = self.findChild(QPushButton, "xdvdfs_download_button")
+            if xdvdfs_button:
+                xdvdfs_button.setEnabled(False)
+                xdvdfs_button.setText("✔️ Downloaded")
         if self.iso2god_found:
             iso2god_button = self.findChild(QPushButton, "iso2god_download_button")
             if iso2god_button:
@@ -4506,7 +4506,7 @@ class XboxBackupManager(QMainWindow):
                 xextool_button.setText("✔️ Downloaded")
 
         # If all tools are now found, close the dialog and update status bar
-        if self.extract_xiso_found and self.iso2god_found and self.xextool_found:
+        if self.xdvdfs_found and self.iso2god_found and self.xextool_found:
             if hasattr(self, "tools_dialog") and self.tools_dialog:
                 self.status_manager.show_message("✔️ Required tools are ready for use")
                 close_button = self.tools_dialog.findChild(QPushButton, "Close")
@@ -4516,7 +4516,7 @@ class XboxBackupManager(QMainWindow):
                 QTimer.singleShot(2000, self._on_tools_added)
             return
 
-        status_text = f"extract-xiso: {extract_status} | iso2god: {iso2god_status} | xextool: {xextool_status}"
+        status_text = f"xdvdfs: {xdvdfs_status} | iso2god: {iso2god_status} | xextool: {xextool_status}"
         self.status_manager.show_message(status_text)
 
     def _on_tools_added(self):
@@ -4540,22 +4540,37 @@ class XboxBackupManager(QMainWindow):
         label = QLabel("The following tools are required but not found:")
         layout.addWidget(label)
 
-        # Extract-xiso download
-        if not self.extract_xiso_found:
-            extract_layout = QHBoxLayout()
-            extract_label = QLabel("extract-xiso.exe:")
-            extract_button = QPushButton("Download")
-            extract_button.setObjectName("extract_xiso_download_button")
-            extract_button.clicked.connect(
-                lambda: QDesktopServices.openUrl(
-                    QUrl(
-                        "https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso-Win64_Release.zip"
-                    )
+        # xdvdfs download
+        if not self.xdvdfs_found:
+            api_url = "https://api.github.com/repos/antangelo/xdvdfs/releases/latest"
+            try:
+                response = requests.get(api_url, timeout=5)
+                response.raise_for_status()
+                release_info = response.json()
+                assets = release_info.get("assets", [])
+                download_url = None
+                for asset in assets:
+                    if (
+                        asset.get("name", "").endswith(".zip")
+                        and "windows" in asset.get("name", "").lower()
+                    ):
+                        download_url = asset.get("browser_download_url")
+                        break
+                if not download_url:
+                    download_url = "https://github.com/antangelo/xdvdfs/releases/download/v0.8.3/xdvdfs-windows-1cc850bf1b3487fad7ec7c9eed01d83e8fc75ba4.zip"
+
+                xdvdfs_layout = QHBoxLayout()
+                xdvdfs_label = QLabel("xdvdfs.exe:")
+                xdvdfs_button = QPushButton("Download")
+                xdvdfs_button.setObjectName("xdvdfs_download_button")
+                xdvdfs_button.clicked.connect(
+                    lambda: QDesktopServices.openUrl(QUrl(download_url))
                 )
-            )
-            extract_layout.addWidget(extract_label)
-            extract_layout.addWidget(extract_button)
-            layout.addLayout(extract_layout)
+                xdvdfs_layout.addWidget(xdvdfs_label)
+                xdvdfs_layout.addWidget(xdvdfs_button)
+                layout.addLayout(xdvdfs_layout)
+            except requests.RequestException as e:
+                print(f"Error fetching xdvdfs download URL: {e}")
 
         # iso2god download
         if not self.iso2god_found:
@@ -4607,7 +4622,7 @@ class XboxBackupManager(QMainWindow):
             "After downloading:\n"
             "• Place files next to the application executable or your Downloads folder\n"
             "• The app will automatically detect and move them if required\n"
-            "• extract-xiso and XexTool will be extracted from the ZIP automatically"
+            "• xdvdfs and XexTool will be extracted from the ZIP automatically"
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
@@ -4632,7 +4647,6 @@ class XboxBackupManager(QMainWindow):
         downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
         if os.path.exists(downloads_path):
             self.tools_watcher.addPath(downloads_path)
-            self.tools_watcher.addPath(downloads_path)
 
         # Connect to directory changed signal
         self.tools_watcher.directoryChanged.connect(self._on_tools_directory_changed)
@@ -4648,19 +4662,21 @@ class XboxBackupManager(QMainWindow):
             for filename in os.listdir(path):
                 file_path = os.path.join(path, filename)
 
-                # Handle extract-xiso ZIP
+                # Handle xdvdfs ZIP
+                # Sample file name to check against: xdvdfs-windows-1cc850bf1b3487fad7ec7c9eed01d83e8fc75ba4.zip
                 if (
-                    filename == "extract-xiso-Win64_Release.zip"
-                    and not self.extract_xiso_found
+                    filename.startswith("xdvdfs-windows-")
+                    and filename.endswith(".zip")
+                    and not self.xdvdfs_found
                 ):
                     if is_downloads:
                         # Move ZIP to current directory
                         dest_path = os.path.join(os.getcwd(), filename)
                         shutil.move(file_path, dest_path)
-                        self._extract_xiso_zip(dest_path)
+                        self._extract_xdvdfs_zip(dest_path)
                     else:
                         # Already in current directory, extract it
-                        self._extract_xiso_zip(file_path)
+                        self._extract_xdvdfs_zip(file_path)
 
                 # Handle iso2god EXE
                 elif (
@@ -4695,27 +4711,27 @@ class XboxBackupManager(QMainWindow):
         except Exception as e:
             print(f"Error handling file change: {e}")
 
-    def _extract_xiso_zip(self, zip_path):
-        """Extract extract-xiso.exe from the ZIP file"""
+    def _extract_xdvdfs_zip(self, zip_path):
+        """Extract xdvdfs.exe from the ZIP file"""
         try:
             extracted = False
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 # Look for the exe file in the ZIP, it is under the `artifacts` subdirectory, ensure we only extract that file into the current directory
                 for zip_info in zip_ref.infolist():
-                    if zip_info.filename.endswith("extract-xiso.exe"):
+                    if zip_info.filename == "xdvdfs.exe":
                         zip_info.filename = os.path.basename(zip_info.filename)
                         zip_ref.extract(zip_info, os.getcwd())
                         extracted = True
                         break
 
             if extracted:
-                self.extract_xiso_found = True
+                self.xdvdfs_found = True
                 self._update_tools_status()
 
                 os.remove(zip_path)
 
         except Exception as e:
-            print(f"Error extracting extract-xiso: {e}")
+            print(f"Error extracting xdvdfs: {e}")
 
     def _extract_xextool_zip(self, zip_path):
         """Extract XexTool.exe from the ZIP file"""
