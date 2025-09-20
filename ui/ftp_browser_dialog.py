@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -159,8 +160,6 @@ class FTPBrowserDialog(QDialog):
 
     def _create_folder(self):
         """Create new folder dialog"""
-        from PyQt6.QtWidgets import QInputDialog
-
         folder_name, ok = QInputDialog.getText(
             self, "Create Folder", "Enter folder name:"
         )

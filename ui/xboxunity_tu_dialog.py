@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
 from utils.ftp_client import FTPClient
 from utils.settings_manager import SettingsManager
 from utils.title_update_utils import TitleUpdateUtils
-from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
 from workers.title_update_downloader import TitleUpdateDownloadWorker
 
