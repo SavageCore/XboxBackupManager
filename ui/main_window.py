@@ -238,17 +238,46 @@ class XboxBackupManager(QMainWindow):
             self.licenses_action, "fa6s.file-contract"
         )
 
-        # Register toolbar icons
-        if hasattr(self, "toolbar_actions"):
-            for action in self.toolbar_actions:
-                icon_name = {
-                    "Scan": "fa6s.magnifying-glass",
-                    "Transfer": "fa6s.arrow-right",
-                    "Remove": "fa6s.trash",
-                    "Batch Title Updater": "fa6s.download",
-                }.get(action.text(), "fa6s.circle")
+        self.refresh_toolbar_icons()
 
-                self.icon_manager.register_widget_icon(action, icon_name)
+    def refresh_toolbar_icons(self):
+        """Refresh toolbar icons to match the current theme colors."""
+        if self.theme_manager.should_use_dark_mode():
+            normal_color = "#ffffff"
+            hover_color = "#1de9b6"
+            disabled_color = "#4f5b62"
+        else:
+            normal_color = "#3c3c3c"
+            hover_color = "#1de9b6"
+            disabled_color = "#e6e6e6"
+
+        if hasattr(self, "toolbar_actions"):
+            icon_mappings = {
+                "Scan": "fa6s.magnifying-glass",
+                "Transfer": "fa6s.arrow-right",
+                "Remove": "fa6s.trash",
+                "Batch Title Updater": "fa6s.download",
+            }
+            for action in self.toolbar_actions:
+                icon_name = icon_mappings.get(action.text(), "fa6s.circle")
+                icon = qta.icon(
+                    icon_name,
+                    color=normal_color,
+                    color_active=hover_color,
+                    color_disabled=disabled_color,
+                )
+                action.setIcon(icon)
+        # Also force toolbar repaint if present
+        if hasattr(self, "toolbar"):
+            self.toolbar.update()
+            self.toolbar.repaint()
+
+    def set_theme_override(self, override_value):
+        """Set theme override and apply theme, then update toolbar icons"""
+        self.theme_manager.set_override(override_value)
+        self.apply_theme()
+        self.refresh_toolbar_icons()
+        self.settings_manager.save_theme_preference(override_value)
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -292,6 +321,29 @@ class XboxBackupManager(QMainWindow):
 
         # Set toolbar icon size
         toolbar.setIconSize(QSize(24, 24))
+
+        # Remove hover background effect
+        toolbar.setStyleSheet(
+            """
+            QToolBar {
+                background: transparent;
+                border: none;
+            }
+            QToolButton {
+                background: transparent;
+                border: none;
+                padding: 5px;
+            }
+            QToolButton:hover {
+                background: transparent;  /* Remove gray hover background */
+                border: none;
+            }
+            QToolButton:pressed {
+                background: transparent;
+                border: none;
+            }
+        """
+        )
 
         # Scan Directory
         self.toolbar_scan_action = QAction("Scan", self)
@@ -1775,12 +1827,6 @@ class XboxBackupManager(QMainWindow):
         else:
             # User cancelled - handle appropriately
             self._handle_cancelled_usb_directory_selection()
-
-    def set_theme_override(self, override_value):
-        """Set theme override and apply theme"""
-        self.theme_manager.set_override(override_value)
-        self.apply_theme()
-        self.settings_manager.save_theme_preference(override_value)
 
     def show_about(self):
         """Show about dialog"""
