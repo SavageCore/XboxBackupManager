@@ -7,8 +7,6 @@ import errno
 import gc
 import os
 import shutil
-import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -25,6 +23,8 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+
+from utils.system_utils import SystemUtils
 
 
 def _is_file_in_use(filepath):
@@ -180,31 +180,8 @@ class ClickableLabel(QLabel):
     def mousePressEvent(self, event):
         """Handle mouse click to open directory"""
         if event.button() == Qt.MouseButton.LeftButton and self.directory_path:
-            self._open_directory()
+            SystemUtils.open_directory(self.directory_path)
         super().mousePressEvent(event)
-
-    def _open_directory(self):
-        """Open the directory in the system file explorer"""
-        try:
-            if os.path.exists(self.directory_path):
-                if sys.platform == "win32":
-                    os.startfile(self.directory_path)
-                elif sys.platform == "darwin":  # macOS
-                    subprocess.run(["open", self.directory_path])
-                else:  # Linux and other Unix-like systems
-                    subprocess.run(["xdg-open", self.directory_path])
-            else:
-                # Directory doesn't exist yet, try to open parent
-                parent_dir = os.path.dirname(self.directory_path)
-                if os.path.exists(parent_dir):
-                    if sys.platform == "win32":
-                        os.startfile(parent_dir)
-                    elif sys.platform == "darwin":
-                        subprocess.run(["open", parent_dir])
-                    else:
-                        subprocess.run(["xdg-open", parent_dir])
-        except Exception as e:
-            print(f"Failed to open directory: {e}")
 
     def update_path(self, new_path: str):
         """Update the directory path and tooltip"""

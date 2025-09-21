@@ -23,12 +23,12 @@ jobs:
           pip install -r requirements.txt
       - name: Build with pyinstaller
         run: |
-          pyinstaller -F -n XboxBackupManager-win64 -i icon.ico main.py --noconsole
+          pyinstaller -F -n XboxBackupManager -i icon.ico main.py --noconsole
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XboxBackupManager-win64
-          path: dist/XboxBackupManager-win64.exe
+          name: XboxBackupManager
+          path: dist/XboxBackupManager.exe
 
 permissions:
   contents: write
