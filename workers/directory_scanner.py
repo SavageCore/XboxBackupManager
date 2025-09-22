@@ -29,7 +29,7 @@ class DirectoryScanner(QThread):
         self.platform = platform
         self.should_stop = False
         self.xbox_unity = XboxUnity()
-        self.dlc_utils = DLCUtils()
+        self.dlc_utils = DLCUtils(self)
 
     def run(self):
         """Main scanning logic"""

@@ -5,8 +5,9 @@ from typing import Dict, Optional
 
 
 class DLCUtils:
-    def __init__(self):
-        pass
+
+    def __init__(self, parent):
+        self.directory_manager = parent.directory_manager
 
     def parse_file(self, dlc_path: str) -> Optional[Dict[str, Optional[str]]]:
         """
@@ -204,11 +205,11 @@ class DLCUtils:
                 # Check we still have the DLC file, remove entries with missing files
                 valid_entries = []
                 for entry in dlc_index:
+                    # Construct full file path
                     file_path = (
-                        Path("cache")
-                        / "dlc"
-                        / entry.get("title_id")
-                        / entry.get("file")
+                        Path(self.directory_manager.dlc_directory)
+                        / entry["title_id"]
+                        / entry["file"]
                     )
                     if file_path and os.path.isfile(file_path):
                         valid_entries.append(entry)
@@ -248,10 +249,9 @@ class DLCUtils:
         """
         Reprocess the DLC files in cache/dlc to rebuild the index.
         We've changed the way we parse DLC files, so reprocess existing ones.
-        A file is /cache/dlc/title_id/dlcfilename
+        A file is <self.directory_manager.dlc_directory>/title_id/dlcfilename
         """
-        cache_dir = Path("cache")
-        dlc_dir = cache_dir / "dlc"
+        dlc_dir = Path(self.directory_manager.dlc_directory)
         if dlc_dir.exists() and dlc_dir.is_dir():
             for title_dir in dlc_dir.iterdir():
                 if title_dir.is_dir():

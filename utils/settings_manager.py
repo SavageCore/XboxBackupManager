@@ -206,3 +206,11 @@ class SettingsManager:
     def load_ftp_content_directory(self) -> str:
         """Load FTP content directory"""
         return self.settings.value("ftp_content_directory", "")
+
+    def save_dlc_directory(self, directory: str):
+        """Save DLC directory"""
+        self.settings.setValue("dlc_directory", directory)
+
+    def load_dlc_directory(self) -> str:
+        """Load DLC directory"""
+        return self.settings.value("dlc_directory", "")

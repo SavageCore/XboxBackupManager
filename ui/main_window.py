@@ -129,7 +129,7 @@ class XboxBackupManager(QMainWindow):
         # Initialize transfer manager
         self.transfer_manager = TransferManager(self)
 
-        self.dlc_utils = DLCUtils()
+        self.dlc_utils = DLCUtils(self)
 
         # Connect transfer manager signals
         self.transfer_manager.transfer_started.connect(self._on_transfer_started)
@@ -147,6 +147,7 @@ class XboxBackupManager(QMainWindow):
         self.current_target_directory = ""
         self.current_cache_directory = ""
         self.current_content_directory = ""
+        self.current_dlc_directory = ""
         self.current_mode = "usb"
         self.current_platform = "xbox360"  # Default platform
         self.platform_directories = {"xbox": "", "xbox360": "", "xbla": ""}
@@ -580,6 +581,14 @@ class XboxBackupManager(QMainWindow):
         self.browse_content_action.setEnabled(True)
         self.browse_content_action.triggered.connect(self.browse_content_directory)
         file_menu.addAction(self.browse_content_action)
+
+        # Set DLC directory action
+        self.browse_dlc_action = QAction("Set &DLC Directory...", self)
+        self.browse_dlc_action.setShortcut("Ctrl+D")
+        self.browse_dlc_action.setIcon(self.icon_manager.create_icon("fa6s.cube"))
+        self.icon_manager.register_widget_icon(self.browse_dlc_action, "fa6s.cube")
+        self.browse_dlc_action.triggered.connect(self.browse_dlc_directory)
+        file_menu.addAction(self.browse_dlc_action)
 
         file_menu.addSeparator()
 
@@ -1058,6 +1067,27 @@ class XboxBackupManager(QMainWindow):
                 self.status_manager.show_message(
                     "Selected directory is not accessible", 5000
                 )
+
+    def browse_dlc_directory(self):
+        """Open DLC directory selection dialog"""
+        # Start at existing DLC directory if set, else home
+        start_dir = (
+            self.current_dlc_directory
+            if self.current_dlc_directory and os.path.exists(self.current_dlc_directory)
+            else (os.path.expanduser("~"))
+        )
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select DLC Directory",
+            start_dir,
+        )
+
+        if directory:
+            # Use DirectoryManager to set the directory
+            if self.directory_manager.set_dlc_directory(directory):
+                # The signal handlers will take care of updating UI and starting scan
+                pass
 
     def _update_transfer_button_state(self):
         """Update transfer and remove button enabled state based on conditions"""
@@ -1966,6 +1996,11 @@ class XboxBackupManager(QMainWindow):
         self.ftp_target_directories = self.directory_manager.ftp_target_directories
         self.usb_cache_directory = self.directory_manager.usb_cache_directory
         self.usb_content_directory = self.directory_manager.usb_content_directory
+        self.current_dlc_directory = self.directory_manager.dlc_directory
+
+        # Ensure DLC directory is set
+        if not self.current_dlc_directory:
+            self.browse_dlc_directory()
 
         # Set current source directory
         if self.platform_directories[self.current_platform]:
@@ -2032,6 +2067,8 @@ class XboxBackupManager(QMainWindow):
 
         # Apply theme after loading preferences
         self.apply_theme()
+
+        # self.dlc_utils.reprocess_dlc(self.game_manager.get_game_name)
 
     def load_cached_icons(self):
         """Load any cached icons from disk"""
@@ -5256,7 +5293,7 @@ class XboxBackupManager(QMainWindow):
                         description = result.get("description")
                         title_id = result.get("title_id")
 
-                        # Save DLC file to cache/dlc/title_id/dlcfilename
+                        # Save DLC file to <self.directory_manager.dlc_directory>/title_id/dlcfilename
                         if title_id:
                             target_dir = os.path.join("cache", "dlc", title_id)
                             os.makedirs(target_dir, exist_ok=True)

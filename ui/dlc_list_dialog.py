@@ -34,8 +34,9 @@ class DLCListDialog(QDialog):
         self.settings_manager = SettingsManager()
         self.game_manager = parent.game_manager if parent else None
         self.current_mode = parent.current_mode if parent else "usb"
+        self.directory_manager = parent.directory_manager if parent else None
 
-        self.dlc_utils = DLCUtils()
+        self.dlc_utils = DLCUtils(parent)
         self.ui_utils = UIUtils()
 
         self.game_name = (
@@ -781,7 +782,7 @@ class DLCListDialog(QDialog):
         title_id = dlc.get("title_id", "")
         filename = dlc.get("file", "")
 
-        local_dlc_path = f"cache/dlc/{title_id}/{filename}"
+        local_dlc_path = f"{self.directory_manager.dlc_directory}/{title_id}/{filename}"
         if not local_dlc_path or not os.path.exists(local_dlc_path):
             print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
             return
@@ -827,8 +828,10 @@ class DLCListDialog(QDialog):
 
     def _open_dlc_in_explorer(self):
         """Open the DLC file's containing folder in Explorer"""
-        # DLCs are stored in cache/dlc/<title_id>/<file_name>
-        dlc_path = os.path.abspath(os.path.join("cache", "dlc", self.title_id))
+        # DLCs are stored in <self.directory_manager.dlc_directory>/<title_id>/<file_name>
+        dlc_path = os.path.abspath(
+            os.path.join(self.directory_manager.dlc_directory, self.title_id)
+        )
         if os.path.exists(dlc_path):
             SystemUtils.open_folder_in_explorer(dlc_path, self)
         else:
