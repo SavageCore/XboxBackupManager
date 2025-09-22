@@ -57,6 +57,8 @@ from managers.game_manager import GameManager
 from managers.table_manager import TableManager
 from managers.transfer_manager import TransferManager
 from models.game_info import GameInfo
+from ui.dlc_info_dialog import DLCInfoDialog
+from ui.dlc_list_dialog import DLCListDialog
 from ui.file_processing_dialog import FileProcessingDialog
 from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
@@ -64,6 +66,7 @@ from ui.icon_manager import IconManager
 from ui.theme_manager import ThemeManager
 from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
+from utils.dlc_utils import DLCUtils
 from utils.ftp_client import FTPClient
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
@@ -125,6 +128,8 @@ class XboxBackupManager(QMainWindow):
 
         # Initialize transfer manager
         self.transfer_manager = TransferManager(self)
+
+        self.dlc_utils = DLCUtils()
 
         # Connect transfer manager signals
         self.transfer_manager.transfer_started.connect(self._on_transfer_started)
@@ -846,9 +851,7 @@ class XboxBackupManager(QMainWindow):
                 match self.current_platform:
                     case "xbox":
                         transferred_column = 5
-                    case "xbox360":
-                        transferred_column = 6
-                    case "xbla":
+                    case "xbox360" | "xbla":
                         transferred_column = 7
 
                 transferred_item = self.games_table.item(row, transferred_column)
@@ -1458,9 +1461,9 @@ class XboxBackupManager(QMainWindow):
                 # Update transferred status column
                 # If Xbox, column is 5
                 # If XBLA or Xbox 360, column is 6 or 7 if DLCs
-                show_dlcs = self.current_platform == "xbla"
-                if self.current_platform in ["xbox360", "xbla"]:
-                    status_column = 7 if show_dlcs else 6
+                show_dlcs = self.current_platform in ["xbox360", "xbla"]
+                if show_dlcs:
+                    status_column = 7
                 else:
                     status_column = 5
                 status_item = self.games_table.item(row, status_column)
@@ -2656,12 +2659,10 @@ class XboxBackupManager(QMainWindow):
         row = item.row()
 
         # Determine folder path column based on platform
-        if self.current_platform == "xbla":
-            folder_path_column = 8  # XBLA: 9 columns, source path is last
-        elif self.current_platform == "xbox360":
-            folder_path_column = 7  # Xbox 360: 8 columns, source path is last
-        else:  # xbox
-            folder_path_column = 6  # Xbox: 7 columns, source path is last
+        if self.current_platform == "xbox":
+            folder_path_column = 6
+        else:  # xbox360, xbla
+            folder_path_column = 8
 
         # Get the Source Path from the appropriate column
         folder_item = self.games_table.item(row, folder_path_column)
@@ -2740,6 +2741,17 @@ class XboxBackupManager(QMainWindow):
             lambda: self._show_title_updates_dialog(folder_path, title_id)
         )
 
+        # Add "Show DLCs" action (Xbox 360/XBLA only)
+        if self.current_platform in ["xbox360", "xbla"]:
+            # Get amount of DLCs
+            dlc_count = self.dlc_utils.get_dlc_count(title_id)
+            if dlc_count > 0:
+                show_dlcs_action = menu.addAction("Manage DLC")
+                show_dlcs_action.setIcon(self.icon_manager.create_icon("fa6s.cube"))
+                show_dlcs_action.triggered.connect(
+                    lambda: self._show_dlc_list_dialog(title_id)
+                )
+
         # Add separator
         menu.addSeparator()
 
@@ -2755,6 +2767,11 @@ class XboxBackupManager(QMainWindow):
 
         # Show the menu at the cursor position
         menu.exec(self.games_table.mapToGlobal(position))
+
+    def _show_dlc_list_dialog(self, title_id: str):
+        """Show dialog listing DLC files"""
+        dialog = DLCListDialog(title_id, self)
+        dialog.exec()
 
     def _show_title_updates_dialog(self, folder_path: str, title_id: str):
         """Show dialog with title updates information"""
@@ -2923,9 +2940,7 @@ class XboxBackupManager(QMainWindow):
                                 except Exception:
                                     pass  # If we can't check, assume it's not extracted ISO
 
-                            game_name = self._get_game_display_name(
-                                folder_name, title_id
-                            )
+                            game_name = self.game_manager.get_game_name(title_id)
                             games.append(
                                 {
                                     "name": game_name,
@@ -2964,9 +2979,7 @@ class XboxBackupManager(QMainWindow):
                                 xex_path = Path(folder_path) / "default.xex"
                                 is_extracted_iso = xex_path.exists()
 
-                            game_name = self._get_game_display_name(
-                                folder_name, title_id
-                            )
+                            game_name = self.game_manager.get_game_name(title_id)
                             games.append(
                                 {
                                     "name": game_name,
@@ -3129,22 +3142,6 @@ class XboxBackupManager(QMainWindow):
 
         return None
 
-    def _get_game_display_name(self, folder_name: str, title_id: str) -> str:
-        """Get display name for a game based on folder name and title ID"""
-        # Try to get name from loaded database
-        try:
-            if hasattr(self, "database_loader") and self.database_loader:
-                game_name = self.database_loader.title_database.get(
-                    title_id, folder_name
-                )
-                if game_name != folder_name:  # Found in database
-                    return game_name
-        except Exception:
-            pass
-
-        # Fallback to folder name
-        return folder_name
-
     def _on_batch_progress(self, current: int, total: int):
         """Handle batch processing progress"""
         if hasattr(self, "batch_progress_dialog"):
@@ -3302,9 +3299,7 @@ class XboxBackupManager(QMainWindow):
                                 match self.current_platform:
                                     case "xbox":
                                         transferred_column = 5
-                                    case "xbox360":
-                                        transferred_column = 6
-                                    case "xbla":
+                                    case "xbox360" | "xbla":
                                         transferred_column = 7
                                 status_item = self.games_table.item(
                                     row, transferred_column
@@ -3349,9 +3344,7 @@ class XboxBackupManager(QMainWindow):
                                 match self.current_platform:
                                     case "xbox":
                                         transferred_column = 5
-                                    case "xbox360":
-                                        transferred_column = 6
-                                    case "xbla":
+                                    case "xbox360" | "xbla":
                                         transferred_column = 7
                                 status_item = self.games_table.item(
                                     row, transferred_column
@@ -5221,6 +5214,110 @@ class XboxBackupManager(QMainWindow):
                 f"Cannot connect to FTP server on startup:\n{message}\n\n"
                 "FTP operations will not be available until connection is restored.",
             )
+
+    def dragEnterEvent(self, event):
+        """Handle drag enter event for DLC files"""
+        # Only accept files in Xbox 360 or XBLA mode
+        if self.current_platform not in ("xbox360", "xbla"):
+            event.ignore()
+            return
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(
+                url.toLocalFile() and os.path.isfile(url.toLocalFile()) for url in urls
+            ):
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if self.current_platform not in ("xbox360", "xbla"):
+            event.ignore()
+            return
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if not file_path or not os.path.isfile(file_path):
+                    print(f"Invalid file: {file_path}")
+                    continue
+                # Only accept files that look like DLC (32 hex chars, no extension)
+                base = os.path.basename(file_path)
+                if (
+                    len(base) == 42
+                    and all(c in "0123456789ABCDEFabcdef" for c in base)
+                    and not os.path.splitext(base)[1]
+                ):
+
+                    result = self.dlc_utils.parse_file(file_path)
+                    if result:
+                        display_name = result.get("display_name")
+                        description = result.get("description")
+                        title_id = result.get("title_id")
+
+                        # Save DLC file to cache/dlc/title_id/dlcfilename
+                        if title_id:
+                            target_dir = os.path.join("cache", "dlc", title_id)
+                            os.makedirs(target_dir, exist_ok=True)
+                            target_path = os.path.join(target_dir, base)
+
+                            # If file already exists, skip copying
+                            if not os.path.exists(target_path):
+                                try:
+                                    with (
+                                        open(file_path, "rb") as src,
+                                        open(target_path, "wb") as dst,
+                                    ):
+                                        dst.write(src.read())
+                                except Exception as e:
+                                    QMessageBox.warning(
+                                        self,
+                                        "DLC Save Error",
+                                        f"Failed to save DLC: {e}",
+                                    )
+
+                        # Get game name
+                        # Search in current games list
+                        game_name = self.game_manager.get_game_name(title_id)
+
+                        dlc_size = os.path.getsize(file_path)
+
+                        # Get DLC file name
+                        dlc_file = os.path.basename(file_path)
+
+                        # Save this DLC to /cache/dlc_index.json
+                        self.dlc_utils.add_dlc_to_index(
+                            title_id=title_id,
+                            display_name=display_name,
+                            description=description,
+                            game_name=game_name,
+                            size=dlc_size,
+                            file=dlc_file,
+                        )
+
+                        # Show dialog, all fields read-only
+                        dialog = DLCInfoDialog(
+                            title_id=title_id or "",
+                            display_name=display_name or "",
+                            description=description or "",
+                            game_name=game_name or "",
+                            parent=self,
+                        )
+                        # Set all fields read-only
+                        dialog.display_name.setReadOnly(True)
+                        dialog.game_name.setReadOnly(True)
+                        dialog.title_id.setReadOnly(True)
+                        dialog.exec()
+                    else:
+                        QMessageBox.warning(
+                            self, "DLC Parse Error", f"Failed to parse DLC file: {base}"
+                        )
+                else:
+                    continue
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
 
 class ClickableFirstColumnTableWidget(QTableWidget):

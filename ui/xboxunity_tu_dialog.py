@@ -897,7 +897,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _init_ui_old(self):
         """Initialize the dialog UI with modern design"""
-        self.setWindowTitle("Xbox Unity Title Updates")
+        self.setWindowTitle("Manage Title Updates")
         self.setModal(True)
         self.setMinimumSize(600, 400)
         self.resize(650, 450)

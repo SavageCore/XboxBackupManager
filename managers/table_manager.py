@@ -246,7 +246,7 @@ class TableManager(QObject):
                 "Source Path",
             ]
             self.table.setColumnCount(7)
-        elif platform == "xbla":
+        else:  # xbox360, xbla
             headers = [
                 "",
                 "Icon",
@@ -259,18 +259,6 @@ class TableManager(QObject):
                 "Source Path",
             ]
             self.table.setColumnCount(9)
-        else:  # xbox360
-            headers = [
-                "",
-                "Icon",
-                "Title ID",
-                "Game Name",
-                "Media ID",
-                "Size",
-                "Transferred",
-                "Source Path",
-            ]
-            self.table.setColumnCount(8)
 
         self.table.setHorizontalHeaderLabels(headers)
 
@@ -342,24 +330,16 @@ class TableManager(QObject):
             self.table.setColumnWidth(5, 80)
             header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
 
-            if self.current_platform == "xbla":
-                # DLCs column
-                self.table.setColumnWidth(6, 70)
-                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+            # DLCs column
+            self.table.setColumnWidth(6, 70)
+            header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
 
-                # Transferred column
-                self.table.setColumnWidth(7, 120)
-                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+            # Transferred column
+            self.table.setColumnWidth(7, 120)
+            header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
 
-                # Source path - stretch
-                header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
-            else:  # xbox360
-                # Transferred column
-                self.table.setColumnWidth(6, 120)
-                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-
-                # Source path - stretch
-                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+            # Source path - stretch
+            header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         else:  # xbox
             # Size column
             self.table.setColumnWidth(4, 80)
@@ -519,7 +499,7 @@ class TableManager(QObject):
         col_index += 1
 
         # DLCs column (XBLA only)
-        if self.current_platform == "xbla":
+        if self.current_platform in ["xbox360", "xbla"]:
             # This would need to be implemented based on folder structure
             dlc_item = QTableWidgetItem(str(game.dlc_count) or "0")  # Placeholder
             dlc_item.setData(Qt.ItemDataRole.UserRole, game.dlc_count or 0)

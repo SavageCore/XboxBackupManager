@@ -60,7 +60,7 @@ class SettingsManager:
 
     def save_table_settings(self, platform, header, sort_column, sort_order):
         """Save table column widths and sort settings"""
-        show_dlcs = platform in ["xbla"]
+        show_dlcs = platform in ["xbox360", "xbla"]
         column_count = 6 if show_dlcs else 5
 
         for i in range(column_count):
@@ -74,7 +74,7 @@ class SettingsManager:
 
     def load_table_settings(self, platform):
         """Load table settings"""
-        show_dlcs = platform in ["xbla"]
+        show_dlcs = platform in ["xbox360", "xbla"]
         column_count = 6 if show_dlcs else 5
 
         column_widths = {}

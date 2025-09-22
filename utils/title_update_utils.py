@@ -125,7 +125,7 @@ class TitleUpdateUtils:
                     return {
                         "installed": True,
                         "location": location_type,
-                        "path": os.path.join(root, file),
+                        "filename": os.path.basename(file),
                         "size": expected_size,
                     }
         return None
