@@ -5295,7 +5295,9 @@ class XboxBackupManager(QMainWindow):
 
                         # Save DLC file to <self.directory_manager.dlc_directory>/title_id/dlcfilename
                         if title_id:
-                            target_dir = os.path.join("cache", "dlc", title_id)
+                            target_dir = os.path.join(
+                                self.directory_manager.dlc_directory, title_id
+                            )
                             os.makedirs(target_dir, exist_ok=True)
                             target_path = os.path.join(target_dir, base)
 
@@ -5324,7 +5326,7 @@ class XboxBackupManager(QMainWindow):
                         dlc_file = os.path.basename(file_path)
 
                         # Save this DLC to /cache/dlc_index.json
-                        self.dlc_utils.add_dlc_to_index(
+                        result = self.dlc_utils.add_dlc_to_index(
                             title_id=title_id,
                             display_name=display_name,
                             description=description,
@@ -5332,6 +5334,17 @@ class XboxBackupManager(QMainWindow):
                             size=dlc_size,
                             file=dlc_file,
                         )
+
+                        # Update GameManager with new DLC information
+                        if result:
+                            self.game_manager.increment_dlc_count(title_id)
+
+                            # Increment the DLC count within the cache as well
+                            self._save_scan_cache()
+
+                            # Refresh the table to show updated DLC count
+                            if self.table_manager:
+                                self.table_manager.refresh_games(self.games)
 
                         # Show dialog, all fields read-only
                         dialog = DLCInfoDialog(

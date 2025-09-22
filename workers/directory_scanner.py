@@ -23,13 +23,14 @@ class DirectoryScanner(QThread):
         self,
         directory: str,
         platform: str = "xbox360",
+        parent=None,
     ):
         super().__init__()
         self.directory = directory
         self.platform = platform
         self.should_stop = False
         self.xbox_unity = XboxUnity()
-        self.dlc_utils = DLCUtils(self)
+        self.dlc_utils = DLCUtils(parent)
 
     def run(self):
         """Main scanning logic"""

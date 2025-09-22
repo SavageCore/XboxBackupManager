@@ -171,7 +171,7 @@ class DLCUtils:
         for entry in dlc_index:
             if entry.get("file") == file:
                 print(f"DLC with file {file} already exists in index.")
-                return  # Already exists, do not add again
+                return False  # Already exists, do not add again
 
         # Add new DLC entry
         new_entry = {
@@ -188,8 +188,10 @@ class DLCUtils:
         try:
             with open(index_file, "w", encoding="utf-8") as f:
                 json.dump(dlc_index, f, indent=4)
+            return True
         except Exception as e:
             print(f"Error saving DLC index: {e}")
+            return False
 
     def load_dlc_index(self, title_id: str = None) -> list:
         """
