@@ -5071,6 +5071,9 @@ class XboxBackupManager(QMainWindow):
             if self.table_manager:
                 self.table_manager.refresh_games(self.games)
 
+            if self.game_manager:
+                self.game_manager.games = self.games
+
             # Update status
             game_count = len(self.games)
 
