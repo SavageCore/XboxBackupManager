@@ -695,10 +695,16 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             # First check if it's actually installed to get real info
             if is_installed:
                 install_info = self._get_install_info(self.title_id, update)
+                print(
+                    f"[DEBUG] Install info for {self.title_id} v{version}: {install_info}"
+                )
+                filename = (
+                    os.path.basename(install_info["path"])
+                    if install_info
+                    else "Unknown"
+                )
                 if install_info:
-                    display_text = (
-                        f"{install_info['location']}/{install_info['filename']}"
-                    )
+                    display_text = f"{install_info['location']}/{filename}"
                     path_filename_label = self._create_path_label(display_text)
                 else:
                     # Fallback if we can't get install info
