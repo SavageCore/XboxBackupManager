@@ -5254,14 +5254,19 @@ class XboxBackupManager(QMainWindow):
 
     def dragEnterEvent(self, event):
         """Handle drag enter event for DLC files"""
-        # Only accept files in Xbox 360 or XBLA mode
+        # Only accept files or folders in Xbox 360 or XBLA mode
         if self.current_platform not in ("xbox360", "xbla"):
             event.ignore()
             return
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             if any(
-                url.toLocalFile() and os.path.isfile(url.toLocalFile()) for url in urls
+                url.toLocalFile()
+                and (
+                    os.path.isfile(url.toLocalFile())
+                    or os.path.isdir(url.toLocalFile())
+                )
+                for url in urls
             ):
                 event.acceptProposedAction()
             else:
@@ -5274,24 +5279,52 @@ class XboxBackupManager(QMainWindow):
             event.ignore()
             return
         if event.mimeData().hasUrls():
+
+            def collect_files(path):
+                files = []
+                if os.path.isfile(path):
+                    files.append(path)
+                elif os.path.isdir(path):
+                    for root, _, filenames in os.walk(path):
+                        for fname in filenames:
+                            files.append(os.path.join(root, fname))
+                return files
+
+            all_files = []
             for url in event.mimeData().urls():
-                file_path = url.toLocalFile()
-                if not file_path or not os.path.isfile(file_path):
-                    print(f"Invalid file: {file_path}")
+                local_path = url.toLocalFile()
+                if not local_path:
                     continue
-                # Only accept files that look like DLC (32 hex chars, no extension)
+                all_files.extend(collect_files(local_path))
+
+            processed_any = False
+            for file_path in all_files:
+                if not os.path.isfile(file_path):
+                    continue
                 base = os.path.basename(file_path)
+                # Only accept files that look like DLC (32 hex chars, no extension)
                 if (
                     len(base) == 42
                     and all(c in "0123456789ABCDEFabcdef" for c in base)
                     and not os.path.splitext(base)[1]
                 ):
-
                     result = self.dlc_utils.parse_file(file_path)
                     if result:
                         display_name = result.get("display_name")
                         description = result.get("description")
                         title_id = result.get("title_id")
+
+                        # Get game name
+                        game_name = self.game_manager.get_game_name(title_id)
+
+                        if not game_name:
+                            QMessageBox.warning(
+                                self,
+                                "DLC Game Not Found",
+                                f"Cannot find game for Title ID: {title_id}\n"
+                                "Please ensure the game is in your library before adding DLC.",
+                            )
+                            continue
 
                         # Save DLC file to <self.directory_manager.dlc_directory>/title_id/dlcfilename
                         if title_id:
@@ -5316,13 +5349,7 @@ class XboxBackupManager(QMainWindow):
                                         f"Failed to save DLC: {e}",
                                     )
 
-                        # Get game name
-                        # Search in current games list
-                        game_name = self.game_manager.get_game_name(title_id)
-
                         dlc_size = os.path.getsize(file_path)
-
-                        # Get DLC file name
                         dlc_file = os.path.basename(file_path)
 
                         # Save this DLC to /cache/dlc_index.json
@@ -5338,11 +5365,7 @@ class XboxBackupManager(QMainWindow):
                         # Update GameManager with new DLC information
                         if result:
                             self.game_manager.increment_dlc_count(title_id)
-
-                            # Increment the DLC count within the cache as well
                             self._save_scan_cache()
-
-                            # Refresh the table to show updated DLC count
                             if self.table_manager:
                                 self.table_manager.refresh_games(self.games)
 
@@ -5354,18 +5377,19 @@ class XboxBackupManager(QMainWindow):
                             game_name=game_name or "",
                             parent=self,
                         )
-                        # Set all fields read-only
                         dialog.display_name.setReadOnly(True)
                         dialog.game_name.setReadOnly(True)
                         dialog.title_id.setReadOnly(True)
                         dialog.exec()
+                        processed_any = True
                     else:
                         QMessageBox.warning(
                             self, "DLC Parse Error", f"Failed to parse DLC file: {base}"
                         )
-                else:
-                    continue
-            event.acceptProposedAction()
+            if processed_any:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
         else:
             event.ignore()
 
