@@ -89,9 +89,13 @@ class XboxUnitySettingsDialog(QDialog):
         self.test_button.setText("Testing...")
 
         # Test connection in the main thread (it's quick)
-        success, message = self._xbox_unity.test_connectivity()
+        success, message = self._xbox_unity.test_connectivity(username, password)
 
         if success:
+            # Save API key if obtained
+            if message and message != api_key:
+                self.api_key_input.setText(message)
+
             QMessageBox.information(self, "Connection Test", "Connection successful!")
         else:
             QMessageBox.critical(

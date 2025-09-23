@@ -21,14 +21,6 @@ _session = requests.Session()
 
 # Set default timeout for all requests
 _session.timeout = 30
-
-
-class XboxUnityError(Exception):
-    """Custom exception for XboxUnity API errors"""
-
-    pass
-
-
 class XboxUnity:
     """
     Class to interact with XboxUnity API for title updates.
@@ -40,7 +32,7 @@ class XboxUnity:
         self.settings_manager = SettingsManager()
 
     @staticmethod
-    def test_connectivity() -> bool:
+    def test_connectivity(username, password) -> bool:
         """
         Test basic connectivity with XboxUnity.
 
@@ -51,7 +43,11 @@ class XboxUnity:
             response = _session.get("https://xboxunity.net", timeout=10)
 
             if response.status_code == 200:
-                return True, None
+                success, message = XboxUnity.login_xboxunity(username, password)
+                if success:
+                    return True, message
+                else:
+                    return False, message
             else:
                 print(f"[ERROR] XboxUnity responded with code: {response.status_code}")
                 return False, f"Unexpected status code: {response.status_code}"
@@ -60,8 +56,7 @@ class XboxUnity:
             print(f"[ERROR] Cannot connect to XboxUnity: {e}")
             return False, str(e)
 
-    # TODO: Currently the wrong endpoint is used for login. Not sure what the correct one is.
-    def login_xboxunity(self, username: str, password: str) -> Optional[str]:
+    def login_xboxunity(username: str, password: str) -> Optional[str]:
         """
         Login using username/password and return authentication token.
 
@@ -72,43 +67,43 @@ class XboxUnity:
         Returns:
             Optional[str]: Authentication token if successful, None otherwise
         """
-        url = f"{BASE_URL}/Auth/Login"
+        url = f"https://xboxunity.net/Resources/Lib/login.php?user={username}&passwd={password}"
         headers = {
             "User-Agent": "UnityApp/1.0",
             "Content-Type": "application/x-www-form-urlencoded",
         }
-        data = {"username": username, "password": password}
 
         try:
-            response = _session.post(url, data=data, headers=headers, timeout=30)
+            response = _session.get(url, headers=headers, timeout=30)
 
             if response.status_code == 200:
                 try:
                     json_data = response.json()
-                    if "token" in json_data:
-                        return json_data["token"]
+
+                    if "APIKey" in json_data.get("Result", {}):
+                        return True, json_data["Result"]["APIKey"]
                     else:
-                        print("[ERROR] Token not found in response")
-                        return None
+                        print("[ERROR] APIKey not found in response")
+                        return False, "APIKey not found in response"
 
                 except ValueError as e:
                     print(f"[ERROR] Failed to parse login response JSON: {e}")
                     print(f"[ERROR] Response content: {response.text[:500]}")
-                    return None
+                    return False, "Failed to parse login response JSON"
             else:
                 print(f"[ERROR] HTTP status code: {response.status_code}")
                 print(f"[ERROR] Server response: {response.text[:500]}")
-                return None
+                return False, "Unexpected HTTP status code"
 
         except requests.exceptions.Timeout:
             print("[ERROR] Timeout connecting to XboxUnity")
-            return None
+            return False, "Timeout connecting to XboxUnity"
         except requests.exceptions.ConnectionError:
             print("[ERROR] Connection error with XboxUnity")
-            return None
+            return False, "Connection error with XboxUnity"
         except Exception as e:
             print(f"[ERROR] Unexpected error in login: {e}")
-            return None
+            return False, "Unexpected error in login"
 
     def _parse_title_updates_type1(
         self, data: Dict[str, Any], title_id: str, media_id: Optional[str] = None
@@ -305,7 +300,7 @@ class XboxUnity:
         if not title_id:
             error_msg = "TitleID is required to search for title updates"
             print(f"[ERROR] {error_msg}")
-            raise XboxUnityError(error_msg)
+            raise ValueError(error_msg)
 
         # Use the real TitleUpdateInfo.php endpoint (based on web analysis)
         title_updates = self.search_title_updates_with_real_endpoint(
