@@ -186,9 +186,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         result = TitleUpdateUtils.find_install_info(
             title_id, update, content_folder, cache_folder, is_ftp=False
         )
-        # Normalise path for display
-        if result and "path" in result:
-            result["path"] = os.path.normpath(result["path"])
         return result
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
@@ -703,16 +700,14 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
             if is_installed:
                 install_info = self._get_install_info(self.title_id, update)
-                filename = (
-                    os.path.basename(install_info["path"])
-                    if install_info
-                    else "Unknown"
-                )
+                filename = install_info["filename"]
                 if install_info:
                     if install_info["location"] == "Content":
                         display_text = f"📁 Content/{self.title_id}/000B0000/{filename}"
+                        full_text = f"Content/0000000000000000/{self.title_id}/000B0000/{filename}"
                     else:
                         display_text = f"📁 {install_info['location']}/{filename}"
+                        full_text = f"{install_info['location']}/{filename}"
                     path_filename_label = self._create_path_label(display_text)
             else:
                 # Show predicted install location for non-installed updates
@@ -723,12 +718,15 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     # Determine installation path based on filename case
                     if filename.islower():
                         display_text = f"📁 Content/{self.title_id}/000B0000/{filename}"
+                        full_text = f"Content/0000000000000000/{self.title_id}/000B0000/{filename}"
                     elif filename.isupper():
                         display_text = f"📁 Cache/{filename}"
+                        full_text = f"Cache/{filename}"
                     path_filename_label = self._create_path_label(display_text)
                 else:
                     path_filename_label = self._create_path_label("Unknown/Unknown")
 
+            path_filename_label.setToolTip(full_text)
             path_filename_label.setStyleSheet(
                 """
                         QLabel {

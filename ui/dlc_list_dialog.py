@@ -625,8 +625,12 @@ class DLCListDialog(QDialog):
 
             # Path info (smallest, most muted)
             file_name = dlc.get("file", "Unknown")
-            display_text = f"📁 00000002/{file_name}"
+            display_text = f"📁 Content/00000002/{file_name}"
+            hover_text = (
+                f"Content/0000000000000000/{self.title_id}/00000002/{file_name}"
+            )
             path_label = QLabel(f"{display_text}")
+            path_label.setToolTip(hover_text)
             path_label.setStyleSheet(
                 """
                     QLabel {
