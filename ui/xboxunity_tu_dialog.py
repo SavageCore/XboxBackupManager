@@ -17,7 +17,9 @@ from PyQt6.QtWidgets import (
 
 from utils.ftp_client import FTPClient
 from utils.settings_manager import SettingsManager
+from utils.system_utils import SystemUtils
 from utils.title_update_utils import TitleUpdateUtils
+from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
 from workers.title_update_downloader import TitleUpdateDownloadWorker
 
@@ -39,6 +41,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         self.updates = updates or []
         self.xbox_unity = XboxUnity()
         self.settings_manager = SettingsManager()
+        self.game_manager = parent.game_manager if parent else None
         # Sort updates by version number (descending) - highest version first
         self.updates = sorted(
             self.updates, key=lambda x: int(x.get("version", 0)), reverse=True
@@ -50,6 +53,12 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         self.download_worker.download_progress.connect(self.download_progress.emit)
         self.download_worker.download_complete.connect(self._on_download_complete)
         self.download_worker.download_error.connect(self.download_error.emit)
+
+        self.game_name = (
+            self.game_manager.get_game_name(self.title_id)
+            if self.game_manager
+            else "Unknown Game"
+        )
 
         self._init_ui()
 
@@ -174,9 +183,13 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         content_folder = self.settings_manager.load_usb_content_directory()
         cache_folder = self.settings_manager.load_usb_cache_directory()
 
-        return TitleUpdateUtils.find_install_info(
+        result = TitleUpdateUtils.find_install_info(
             title_id, update, content_folder, cache_folder, is_ftp=False
         )
+        # Normalise path for display
+        if result and "path" in result:
+            result["path"] = os.path.normpath(result["path"])
+        return result
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
@@ -528,6 +541,361 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             ftp_client.disconnect()
 
     def _init_ui(self):
+        """Initialize the dialog UI"""
+        self.setWindowTitle("Xbox Unity Title Updates")
+        self.setModal(True)
+        self.setMinimumSize(800, 400)  # Increased width for better layout
+        self.resize(850, 450)
+
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        # Title header
+        title_label = QLabel(f"Title Updates for {self.game_name} ({self.title_id})")
+        title_label.setStyleSheet(
+            """
+                    QLabel {
+                        font-size: 16px;
+                        font-weight: bold;
+                        padding: 5px 0px;
+                    }
+                """
+        )
+        main_layout.addWidget(title_label)
+
+        # Scroll area for Title Updates
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet(
+            """
+                    QScrollArea {
+                        border: 1px solid rgba(255,255,255,0.1);
+                        border-radius: 5px;
+                        background-color: transparent;
+                    }
+                """
+        )
+
+        # Content widget for scroll area
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setSpacing(8)
+        content_layout.setContentsMargins(8, 8, 8, 8)
+
+        # Process each Title Update
+        for i, update in enumerate(self.updates):
+            version = update.get("version", "N/A")
+            media_id = update.get("mediaId", "")
+            download_url = update.get("downloadUrl", "")
+
+            # Get cached title update info
+            title_update_info = self.xbox_unity.get_title_update_information(
+                download_url
+            )
+            update["cached_info"] = title_update_info
+
+            # Format date with system locale
+            upload_date = update.get("uploadDate", "")
+            try:
+                if upload_date and upload_date != "N/A":
+                    # Parse the date (format: 2014-02-12 00:00:00)
+                    dt = datetime.strptime(upload_date, "%Y-%m-%d %H:%M:%S")
+
+                    # Use system locale for date formatting
+                    try:
+                        # Try to use locale-specific formatting
+                        locale.setlocale(locale.LC_TIME, "")  # Use system default
+                        date_text = dt.strftime(
+                            "%x"
+                        )  # Short date format according to locale
+
+                        # If the result looks too short/numeric, use a longer format
+                        if (
+                            len(date_text) < 8
+                            or date_text.count("/") >= 2
+                            or date_text.count("-") >= 2
+                        ):
+                            # Use a more readable medium format
+                            date_text = dt.strftime("%d %b %Y")  # e.g., "12 Feb 2014"
+                    except (locale.Error, OSError):
+                        # Fallback to a universal format if locale fails
+                        date_text = dt.strftime("%d %b %Y")  # e.g., "12 Feb 2014"
+                else:
+                    date_text = "Unknown date"
+            except Exception:
+                date_text = upload_date if upload_date else "Unknown date"
+
+            # Format size - try multiple sources for size data
+            size_bytes = 0
+            if title_update_info and title_update_info.get("size"):
+                size_bytes = title_update_info.get("size", 0)
+            elif update.get("size"):
+                size_bytes = update.get("size", 0)
+
+            if size_bytes > 0:
+                size_mb = size_bytes / (1024 * 1024)
+                size_text = f"{size_mb:.1f} MB"
+            else:
+                size_text = "Unknown size"
+
+            # Create update card with fixed height - restore alternating backgrounds
+            update_frame = QFrame()
+            update_frame.setFixedHeight(80)  # Fixed height for consistency
+            update_frame.setStyleSheet(
+                f"""
+                        QFrame {{
+                            background-color: {'rgba(255,255,255,0.05)' if i % 2 == 0 else 'rgba(255,255,255,0.02)'};
+                            border: 1px solid rgba(255,255,255,0.1);
+                            border-radius: 6px;
+                            margin: 1px;
+                        }}
+                    """
+            )
+
+            card_layout = QHBoxLayout(update_frame)
+            card_layout.setSpacing(12)
+            card_layout.setContentsMargins(12, 8, 12, 8)
+
+            # Left side: Version, Date, Path
+            left_widget = QWidget()
+            left_widget.setFixedWidth(450)
+            left_widget.setStyleSheet("background: transparent;")
+            left_layout = QVBoxLayout(left_widget)
+            left_layout.setSpacing(1)
+            left_layout.setContentsMargins(0, 0, 0, 0)
+
+            # Version
+            version_label = QLabel(f"Version {version}")
+            version_label.setStyleSheet(
+                """
+                        QLabel {
+                            font-size: 14px;
+                            font-weight: 600;
+                            border: none;
+                            margin: 0px;
+                            padding: 0px;
+                        }
+                    """
+            )
+            version_label.setWordWrap(False)
+            left_layout.addWidget(version_label)
+
+            # Date
+            date_label = QLabel(date_text)
+            date_label.setStyleSheet(
+                """
+                        QLabel {
+                            border: none;
+                            margin: 0px;
+                            padding: 0px;
+                        }
+                    """
+            )
+            date_label.setWordWrap(False)
+            left_layout.addWidget(date_label)
+
+            # Path info (smallest, most muted)
+            is_installed = self._is_title_update_installed(self.title_id, update)
+
+            if is_installed:
+                install_info = self._get_install_info(self.title_id, update)
+                filename = (
+                    os.path.basename(install_info["path"])
+                    if install_info
+                    else "Unknown"
+                )
+                if install_info:
+                    if install_info["location"] == "Content":
+                        display_text = f"📁 Content/{self.title_id}/000B0000/{filename}"
+                    else:
+                        display_text = f"📁 {install_info['location']}/{filename}"
+                    path_filename_label = self._create_path_label(display_text)
+            else:
+                # Show predicted install location for non-installed updates
+                title_update_info = update.get("cached_info")
+                if title_update_info:
+                    filename = title_update_info.get("fileName", "Unknown")
+
+                    # Determine installation path based on filename case
+                    if filename.islower():
+                        display_text = f"📁 Content/{self.title_id}/000B0000/{filename}"
+                    elif filename.isupper():
+                        display_text = f"📁 Cache/{filename}"
+                    path_filename_label = self._create_path_label(display_text)
+                else:
+                    path_filename_label = self._create_path_label("Unknown/Unknown")
+
+            path_filename_label.setStyleSheet(
+                """
+                        QLabel {
+                            border: none;
+                            font-size: 14px;
+                            color: rgba(255,255,255,0.4);
+                            margin: 0px;
+                            padding: 0px;
+                            font-family: 'Consolas', 'Monaco', monospace;
+                        }
+                        QLabel:hover {
+                            color: #4FC3F7;
+                            text-decoration: underline;
+                        }
+                    """
+            )
+            path_filename_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextBrowserInteraction
+            )
+            path_filename_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            path_filename_label.mousePressEvent = (
+                lambda event: self._open_tu_in_explorer()
+            )
+            left_layout.addWidget(path_filename_label)
+
+            # Push content to top
+            left_layout.addStretch()
+
+            size_widget = QWidget()
+            size_widget.setFixedWidth(110)
+            size_widget.setStyleSheet("background: transparent;")
+            size_layout = QVBoxLayout(size_widget)
+            size_layout.setContentsMargins(0, 0, 0, 0)
+
+            size_button = QPushButton(size_text)
+            size_button.setFixedSize(100, 32)
+            size_button.setEnabled(False)  # Disable interaction
+            size_button.setStyleSheet(
+                """
+                        QPushButton {
+                            font-size: 12px;
+                            color: rgba(255,255,255,0.85);
+                            font-weight: 600;
+                            background-color: rgba(255,255,255,0.08);
+                            border: 1px solid rgba(255,255,255,0.15);
+                            border-radius: 5px;
+                            margin: 0px;
+                            padding: 0px;
+                        }
+                    """
+            )
+
+            # Center the button vertically
+            size_layout.addStretch()
+            size_layout.addWidget(size_button, alignment=Qt.AlignmentFlag.AlignCenter)
+            size_layout.addStretch()
+
+            # Right side: Action button (clean, no extra containers)
+            button_widget = QWidget()
+            button_widget.setStyleSheet("background: transparent;")
+            button_widget.setFixedWidth(110)
+            button_layout = QVBoxLayout(button_widget)
+            button_layout.setContentsMargins(0, 0, 0, 0)
+
+            action_button = QPushButton("Uninstall" if is_installed else "Install")
+            action_button.setFixedSize(100, 32)
+            action_button.setStyleSheet(
+                f"""
+                        QPushButton {{
+                            background-color: {'#e74c3c' if is_installed else '#3498db'};
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 12px;
+                            font-weight: 500;
+                            margin: 0px;
+                        }}
+                        QPushButton:hover {{
+                            background-color: {'#c0392b' if is_installed else '#2980b9'};
+                        }}
+                        QPushButton:pressed {{
+                            background-color: {'#a93226' if is_installed else '#21618c'};
+                        }}
+                        QPushButton:disabled {{
+                            background-color: #95a5a6;
+                            color: #ecf0f1;
+                        }}
+                    """
+            )
+
+            # Center the button vertically
+            button_layout.addStretch()
+            button_layout.addWidget(
+                action_button, alignment=Qt.AlignmentFlag.AlignCenter
+            )
+            button_layout.addStretch()
+
+            destination = f"cache/tu/{self.title_id}/"
+
+            if is_installed:
+                # Connect uninstall action
+                action_button.clicked.connect(
+                    lambda checked, ver=version, mid=media_id, btn=action_button, upd=update: self._uninstall_title_update(
+                        self.title_id, ver, mid, btn, upd
+                    )
+                )
+            else:
+                # Connect download and install action
+                action_button.clicked.connect(
+                    lambda checked, url=download_url, btn=action_button, ver=version, mid=media_id, upd=update: self._download_and_install(
+                        url, destination, self.title_id, btn, ver, mid, upd
+                    )
+                )
+
+            # Add all widgets to card layout with proper stretch factors
+            card_layout.addWidget(left_widget, 0)  # Fixed size, no stretch
+            card_layout.addWidget(size_widget, 0)  # Fixed size, no stretch
+            card_layout.addWidget(button_widget, 0)  # Fixed size, no stretch
+            # Remove the addStretch that was causing layout issues
+
+            content_layout.addWidget(update_frame)
+
+        # Add stretch to push everything to the top
+        content_layout.addStretch()
+
+        # Set the content widget to scroll area
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
+
+        # Close button at bottom
+        close_button = QPushButton("Close")
+        close_button.setStyleSheet(
+            """
+                    QPushButton {
+                        background-color: #95a5a6;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        padding: 10px 20px;
+                        font-size: 12px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #7f8c8d;
+                    }
+                """
+        )
+        close_button.clicked.connect(self.close)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(close_button)
+
+        main_layout.addLayout(button_layout)
+
+    def _open_tu_in_explorer(self):
+        """Open the TU file's containing folder in Explorer"""
+        # TUs are stored in cache/tu/<title_id>/<file_name>
+        tu_path = os.path.abspath(os.path.join("cache/tu", self.title_id))
+        if os.path.exists(tu_path):
+            SystemUtils.open_folder_in_explorer(tu_path, self)
+        else:
+            UIUtils.show_warning(
+                self, "File Not Found", f"TU file not found:\n{tu_path}"
+            )
+
+    def _init_ui_old(self):
         """Initialize the dialog UI with modern design"""
         self.setWindowTitle("Xbox Unity Title Updates")
         self.setModal(True)
@@ -540,7 +908,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
 
         # Title header
-        title_label = QLabel(f"Title Updates for {self.title_id}")
+        title_label = QLabel(f"Title Updates for {self.game_name} ({self.title_id})")
         title_label.setStyleSheet(
             """
             QLabel {
@@ -657,6 +1025,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     font-size: 13px;
                     font-weight: bold;
                     color: white;
+                    border: none;
                 }
             """
             )
@@ -667,6 +1036,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                 QLabel {
                     font-size: 10px;
                     color: rgba(255,255,255,0.7);
+                    border: none;
                 }
             """
             )
@@ -682,6 +1052,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     font-size: 11px;
                     color: rgba(255,255,255,0.8);
                     font-weight: 500;
+                    border: none;
                 }
             """
             )
@@ -695,16 +1066,13 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             # First check if it's actually installed to get real info
             if is_installed:
                 install_info = self._get_install_info(self.title_id, update)
-                print(
-                    f"[DEBUG] Install info for {self.title_id} v{version}: {install_info}"
-                )
                 filename = (
                     os.path.basename(install_info["path"])
                     if install_info
                     else "Unknown"
                 )
                 if install_info:
-                    display_text = f"{install_info['location']}/{filename}"
+                    display_text = f"📁 {install_info['location']}/{filename}"
                     path_filename_label = self._create_path_label(display_text)
                 else:
                     # Fallback if we can't get install info

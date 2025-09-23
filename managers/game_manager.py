@@ -111,6 +111,13 @@ class GameManager(QObject):
                 return game
         return None
 
+    def get_game_name(self, title_id: str) -> Optional[str]:
+        """Get the name of a game by its title ID"""
+        game = self.find_game_by_title_id(title_id)
+        if game:
+            return game.name
+        return None
+
     def get_games_count(self) -> int:
         """Get total number of games"""
         return len(self.games)
