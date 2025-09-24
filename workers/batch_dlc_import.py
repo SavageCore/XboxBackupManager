@@ -126,9 +126,12 @@ class BatchDLCImportWorker(QThread):
         if not self._cancelled:
             log_path = os.path.join(os.getcwd(), "batch_dlc_import_log.txt")
             with open(log_path, "w", encoding="utf-8") as logf:
+                logf.write("Batch DLC Import\n")
                 logf.write(
-                    f"\nBatch DLC Import {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"Started at: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 )
+                logf.write(f"Total files: {total_files}\n")
+                logf.write("==================================================\n\n")
                 # Sort games alphabetically for log output
                 for game in sorted(log_by_game.keys()):
                     for line in log_by_game[game]:
