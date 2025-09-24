@@ -82,9 +82,10 @@ from workers.icon_downloader import IconDownloader
 from workers.zip_extract import ZipExtractorWorker
 
 
-class XboxBackupManager(QMainWindow):
-    """Main application window"""
+from workers.batch_dlc_import import BatchDLCImportWorker
 
+
+class XboxBackupManager(QMainWindow):
     def __init__(self):
         super().__init__()
 
@@ -5297,101 +5298,107 @@ class XboxBackupManager(QMainWindow):
                     continue
                 all_files.extend(collect_files(local_path))
 
-            processed_any = False
-            for file_path in all_files:
-                if not os.path.isfile(file_path):
-                    continue
-                base = os.path.basename(file_path)
-                # Only accept files that look like DLC (32 hex chars, no extension)
-                if (
-                    len(base) == 42
-                    and all(c in "0123456789ABCDEFabcdef" for c in base)
-                    and not os.path.splitext(base)[1]
-                ):
-                    result = self.dlc_utils.parse_file(file_path)
-                    if result:
-                        display_name = result.get("display_name")
-                        description = result.get("description")
-                        title_id = result.get("title_id")
+            dlc_files = [
+                f
+                for f in all_files
+                if os.path.isfile(f)
+                and len(os.path.basename(f)) == 42
+                and all(c in "0123456789ABCDEFabcdef" for c in os.path.basename(f))
+                and not os.path.splitext(f)[1]
+            ]
 
-                        # Get game name
-                        game_name = self.game_manager.get_game_name(title_id)
-
-                        if not game_name:
+            if len(dlc_files) > 1:
+                # Batch mode: process in background and log
+                self.status_manager.show_message(
+                    f"Processing {len(dlc_files)} DLC files in background..."
+                )
+                self.dlc_batch_worker = BatchDLCImportWorker(dlc_files, parent=self)
+                self.dlc_batch_worker.finished.connect(
+                    self._on_batch_dlc_import_finished
+                )
+                self.dlc_batch_worker.start()
+                event.acceptProposedAction()
+            elif len(dlc_files) == 1:
+                # Single file: process as before, show dialog
+                file_path = dlc_files[0]
+                result = self.dlc_utils.parse_file(file_path)
+                if result:
+                    display_name = result.get("display_name")
+                    description = result.get("description")
+                    title_id = result.get("title_id")
+                    game_name = self.game_manager.get_game_name(title_id)
+                    if not game_name:
+                        QMessageBox.warning(
+                            self,
+                            "DLC Game Not Found",
+                            f"Cannot find game for Title ID: {title_id}\n"
+                            "Please ensure the game is in your library before adding DLC.",
+                        )
+                        event.ignore()
+                        return
+                    target_dir = os.path.join(
+                        self.directory_manager.dlc_directory, title_id
+                    )
+                    os.makedirs(target_dir, exist_ok=True)
+                    target_path = os.path.join(target_dir, os.path.basename(file_path))
+                    if not os.path.exists(target_path):
+                        try:
+                            with (
+                                open(file_path, "rb") as src,
+                                open(target_path, "wb") as dst,
+                            ):
+                                dst.write(src.read())
+                        except Exception as e:
                             QMessageBox.warning(
                                 self,
-                                "DLC Game Not Found",
-                                f"Cannot find game for Title ID: {title_id}\n"
-                                "Please ensure the game is in your library before adding DLC.",
+                                "DLC Save Error",
+                                f"Failed to save DLC: {e}",
                             )
-                            continue
-
-                        # Save DLC file to <self.directory_manager.dlc_directory>/title_id/dlcfilename
-                        if title_id:
-                            target_dir = os.path.join(
-                                self.directory_manager.dlc_directory, title_id
-                            )
-                            os.makedirs(target_dir, exist_ok=True)
-                            target_path = os.path.join(target_dir, base)
-
-                            # If file already exists, skip copying
-                            if not os.path.exists(target_path):
-                                try:
-                                    with (
-                                        open(file_path, "rb") as src,
-                                        open(target_path, "wb") as dst,
-                                    ):
-                                        dst.write(src.read())
-                                except Exception as e:
-                                    QMessageBox.warning(
-                                        self,
-                                        "DLC Save Error",
-                                        f"Failed to save DLC: {e}",
-                                    )
-
-                        dlc_size = os.path.getsize(file_path)
-                        dlc_file = os.path.basename(file_path)
-
-                        # Save this DLC to /cache/dlc_index.json
-                        result = self.dlc_utils.add_dlc_to_index(
-                            title_id=title_id,
-                            display_name=display_name,
-                            description=description,
-                            game_name=game_name,
-                            size=dlc_size,
-                            file=dlc_file,
-                        )
-
-                        # Update GameManager with new DLC information
-                        if result:
-                            self.game_manager.increment_dlc_count(title_id)
-                            self._save_scan_cache()
-                            if self.table_manager:
-                                self.table_manager.refresh_games(self.games)
-
-                        # Show dialog, all fields read-only
-                        dialog = DLCInfoDialog(
-                            title_id=title_id or "",
-                            display_name=display_name or "",
-                            description=description or "",
-                            game_name=game_name or "",
-                            parent=self,
-                        )
-                        dialog.display_name.setReadOnly(True)
-                        dialog.game_name.setReadOnly(True)
-                        dialog.title_id.setReadOnly(True)
-                        dialog.exec()
-                        processed_any = True
-                    else:
-                        QMessageBox.warning(
-                            self, "DLC Parse Error", f"Failed to parse DLC file: {base}"
-                        )
-            if processed_any:
-                event.acceptProposedAction()
+                    dlc_size = os.path.getsize(file_path)
+                    dlc_file = os.path.basename(file_path)
+                    result2 = self.dlc_utils.add_dlc_to_index(
+                        title_id=title_id,
+                        display_name=display_name,
+                        description=description,
+                        game_name=game_name,
+                        size=dlc_size,
+                        file=dlc_file,
+                    )
+                    if result2:
+                        self.game_manager.increment_dlc_count(title_id)
+                        self._save_scan_cache()
+                        if self.table_manager:
+                            self.table_manager.refresh_games(self.games)
+                    dialog = DLCInfoDialog(
+                        title_id=title_id or "",
+                        display_name=display_name or "",
+                        description=description or "",
+                        game_name=game_name or "",
+                        parent=self,
+                    )
+                    dialog.display_name.setReadOnly(True)
+                    dialog.game_name.setReadOnly(True)
+                    dialog.title_id.setReadOnly(True)
+                    dialog.exec()
+                    event.acceptProposedAction()
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "DLC Parse Error",
+                        f"Failed to parse DLC file: {os.path.basename(file_path)}",
+                    )
+                    event.ignore()
             else:
                 event.ignore()
         else:
             event.ignore()
+
+    def _on_batch_dlc_import_finished(self):
+        # Refresh table and save cache after batch import
+        if self.table_manager:
+            self.table_manager.refresh_games(self.games)
+        self._save_scan_cache()
+        self.status_manager.show_message("Batch DLC import complete.")
 
 
 class ClickableFirstColumnTableWidget(QTableWidget):
