@@ -57,6 +57,9 @@ from managers.game_manager import GameManager
 from managers.table_manager import TableManager
 from managers.transfer_manager import TransferManager
 from models.game_info import GameInfo
+from ui.batch_dlc_import_progress_dialog import (
+    BatchDLCImportProgressDialog,
+)
 from ui.dlc_info_dialog import DLCInfoDialog
 from ui.dlc_list_dialog import DLCListDialog
 from ui.file_processing_dialog import FileProcessingDialog
@@ -74,15 +77,13 @@ from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
+from workers.batch_dlc_import import BatchDLCImportWorker
 from workers.batch_tu_processor import BatchTitleUpdateProcessor
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_connection_tester import FTPConnectionTester
 from workers.ftp_transfer import FTPTransferWorker
 from workers.icon_downloader import IconDownloader
 from workers.zip_extract import ZipExtractorWorker
-
-
-from workers.batch_dlc_import import BatchDLCImportWorker
 
 
 class XboxBackupManager(QMainWindow):
@@ -5253,6 +5254,33 @@ class XboxBackupManager(QMainWindow):
                 "FTP operations will not be available until connection is restored.",
             )
 
+    def _on_batch_dlc_import_progress(
+        self, current: int, total: int, current_file: str = ""
+    ):
+        """Update batch DLC import progress dialog."""
+        print(f"[INFO] Batch DLC Import Progress: {current}/{total} - {current_file}")
+        self.dlc_import_progress_dialog.update_progress(
+            current, f"Importing: {current_file} ({current}/{total})"
+        )
+
+    def _on_batch_dlc_import_finished(self):
+        """Handle batch DLC import completion."""
+        if hasattr(self, "dlc_import_progress_dialog"):
+            self.dlc_import_progress_dialog.close()
+            del self.dlc_import_progress_dialog
+        if hasattr(self, "dlc_batch_worker"):
+            self.dlc_batch_worker.quit()
+            self.dlc_batch_worker.wait()
+            del self.dlc_batch_worker
+        self.table_manager.refresh_games(self.games)
+        self._save_scan_cache()
+        self.status_manager.show_message("Batch DLC import complete.")
+
+    def _on_batch_dlc_import_cancel(self):
+        """Handle batch DLC import cancellation."""
+        self.dlc_batch_worker.cancel()
+        self.status_manager.show_message("Batch DLC import cancelled.")
+
     def dragEnterEvent(self, event):
         """Handle drag enter event for DLC files"""
         # Only accept files or folders in Xbox 360 or XBLA mode
@@ -5306,20 +5334,24 @@ class XboxBackupManager(QMainWindow):
                 and all(c in "0123456789ABCDEFabcdef" for c in os.path.basename(f))
                 and not os.path.splitext(f)[1]
             ]
-
             if len(dlc_files) > 1:
-                # Batch mode: process in background and log
-                self.status_manager.show_message(
-                    f"Processing {len(dlc_files)} DLC files in background..."
+                self.dlc_import_progress_dialog = BatchDLCImportProgressDialog(
+                    len(dlc_files), parent=self
                 )
                 self.dlc_batch_worker = BatchDLCImportWorker(dlc_files, parent=self)
+                self.dlc_batch_worker.progress.connect(
+                    self._on_batch_dlc_import_progress
+                )
                 self.dlc_batch_worker.finished.connect(
                     self._on_batch_dlc_import_finished
                 )
+                self.dlc_import_progress_dialog.cancel_requested.connect(
+                    self._on_batch_dlc_import_cancel
+                )
+                self.dlc_import_progress_dialog.show()
                 self.dlc_batch_worker.start()
                 event.acceptProposedAction()
             elif len(dlc_files) == 1:
-                # Single file: process as before, show dialog
                 file_path = dlc_files[0]
                 result = self.dlc_utils.parse_file(file_path)
                 if result:
@@ -5350,9 +5382,7 @@ class XboxBackupManager(QMainWindow):
                                 dst.write(src.read())
                         except Exception as e:
                             QMessageBox.warning(
-                                self,
-                                "DLC Save Error",
-                                f"Failed to save DLC: {e}",
+                                self, "DLC Save Error", f"Failed to save DLC: {e}"
                             )
                     dlc_size = os.path.getsize(file_path)
                     dlc_file = os.path.basename(file_path)
@@ -5392,10 +5422,6 @@ class XboxBackupManager(QMainWindow):
                 event.ignore()
         else:
             event.ignore()
-
-    def _on_batch_dlc_import_finished(self):
-        # Refresh table and save cache after batch import
-        if self.table_manager:
             self.table_manager.refresh_games(self.games)
         self._save_scan_cache()
         self.status_manager.show_message("Batch DLC import complete.")
