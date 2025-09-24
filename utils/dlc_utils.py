@@ -3,11 +3,17 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
+from PyQt6.QtWidgets import QPushButton
+
+from utils.ftp_client import FTPClient
+
 
 class DLCUtils:
 
     def __init__(self, parent):
         self.directory_manager = parent.directory_manager
+        self.settings_manager = parent.settings_manager
+        self.ftp_client = FTPClient()
 
     def parse_file(self, dlc_path: str) -> Optional[Dict[str, Optional[str]]]:
         """
@@ -246,6 +252,227 @@ class DLCUtils:
         dlcs = self.load_dlc_index()
         dlcs_count = sum(1 for dlc in dlcs if dlc["title_id"] == title_id)
         return dlcs_count
+
+    def get_dlcs_for_title(self, title_id: str) -> list:
+        """Get the list of DLCs for a specific game by title ID"""
+        dlcs = self.load_dlc_index()
+        return [dlc for dlc in dlcs if dlc["title_id"] == title_id]
+
+    def _install_dlc_ftp(
+        self, local_dlc_path: str, title_id: str, filename: str
+    ) -> bool:
+        """Install DLC to FTP server"""
+        ftp_client = self.ftp_client._get_ftp_connection()
+        if not ftp_client:
+            print("[ERROR] Could not connect to FTP server")
+            return False
+
+        try:
+            content_folder = self.settings_manager.load_ftp_content_directory()
+            if content_folder:
+                if not content_folder.endswith("0000000000000000"):
+                    content_folder = f"{content_folder}/0000000000000000"
+                remote_path = f"{content_folder}/{title_id}/00000002/{filename}"
+            else:
+                print("[ERROR] FTP Content folder not configured")
+                return False
+
+            # Create remote directory structure recursively
+            remote_dir = str(Path(remote_path).parent).replace("\\", "/")
+            success, message = ftp_client.create_directory_recursive(remote_dir)
+            if not success:
+                print(f"[ERROR] Failed to create FTP directory structure: {message}")
+                return False
+
+            # Upload the file
+            success, message = ftp_client.upload_file(local_dlc_path, remote_path)
+            if success:
+                return True
+            else:
+                print(f"[ERROR] Failed to upload DLC to FTP: {message}")
+                return False
+
+        finally:
+            ftp_client.disconnect()
+
+    def _install_dlc_usb(
+        self, local_dlc_path: str, title_id: str, filename: str
+    ) -> bool:
+        """Install DLC to USB"""
+        if not os.path.exists(local_dlc_path):
+            print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
+            return False
+
+        content_folder = self.settings_manager.load_usb_content_directory()
+        if content_folder:
+            if not content_folder.endswith("0000000000000000"):
+                content_folder = os.path.join(content_folder, "0000000000000000")
+            remote_path = os.path.join(content_folder, title_id, "00000002", filename)
+        else:
+            print("[ERROR] USB Content folder not configured")
+            return False
+
+        # Create local directory structure if it doesn't exist
+        remote_dir = os.path.dirname(remote_path)
+        os.makedirs(remote_dir, exist_ok=True)
+        try:
+            # Copy the file
+            with open(local_dlc_path, "rb") as src_file:
+                with open(remote_path, "wb") as dest_file:
+                    dest_file.write(src_file.read())
+            return True
+        except Exception as e:
+            print(f"[ERROR] Failed to copy DLC to USB: {e}")
+            return False
+
+    def _uninstall_dlc_ftp(
+        self,
+        title_id: str,
+        button: QPushButton,
+        dlc: dict,
+    ) -> None:
+        """Uninstall DLC from FTP server"""
+        ftp_client = self.ftp_client._get_ftp_connection()
+        if not ftp_client:
+            print("[ERROR] Could not connect to FTP server")
+            return
+
+        try:
+            removed_files = []
+
+            content_folder = self.settings_manager.load_ftp_content_directory()
+
+            if content_folder and not content_folder.endswith("0000000000000000"):
+                content_folder = f"{content_folder}/0000000000000000"
+
+            possible_paths = [
+                f"{content_folder}/{title_id}/dlc" if content_folder else None,
+            ]
+
+            expected_filename = dlc.get("file", "")
+
+            for base_path in possible_paths:
+                if not base_path:
+                    continue
+
+                # Get recursive file listing from FTP
+                files = self._ftp_list_files_recursive(ftp_client, base_path)
+
+                for file_path, filename, file_size in files:
+                    if filename.upper() == expected_filename.upper():
+                        success, message = ftp_client.remove_file(file_path)
+                        if success:
+                            removed_files.append(file_path)
+                        else:
+                            print(
+                                f"[ERROR] Failed to remove file {file_path}: {message}"
+                            )
+
+            if removed_files:
+                button.setText("Download")
+                # Update button styling to blue for download
+                button.setStyleSheet(
+                    """
+                    QPushButton {
+                        background-color: #3498db;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        padding: 8px 16px;
+                        font-size: 12px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #2980b9;
+                    }
+                    QPushButton:pressed {
+                        background-color: #21618c;
+                    }
+                    QPushButton:disabled {
+                        background-color: #95a5a6;
+                        color: #ecf0f1;
+                    }
+                """
+                )
+                button.clicked.disconnect()
+                # Reconnect to install action
+                button.clicked.connect(
+                    lambda checked, btn=button, dlc=dlc: self._install(btn, dlc)
+                )
+            else:
+                print("No title update files found to remove")
+
+        finally:
+            ftp_client.disconnect()
+
+    def _uninstall_dlc_usb(
+        self,
+        title_id: str,
+        button: QPushButton,
+        dlc: dict,
+    ) -> None:
+        """Uninstall DLC from USB/local storage"""
+        removed_files = []
+
+        content_folder = self.settings_manager.load_usb_content_directory()
+
+        if content_folder and not content_folder.endswith("0000000000000000"):
+            content_folder = os.path.join(content_folder, "0000000000000000")
+
+        possible_paths = [
+            f"{content_folder}/{title_id}/00000002" if content_folder else None,
+        ]
+
+        for base_path in possible_paths:
+            if base_path and os.path.exists(base_path):
+                for root, dirs, files in os.walk(base_path):
+                    for file in files:
+                        if file.upper() == dlc.get(
+                            "file", ""
+                        ).upper() and os.path.getsize(
+                            os.path.join(root, file)
+                        ) == dlc.get(
+                            "size", 0
+                        ):
+                            try:
+                                os.remove(os.path.join(root, file))
+                                removed_files.append(os.path.join(root, file))
+                            except Exception as e:
+                                print(f"Error removing file {file}: {e}")
+
+        if removed_files:
+            button.setText("Install")
+            # Update button styling to blue for download
+            button.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #2980b9;
+                }
+                QPushButton:pressed {
+                    background-color: #21618c;
+                }
+                QPushButton:disabled {
+                    background-color: #95a5a6;
+                    color: #ecf0f1;
+                }
+            """
+            )
+            button.clicked.disconnect()
+            # Reconnect to install action
+            button.clicked.connect(
+                lambda checked, btn=button, dlc=dlc: self._install(btn=btn, dlc=dlc)
+            )
+        else:
+            print("No DLC files found to remove")
 
     def reprocess_dlc(self, get_game_name_callback):
         """

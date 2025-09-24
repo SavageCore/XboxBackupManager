@@ -5,6 +5,8 @@ from typing import List, Tuple
 
 from PyQt6.QtCore import QObject
 
+from utils.settings_manager import SettingsManager
+
 
 class FTPClient(QObject):
     """FTP client for connecting and managing FTP operations"""
@@ -18,6 +20,7 @@ class FTPClient(QObject):
         self._port = 21
         self._connected = False
         self._use_tls = False
+        self.settings_manager = SettingsManager()
 
     def connect(
         self,
@@ -341,3 +344,55 @@ class FTPClient(QObject):
             return False, f"Local file not found: {local_path}"
         except Exception as e:
             return False, f"Failed to upload file: {str(e)}"
+
+    def _get_ftp_connection(self):
+        """Create and return an FTP connection using settings"""
+        try:
+            self.ftp_settings = self.settings_manager.load_ftp_settings()
+            ftp_host = self.ftp_settings.get("host")
+            ftp_port = self.ftp_settings.get("port")
+            ftp_user = self.ftp_settings.get("username")
+            ftp_pass = self.ftp_settings.get("password")
+
+            if not all([ftp_host, ftp_port, ftp_user, ftp_pass]):
+                print("[ERROR] FTP credentials not configured")
+                return None
+
+            ftp_client = FTPClient()
+            success, message = ftp_client.connect(
+                ftp_host, ftp_user, ftp_pass, int(ftp_port)
+            )
+
+            if success:
+                return ftp_client
+            else:
+                print(f"[ERROR] FTP connection failed: {message}")
+                return None
+
+        except Exception as e:
+            print(f"[ERROR] Failed to connect to FTP: {e}")
+            return None
+
+    def _ftp_list_files_recursive(self, ftp_client, path):
+        """Recursively list files in FTP directory with size information"""
+        files = []
+        try:
+            success, items, error = ftp_client.list_directory(path)
+            if not success:
+                return files
+
+            for item in items:
+                if item["is_directory"]:
+                    # Recursively list subdirectories
+                    files.extend(
+                        self._ftp_list_files_recursive(ftp_client, item["full_path"])
+                    )
+                else:
+                    # Get file size using FTP SIZE command
+                    file_size = self._get_ftp_file_size(ftp_client, item["full_path"])
+                    files.append((item["full_path"], item["name"], file_size))
+
+        except Exception as e:
+            print(f"[DEBUG] Error listing FTP directory {path}: {e}")
+
+        return files

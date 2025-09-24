@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -38,6 +37,7 @@ class DLCListDialog(QDialog):
 
         self.dlc_utils = DLCUtils(parent)
         self.ui_utils = UIUtils()
+        self.ftp_client = FTPClient()
 
         self.game_name = (
             self.game_manager.get_game_name(self.title_id) or "Unknown Game"
@@ -60,100 +60,6 @@ class DLCListDialog(QDialog):
         label.setWordWrap(True)
         return label
 
-    def _get_ftp_connection(self):
-        """Create and return an FTP connection using settings"""
-        try:
-            self.ftp_settings = self.settings_manager.load_ftp_settings()
-            ftp_host = self.ftp_settings.get("host")
-            ftp_port = self.ftp_settings.get("port")
-            ftp_user = self.ftp_settings.get("username")
-            ftp_pass = self.ftp_settings.get("password")
-
-            if not all([ftp_host, ftp_port, ftp_user, ftp_pass]):
-                print("[ERROR] FTP credentials not configured")
-                return None
-
-            ftp_client = FTPClient()
-            success, message = ftp_client.connect(
-                ftp_host, ftp_user, ftp_pass, int(ftp_port)
-            )
-
-            if success:
-                return ftp_client
-            else:
-                print(f"[ERROR] FTP connection failed: {message}")
-                return None
-
-        except Exception as e:
-            print(f"[ERROR] Failed to connect to FTP: {e}")
-            return None
-
-    def _ftp_file_exists_with_size(self, ftp_client, filepath, expected_size):
-        """Check if a file exists on FTP server with the expected size"""
-        try:
-            # Get directory listing for the parent directory
-            parent_dir = str(Path(filepath).parent).replace("\\", "/")
-            filename = Path(filepath).name
-
-            success, items, error = ftp_client.list_directory(parent_dir)
-            if not success:
-                return False
-
-            for item in items:
-                if (
-                    item["name"].upper() == filename.upper()
-                    and not item["is_directory"]
-                ):
-                    # For FTP, we need to get file size differently
-                    # This is a simplified check - you might need to enhance this
-                    return True
-
-            return False
-        except Exception as e:
-            print(f"[DEBUG] Error checking FTP file {filepath}: {e}")
-            return False
-
-    def _ftp_list_files_recursive(self, ftp_client, path):
-        """Recursively list files in FTP directory with size information"""
-        files = []
-        try:
-            success, items, error = ftp_client.list_directory(path)
-            if not success:
-                return files
-
-            for item in items:
-                if item["is_directory"]:
-                    # Recursively list subdirectories
-                    files.extend(
-                        self._ftp_list_files_recursive(ftp_client, item["full_path"])
-                    )
-                else:
-                    # Get file size using FTP SIZE command
-                    file_size = self._get_ftp_file_size(ftp_client, item["full_path"])
-                    files.append((item["full_path"], item["name"], file_size))
-
-        except Exception as e:
-            print(f"[DEBUG] Error listing FTP directory {path}: {e}")
-
-        return files
-
-    def _get_ftp_file_size(self, ftp_client, filepath):
-        """Get the size of a file on FTP server"""
-        try:
-            # Use the FTP SIZE command if the client supports it
-            if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
-                try:
-                    size = ftp_client._ftp.size(filepath)
-                    return size if size is not None else 0
-                except Exception as e:
-                    print(f"[DEBUG] Could not get size for {filepath}: {e}")
-                    return 0
-            else:
-                return 0
-        except Exception as e:
-            print(f"[DEBUG] Error getting FTP file size for {filepath}: {e}")
-            return 0
-
     def _get_install_info(self, title_id: str, update) -> dict:
         """Get installation information (filename and path) for an installed title update"""
         if self.current_mode == "ftp":
@@ -172,7 +78,7 @@ class DLCListDialog(QDialog):
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             return None
 
@@ -228,7 +134,7 @@ class DLCListDialog(QDialog):
 
     def _is_dlc_installed_ftp(self, title_id: str, dlc) -> bool:
         """Check if DLC is installed on FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             return False
 
@@ -250,7 +156,7 @@ class DLCListDialog(QDialog):
                     continue
 
                 # Get recursive file listing from FTP
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
+                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
                 for file_path, filename, file_size in files:
                     if (
@@ -272,225 +178,9 @@ class DLCListDialog(QDialog):
     ) -> None:
         """Uninstall a DLC by removing it from Content folder"""
         if self.current_mode == "ftp":
-            self._uninstall_dlc_ftp(title_id, button, dlc)
+            self.dlc_utils._uninstall_dlc_ftp(title_id, button, dlc)
         else:
-            self._uninstall_dlc_usb(title_id, button, dlc)
-
-    def _uninstall_dlc_usb(
-        self,
-        title_id: str,
-        button: QPushButton,
-        dlc: dict,
-    ) -> None:
-        """Uninstall DLC from USB/local storage"""
-        removed_files = []
-
-        content_folder = self.settings_manager.load_usb_content_directory()
-
-        if content_folder and not content_folder.endswith("0000000000000000"):
-            content_folder = os.path.join(content_folder, "0000000000000000")
-
-        possible_paths = [
-            f"{content_folder}/{title_id}/00000002" if content_folder else None,
-        ]
-
-        for base_path in possible_paths:
-            if base_path and os.path.exists(base_path):
-                for root, dirs, files in os.walk(base_path):
-                    for file in files:
-                        if file.upper() == dlc.get(
-                            "file", ""
-                        ).upper() and os.path.getsize(
-                            os.path.join(root, file)
-                        ) == dlc.get(
-                            "size", 0
-                        ):
-                            try:
-                                os.remove(os.path.join(root, file))
-                                removed_files.append(os.path.join(root, file))
-                            except Exception as e:
-                                print(f"Error removing file {file}: {e}")
-
-        if removed_files:
-            button.setText("Install")
-            # Update button styling to blue for download
-            button.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: #3498db;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 8px 16px;
-                    font-size: 12px;
-                    font-weight: 500;
-                }
-                QPushButton:hover {
-                    background-color: #2980b9;
-                }
-                QPushButton:pressed {
-                    background-color: #21618c;
-                }
-                QPushButton:disabled {
-                    background-color: #95a5a6;
-                    color: #ecf0f1;
-                }
-            """
-            )
-            button.clicked.disconnect()
-            # Reconnect to install action
-            button.clicked.connect(
-                lambda checked, btn=button, dlc=dlc: self._install(btn=btn, dlc=dlc)
-            )
-        else:
-            print("No DLC files found to remove")
-
-    def _uninstall_dlc_ftp(
-        self,
-        title_id: str,
-        button: QPushButton,
-        dlc: dict,
-    ) -> None:
-        """Uninstall DLC from FTP server"""
-        ftp_client = self._get_ftp_connection()
-        if not ftp_client:
-            print("[ERROR] Could not connect to FTP server")
-            return
-
-        try:
-            removed_files = []
-
-            content_folder = self.settings_manager.load_ftp_content_directory()
-
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
-
-            possible_paths = [
-                f"{content_folder}/{title_id}/dlc" if content_folder else None,
-            ]
-
-            expected_filename = dlc.get("file", "")
-
-            for base_path in possible_paths:
-                if not base_path:
-                    continue
-
-                # Get recursive file listing from FTP
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
-
-                for file_path, filename, file_size in files:
-                    if filename.upper() == expected_filename.upper():
-                        success, message = ftp_client.remove_file(file_path)
-                        if success:
-                            removed_files.append(file_path)
-                        else:
-                            print(
-                                f"[ERROR] Failed to remove file {file_path}: {message}"
-                            )
-
-            if removed_files:
-                button.setText("Download")
-                # Update button styling to blue for download
-                button.setStyleSheet(
-                    """
-                    QPushButton {
-                        background-color: #3498db;
-                        color: white;
-                        border: none;
-                        border-radius: 5px;
-                        padding: 8px 16px;
-                        font-size: 12px;
-                        font-weight: 500;
-                    }
-                    QPushButton:hover {
-                        background-color: #2980b9;
-                    }
-                    QPushButton:pressed {
-                        background-color: #21618c;
-                    }
-                    QPushButton:disabled {
-                        background-color: #95a5a6;
-                        color: #ecf0f1;
-                    }
-                """
-                )
-                button.clicked.disconnect()
-                # Reconnect to install action
-                button.clicked.connect(
-                    lambda checked, btn=button, dlc=dlc: self._install(btn, dlc)
-                )
-            else:
-                print("No title update files found to remove")
-
-        finally:
-            ftp_client.disconnect()
-
-    def _install_dlc_ftp(
-        self, local_dlc_path: str, title_id: str, filename: str
-    ) -> bool:
-        """Install DLC to FTP server"""
-        ftp_client = self._get_ftp_connection()
-        if not ftp_client:
-            print("[ERROR] Could not connect to FTP server")
-            return False
-
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            if content_folder:
-                if not content_folder.endswith("0000000000000000"):
-                    content_folder = f"{content_folder}/0000000000000000"
-                remote_path = f"{content_folder}/{title_id}/00000002/{filename}"
-            else:
-                print("[ERROR] FTP Content folder not configured")
-                return False
-
-            # Create remote directory structure recursively
-            remote_dir = str(Path(remote_path).parent).replace("\\", "/")
-            success, message = ftp_client.create_directory_recursive(remote_dir)
-            if not success:
-                print(f"[ERROR] Failed to create FTP directory structure: {message}")
-                return False
-
-            # Upload the file
-            success, message = ftp_client.upload_file(local_dlc_path, remote_path)
-            if success:
-                return True
-            else:
-                print(f"[ERROR] Failed to upload DLC to FTP: {message}")
-                return False
-
-        finally:
-            ftp_client.disconnect()
-
-    def _install_dlc_usb(
-        self, local_dlc_path: str, title_id: str, filename: str
-    ) -> bool:
-        """Install DLC to USB"""
-        if not os.path.exists(local_dlc_path):
-            print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
-            return False
-
-        content_folder = self.settings_manager.load_usb_content_directory()
-        if content_folder:
-            if not content_folder.endswith("0000000000000000"):
-                content_folder = os.path.join(content_folder, "0000000000000000")
-            remote_path = os.path.join(content_folder, title_id, "00000002", filename)
-        else:
-            print("[ERROR] USB Content folder not configured")
-            return False
-
-        # Create local directory structure if it doesn't exist
-        remote_dir = os.path.dirname(remote_path)
-        os.makedirs(remote_dir, exist_ok=True)
-        try:
-            # Copy the file
-            with open(local_dlc_path, "rb") as src_file:
-                with open(remote_path, "wb") as dest_file:
-                    dest_file.write(src_file.read())
-            return True
-        except Exception as e:
-            print(f"[ERROR] Failed to copy DLC to USB: {e}")
-            return False
+            self.dlc_utils._uninstall_dlc_usb(title_id, button, dlc)
 
     def _init_ui(self):
         """Initialize the dialog UI"""
@@ -792,9 +482,13 @@ class DLCListDialog(QDialog):
             return
 
         if self.current_mode == "ftp":
-            success = self._install_dlc_ftp(local_dlc_path, title_id, filename)
+            success = self.dlc_utils._install_dlc_ftp(
+                local_dlc_path, title_id, filename
+            )
         else:
-            success = self._install_dlc_usb(local_dlc_path, title_id, filename)
+            success = self.dlc_utils._install_dlc_usb(
+                local_dlc_path, title_id, filename
+            )
 
         if success:
             btn.setText("Uninstall")

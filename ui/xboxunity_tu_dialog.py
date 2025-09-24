@@ -48,6 +48,8 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         )
         self.current_mode = parent.current_mode if parent else "usb"
 
+        self.ftp_client = FTPClient()
+
         # Initialize download worker
         self.download_worker = TitleUpdateDownloadWorker()
         self.download_worker.download_progress.connect(self.download_progress.emit)
@@ -76,83 +78,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         )
         label.setWordWrap(True)
         return label
-
-    def _get_ftp_connection(self):
-        """Create and return an FTP connection using settings"""
-        try:
-            self.ftp_settings = self.settings_manager.load_ftp_settings()
-            ftp_host = self.ftp_settings.get("host")
-            ftp_port = self.ftp_settings.get("port")
-            ftp_user = self.ftp_settings.get("username")
-            ftp_pass = self.ftp_settings.get("password")
-
-            if not all([ftp_host, ftp_port, ftp_user, ftp_pass]):
-                print("[ERROR] FTP credentials not configured")
-                return None
-
-            ftp_client = FTPClient()
-            success, message = ftp_client.connect(
-                ftp_host, ftp_user, ftp_pass, int(ftp_port)
-            )
-
-            if success:
-                return ftp_client
-            else:
-                print(f"[ERROR] FTP connection failed: {message}")
-                return None
-
-        except Exception as e:
-            print(f"[ERROR] Failed to connect to FTP: {e}")
-            return None
-
-    def _ftp_file_exists_with_size(self, ftp_client, filepath, expected_size):
-        """Check if a file exists on FTP server with the expected size"""
-        try:
-            # Get directory listing for the parent directory
-            parent_dir = str(Path(filepath).parent).replace("\\", "/")
-            filename = Path(filepath).name
-
-            success, items, error = ftp_client.list_directory(parent_dir)
-            if not success:
-                return False
-
-            for item in items:
-                if (
-                    item["name"].upper() == filename.upper()
-                    and not item["is_directory"]
-                ):
-                    # For FTP, we need to get file size differently
-                    # This is a simplified check - you might need to enhance this
-                    return True
-
-            return False
-        except Exception as e:
-            print(f"[DEBUG] Error checking FTP file {filepath}: {e}")
-            return False
-
-    def _ftp_list_files_recursive(self, ftp_client, path):
-        """Recursively list files in FTP directory with size information"""
-        files = []
-        try:
-            success, items, error = ftp_client.list_directory(path)
-            if not success:
-                return files
-
-            for item in items:
-                if item["is_directory"]:
-                    # Recursively list subdirectories
-                    files.extend(
-                        self._ftp_list_files_recursive(ftp_client, item["full_path"])
-                    )
-                else:
-                    # Get file size using FTP SIZE command
-                    file_size = self._get_ftp_file_size(ftp_client, item["full_path"])
-                    files.append((item["full_path"], item["name"], file_size))
-
-        except Exception as e:
-            print(f"[DEBUG] Error listing FTP directory {path}: {e}")
-
-        return files
 
     def _get_ftp_file_size(self, ftp_client, filepath):
         """Get the size of a file on FTP server"""
@@ -190,7 +115,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             return None
 
@@ -252,7 +177,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _is_title_update_installed_ftp(self, title_id: str, update) -> bool:
         """Check if title update is installed on FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             return False
 
@@ -280,7 +205,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     continue
 
                 # Get recursive file listing from FTP
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
+                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
                 for file_path, filename, file_size in files:
                     if (
@@ -403,7 +328,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         update: dict,
     ) -> None:
         """Uninstall title update from FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return
@@ -433,7 +358,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     continue
 
                 # Get recursive file listing from FTP
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
+                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
                 for file_path, filename, file_size in files:
                     if filename.upper() == expected_filename.upper():
@@ -490,7 +415,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         self, local_tu_path: str, title_id: str, filename: str
     ) -> bool:
         """Install title update to FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return False

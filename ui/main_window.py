@@ -78,6 +78,7 @@ from utils.system_utils import SystemUtils
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
 from workers.batch_dlc_import import BatchDLCImportWorker
+from workers.batch_dlc_install_processor import BatchDLCInstallProcessor
 from workers.batch_tu_processor import BatchTitleUpdateProcessor
 from workers.file_transfer import FileTransferWorker
 from workers.ftp_connection_tester import FTPConnectionTester
@@ -265,6 +266,7 @@ class XboxBackupManager(QMainWindow):
                 "Transfer": "fa6s.arrow-right",
                 "Remove": "fa6s.trash",
                 "Batch Title Updater": "fa6s.download",
+                "Batch DLC Installer": "fa6s.cube",
             }
             for action in self.toolbar_actions:
                 icon_name = icon_mappings.get(action.text(), "fa6s.circle")
@@ -397,13 +399,167 @@ class XboxBackupManager(QMainWindow):
         self.toolbar_batch_tu_action.setEnabled(False)
         toolbar.addAction(self.toolbar_batch_tu_action)
 
+        # Batch DLC Installer
+        self.toolbar_batch_dlc_install_action = QAction("Batch DLC Installer", self)
+        self.toolbar_batch_dlc_install_action.setIcon(
+            self.icon_manager.create_icon("fa6s.cube")
+        )
+        self.toolbar_batch_dlc_install_action.setToolTip(
+            "Install all available DLCs for all transferred games"
+        )
+        self.toolbar_batch_dlc_install_action.triggered.connect(self.batch_install_dlcs)
+        self.toolbar_batch_dlc_install_action.setEnabled(False)
+        toolbar.addAction(self.toolbar_batch_dlc_install_action)
+
         # Store references for icon updates
         self.toolbar_actions = [
             self.toolbar_scan_action,
             self.toolbar_transfer_action,
             self.toolbar_remove_action,
             self.toolbar_batch_tu_action,
+            self.toolbar_batch_dlc_install_action,
         ]
+
+    def batch_install_dlcs(self):
+        """Batch install all DLCs for all transferred games in target directory"""
+        # Get all games in target directory (reuse _get_all_target_games)
+        target_games = self._get_all_target_games()
+        if not target_games:
+            QMessageBox.information(
+                self,
+                "Batch DLC Install",
+                "No games found in target directory.",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Batch DLC Install",
+            f"This will install all available DLCs for {len(target_games)} games.\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Create progress dialog
+        from ui.batch_dlc_import_progress_dialog import BatchDLCImportProgressDialog
+
+        self.batch_dlc_install_progress_dialog = BatchDLCImportProgressDialog(
+            len(target_games), self
+        )
+        self.batch_dlc_install_progress_dialog.setWindowTitle(
+            "Batch DLC Install Progress"
+        )
+        self.batch_dlc_install_progress_dialog.show()
+
+        # Create and setup worker
+        self.batch_dlc_install_worker = BatchDLCInstallProcessor(parent=self)
+        self.batch_dlc_install_worker.setup_batch(target_games, self.current_mode)
+
+        # Connect signals
+        self.batch_dlc_install_worker.progress_update.connect(
+            self._on_batch_dlc_install_progress
+        )
+        self.batch_dlc_install_worker.game_started.connect(
+            self._on_batch_dlc_install_game_started
+        )
+        self.batch_dlc_install_worker.game_completed.connect(
+            self._on_batch_dlc_install_game_completed
+        )
+        self.batch_dlc_install_worker.dlc_installed.connect(
+            self._on_batch_dlc_installed
+        )
+        self.batch_dlc_install_worker.batch_complete.connect(
+            self._on_batch_dlc_install_complete
+        )
+        self.batch_dlc_install_worker.error_occurred.connect(
+            self._on_batch_dlc_install_error
+        )
+        self.batch_dlc_install_progress_dialog.cancel_requested.connect(
+            self.batch_dlc_install_worker.stop_processing
+        )
+        self.batch_dlc_install_progress_dialog.cancel_requested.connect(
+            self._on_batch_dlc_install_cancelled
+        )
+
+        # Disable toolbar actions during batch processing
+        self.toolbar_transfer_action.setEnabled(False)
+        self.toolbar_remove_action.setEnabled(False)
+        self.toolbar_batch_tu_action.setEnabled(False)
+        self.toolbar_batch_dlc_install_action.setEnabled(False)
+        self.browse_action.setEnabled(False)
+        self.browse_target_action.setEnabled(False)
+
+        # Start processing
+        self.batch_dlc_install_worker.start()
+
+    def _on_batch_dlc_install_progress(self, current: int, total: int):
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.update_progress(current)
+
+    def _on_batch_dlc_install_game_started(self, game_name: str):
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.label.setText(
+                f"Installing DLCs: {game_name}"
+            )
+
+    def _on_batch_dlc_install_game_completed(self, game_name: str, dlcs_installed: int):
+        # Optionally update status or log
+        pass
+
+    def _on_batch_dlc_installed(self, game_name: str, dlc_file: str):
+        # Optionally update status or log
+        pass
+
+    def _on_batch_dlc_install_complete(self, total_games: int, total_dlcs: int):
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.close()
+            del self.batch_dlc_install_progress_dialog
+        if hasattr(self, "batch_dlc_install_worker"):
+            self.batch_dlc_install_worker.quit()
+            self.batch_dlc_install_worker.wait()
+            del self.batch_dlc_install_worker
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.toolbar_batch_dlc_install_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        QMessageBox.information(
+            self,
+            "Batch DLC Install Complete",
+            f"Processed {total_games} games.\nInstalled {total_dlcs} DLCs.\n\nSee 'batch_dlc_install_log.txt' for details.",
+        )
+
+    def _on_batch_dlc_install_error(self, error_message: str):
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.close()
+            del self.batch_dlc_install_progress_dialog
+        if hasattr(self, "batch_dlc_install_worker"):
+            self.batch_dlc_install_worker.quit()
+            self.batch_dlc_install_worker.wait()
+            del self.batch_dlc_install_worker
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.toolbar_batch_dlc_install_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        QMessageBox.critical(
+            self,
+            "Batch DLC Install Error",
+            f"An error occurred during batch DLC install:\n\n{error_message}",
+        )
+
+    def _on_batch_dlc_install_cancelled(self):
+        self.toolbar_transfer_action.setEnabled(True)
+        self.toolbar_remove_action.setEnabled(True)
+        self.toolbar_batch_tu_action.setEnabled(True)
+        self.toolbar_batch_dlc_install_action.setEnabled(True)
+        self.browse_action.setEnabled(True)
+        self.browse_target_action.setEnabled(True)
+        self.status_manager.show_message("Batch DLC install cancelled")
 
     def create_top_section(self, main_layout):
         """Create the top section with directory controls"""
@@ -1139,6 +1295,7 @@ class XboxBackupManager(QMainWindow):
         self.toolbar_remove_action.setEnabled(is_enabled)
         # Enable batch TU when we have games and target (regardless of selection)
         self.toolbar_batch_tu_action.setEnabled(has_games and has_target)
+        self.toolbar_batch_dlc_install_action.setEnabled(has_games and has_target)
 
     def _get_selected_games_count(self):
         """Get count of selected games (checked in checkbox column)"""
