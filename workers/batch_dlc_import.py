@@ -76,7 +76,7 @@ class BatchDLCImportWorker(QThread):
                     self.log_lines.append(f"Failed to parse DLC file: {base}")
         # Save log
         log_path = os.path.join(os.getcwd(), "batch_dlc_import_log.txt")
-        with open(log_path, "a", encoding="utf-8") as logf:
+        with open(log_path, "w", encoding="utf-8") as logf:
             logf.write(
                 f"\nBatch DLC Import {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             )
