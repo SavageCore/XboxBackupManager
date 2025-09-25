@@ -164,7 +164,7 @@ class NonSortableHeaderView(QHeaderView):
                 return
 
         # Not in resize area - handle normal cursor logic
-        if section >= 0 and section != 1:  # Valid section, not the icon column
+        if section >= 0 and section not in [0, 1]:  # Valid section, not the icon column
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             return
         else:
@@ -498,7 +498,7 @@ class TableManager(QObject):
         self.table.setItem(row, col_index, size_item)
         col_index += 1
 
-        # DLCs column (XBLA only)
+        # DLCs column (Xbox 360/XBLA only)
         if self.current_platform in ["xbox360", "xbla"]:
             # This would need to be implemented based on folder structure
             dlc_item = QTableWidgetItem(str(game.dlc_count) or "0")  # Placeholder

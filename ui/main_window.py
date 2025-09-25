@@ -19,19 +19,17 @@ from typing import Dict, List
 
 import qtawesome as qta
 import requests
-from PyQt6.QtCore import QFileSystemWatcher, QRect, QSize, Qt, QTimer, QUrl
+from PyQt6.QtCore import QFileSystemWatcher, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
     QDesktopServices,
     QIcon,
-    QPainter,
     QPixmap,
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
