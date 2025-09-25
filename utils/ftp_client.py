@@ -396,3 +396,20 @@ class FTPClient(QObject):
             print(f"[DEBUG] Error listing FTP directory {path}: {e}")
 
         return files
+
+    def _get_ftp_file_size(self, ftp_client, filepath):
+        """Get the size of a file on FTP server"""
+        try:
+            # Use the FTP SIZE command if the client supports it
+            if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
+                try:
+                    size = ftp_client._ftp.size(filepath)
+                    return size if size is not None else 0
+                except Exception as e:
+                    print(f"[DEBUG] Could not get size for {filepath}: {e}")
+                    return 0
+            else:
+                return 0
+        except Exception as e:
+            print(f"[DEBUG] Error getting FTP file size for {filepath}: {e}")
+            return 0

@@ -96,19 +96,23 @@ class BatchDLCInstallProcessor(QThread):
                             continue
                         # Install the DLC
                         if self.current_mode == "ftp":
-                            success = self.dlc_utils._install_dlc_ftp(
+                            success, message = self.dlc_utils._install_dlc_ftp(
                                 local_dlc_path, title_id, filename
                             )
                         else:
-                            success = self.dlc_utils._install_dlc_usb(
+                            success, message = self.dlc_utils._install_dlc_usb(
                                 local_dlc_path, title_id, filename
                             )
                         if success:
                             self._log_message(f"  Installed DLC: {filename}")
                             self.dlc_installed.emit(game_name, filename)
                             dlcs_installed += 1
+                        elif message == "DLC file already exists":
+                            self._log_message(f"  DLC already exists: {filename}")
                         else:
-                            self._log_message(f"  Failed to install DLC: {filename}")
+                            self._log_message(
+                                f"  Failed to install DLC: {filename} - {message}"
+                            )
                     self.game_completed.emit(game_name, dlcs_installed)
                     total_dlcs_installed += dlcs_installed
                 except Exception as e:

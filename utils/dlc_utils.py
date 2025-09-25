@@ -265,7 +265,7 @@ class DLCUtils:
         ftp_client = self.ftp_client._get_ftp_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
-            return False
+            return False, "Could not connect to FTP server"
 
         try:
             content_folder = self.settings_manager.load_ftp_content_directory()
@@ -275,22 +275,33 @@ class DLCUtils:
                 remote_path = f"{content_folder}/{title_id}/00000002/{filename}"
             else:
                 print("[ERROR] FTP Content folder not configured")
-                return False
+                return False, "FTP Content folder not configured"
+
+            # Check if target file already exists
+            files = self.ftp_client._ftp_list_files_recursive(
+                ftp_client, os.path.dirname(remote_path)
+            )
+            for file_path, fname, file_size in files:
+                if fname.upper() == filename.upper() and file_size == os.path.getsize(
+                    local_dlc_path
+                ):
+                    print(f"[INFO] DLC file already exists on FTP: {remote_path}")
+                    return False, "DLC file already exists"
 
             # Create remote directory structure recursively
             remote_dir = str(Path(remote_path).parent).replace("\\", "/")
             success, message = ftp_client.create_directory_recursive(remote_dir)
             if not success:
                 print(f"[ERROR] Failed to create FTP directory structure: {message}")
-                return False
+                return False, message
 
             # Upload the file
             success, message = ftp_client.upload_file(local_dlc_path, remote_path)
             if success:
-                return True
+                return True, None
             else:
                 print(f"[ERROR] Failed to upload DLC to FTP: {message}")
-                return False
+                return False, message
 
         finally:
             ftp_client.disconnect()
@@ -301,7 +312,7 @@ class DLCUtils:
         """Install DLC to USB"""
         if not os.path.exists(local_dlc_path):
             print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
-            return False
+            return False, "Local DLC file not found"
 
         content_folder = self.settings_manager.load_usb_content_directory()
         if content_folder:
@@ -310,7 +321,14 @@ class DLCUtils:
             remote_path = os.path.join(content_folder, title_id, "00000002", filename)
         else:
             print("[ERROR] USB Content folder not configured")
-            return False
+            return False, "USB Content folder not configured"
+
+        # Check if target file already exists
+        if os.path.isfile(remote_path) and os.path.getsize(
+            remote_path
+        ) == os.path.getsize(local_dlc_path):
+            print(f"[INFO] DLC file already exists on USB: {remote_path}")
+            return False, "DLC file already exists"
 
         # Create local directory structure if it doesn't exist
         remote_dir = os.path.dirname(remote_path)
@@ -320,10 +338,10 @@ class DLCUtils:
             with open(local_dlc_path, "rb") as src_file:
                 with open(remote_path, "wb") as dest_file:
                     dest_file.write(src_file.read())
-            return True
+            return True, None
         except Exception as e:
             print(f"[ERROR] Failed to copy DLC to USB: {e}")
-            return False
+            return False, str(e)
 
     def _uninstall_dlc_ftp(
         self,
@@ -356,7 +374,7 @@ class DLCUtils:
                     continue
 
                 # Get recursive file listing from FTP
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
+                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
                 for file_path, filename, file_size in files:
                     if filename.upper() == expected_filename.upper():

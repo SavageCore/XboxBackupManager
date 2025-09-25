@@ -342,34 +342,15 @@ class BatchTitleUpdateProcessor(QThread):
                     )
                 else:
                     # Get file size using FTP SIZE command
-                    file_size = self._get_ftp_file_size(ftp_client, item["full_path"])
+                    file_size = self.ftp_client._get_ftp_file_size(
+                        ftp_client, item["full_path"]
+                    )
                     files.append((item["full_path"], item["name"], file_size))
 
         except Exception as e:
             self._log_message(f"    [DEBUG] Error listing FTP directory {path}: {e}")
 
         return files
-
-    def _get_ftp_file_size(self, ftp_client, filepath):
-        """Get the size of a file on FTP server"""
-        try:
-            # Use the FTP SIZE command if the client supports it
-            if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
-                try:
-                    size = ftp_client._ftp.size(filepath)
-                    return size if size is not None else 0
-                except Exception as e:
-                    self._log_message(
-                        f"    [DEBUG] Could not get size for {filepath}: {e}"
-                    )
-                    return 0
-            else:
-                return 0
-        except Exception as e:
-            self._log_message(
-                f"    [DEBUG] Error getting FTP file size for {filepath}: {e}"
-            )
-            return 0
 
     def _install_update(self, local_path: str, title_id: str, filename: str) -> bool:
         """Install the downloaded update"""
