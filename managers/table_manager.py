@@ -5,9 +5,9 @@ Table Manager - Handles the games table UI operations
 
 from typing import List
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
+from PyQt6.QtCore import QObject, Qt, pyqtSignal, QRect
+from PyQt6.QtGui import QIcon, QPixmap, QPainter
+from PyQt6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox
 
 from managers.game_manager import GameManager
 from models.game_info import GameInfo
@@ -15,22 +15,166 @@ from utils.ui_utils import UIUtils
 from widgets.icon_delegate import IconDelegate
 
 
-class SelectiveSortHeaderView(QHeaderView):
-    """Custom header view that disables sorting for specific columns"""
+class NonSortableHeaderView(QHeaderView):
+    """Custom header view to disable sorting and indicators on specific sections"""
 
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
-        self.non_sortable_columns = {0, 1}  # Checkbox and Icon columns
+        self._header_checkbox = None
+        self._init_header_checkbox()
+
+    def _get_header_check_state(self):
+        table = self.parent()
+        row_count = table.rowCount()
+        if row_count == 0:
+            return Qt.CheckState.Unchecked
+        checked_count = sum(
+            1
+            for r in range(row_count)
+            if table.item(r, 0).checkState() == Qt.CheckState.Checked
+        )
+        if checked_count == 0:
+            return Qt.CheckState.Unchecked
+        elif checked_count == row_count:
+            return Qt.CheckState.Checked
+        else:
+            return Qt.CheckState.PartiallyChecked
+
+    def _init_header_checkbox(self):
+        """Initialize the header checkbox widget"""
+        if self._header_checkbox is None:
+            self._header_checkbox = QCheckBox()
+            self._header_checkbox.setParent(self)
+            # Set minimum size to ensure it renders properly
+            self._header_checkbox.setMinimumSize(22, 22)
+            self._header_checkbox.setMaximumSize(22, 22)
+            # Ensure the checkbox appears above other widgets
+            self._header_checkbox.raise_()
+            # Enable mouse tracking and make sure it's clickable
+            self._header_checkbox.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+            )
+            # Apply some basic styling to ensure visibility
+            self._header_checkbox.setStyleSheet(
+                """
+                QCheckBox {
+                    spacing: 0px;
+                    background: transparent;
+                }
+                QCheckBox::indicator {
+                    width: 18px;
+                    height: 18px;
+                }
+            """
+            )
+            # Connect to selection change
+            self._header_checkbox.stateChanged.connect(self._on_header_checkbox_changed)
+
+    def _on_header_checkbox_changed(self, state):
+        """Handle header checkbox state changes"""
+        table = self.parent()
+        if table is None:
+            return
+
+        # Directly update all checkbox items in the table
+        row_count = table.rowCount()
+        new_check_state = (
+            Qt.CheckState.Checked
+            if state == Qt.CheckState.Checked.value
+            else Qt.CheckState.Unchecked
+        )
+
+        for row in range(row_count):
+            item = table.item(row, 0)
+            if item:
+                item.setCheckState(new_check_state)
+
+    def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
+        if logicalIndex != 0:
+            super().paintSection(painter, rect, logicalIndex)
+            return
+
+        # Draw the header background properly using the default header style
+        super().paintSection(painter, rect, logicalIndex)
+
+        # Position the checkbox widget
+        if self._header_checkbox:
+            checkbox_size = 22  # Match the widget size
+            # Center the checkbox in the header cell
+            x = rect.x() + (rect.width() - checkbox_size) // 2
+            y = rect.y() + (rect.height() - checkbox_size) // 2
+            self._header_checkbox.setGeometry(x, y, checkbox_size, checkbox_size)
+            self._header_checkbox.show()
+
+            # Update checkbox state to match current selection
+            check_state = self._get_header_check_state()
+            if check_state != self._header_checkbox.checkState():
+                self._header_checkbox.blockSignals(True)  # Prevent recursion
+                self._header_checkbox.setCheckState(check_state)
+                self._header_checkbox.blockSignals(False)
 
     def mousePressEvent(self, event):
-        """Override mouse press to prevent sorting on specific columns"""
         section = self.logicalIndexAt(event.pos())
-        if section in self.non_sortable_columns:
-            # Ignore the event for non-sortable columns
+        if section == 1:  # Disable for icon (1) column
             event.ignore()
             return
-        # Let Qt handle sorting for other columns
+
+        if section == 0:
+            # Check if the click is within the checkbox widget area
+            if self._header_checkbox and self._header_checkbox.isVisible():
+                checkbox_rect = self._header_checkbox.geometry()
+                if checkbox_rect.contains(event.pos()):
+                    # Let the checkbox handle this event
+                    return
+
+            # Handle header click for select all/none
+            table = self.parent()
+            row_count = self.model().rowCount()
+            current_state = self._get_header_check_state()
+            new_state = (
+                Qt.CheckState.Unchecked
+                if current_state == Qt.CheckState.Checked
+                else Qt.CheckState.Checked
+            )
+            for row in range(row_count):
+                item = table.item(row, 0)
+                if item:
+                    item.setCheckState(new_state)
+            return
+
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        section = self.logicalIndexAt(event.pos())
+
+        # Check if we're near a column boundary (resize area)
+        resize_margin = 5  # pixels on each side of boundary
+        x = event.pos().x()
+
+        # Check each section boundary
+        for i in range(self.count()):
+            section_start = self.sectionPosition(i)
+            section_end = section_start + self.sectionSize(i)
+
+            # Check if we're within resize margin of this section's end
+            if abs(x - section_end) <= resize_margin and i < self.count() - 1:
+                # We're in a resize area - show resize cursor
+                self.setCursor(Qt.CursorShape.SplitHCursor)
+                super().mouseMoveEvent(event)
+                return
+
+        # Not in resize area - handle normal cursor logic
+        if section >= 0 and section != 1:  # Valid section, not the icon column
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            return
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().leaveEvent(event)
 
 
 class SizeTableWidgetItem(QTableWidgetItem):
@@ -139,18 +283,14 @@ class TableManager(QObject):
         # Disable sorting for checkbox and icon columns (this also configures columns)
         self._disable_sorting_for_specific_columns()
 
-    def _set_custom_size_column(self):
-        """Set the size column to use SizeTableWidgetItem for proper sorting"""
-        # custom_item = SizeTableWidgetItem
-
     def _disable_sorting_for_specific_columns(self):
         """Disable sorting for checkbox (column 0) and icon (column 1) columns"""
 
         # Enable sorting for the table first
         self.table.setSortingEnabled(True)
 
-        # Create and set our custom header that prevents sorting on specific columns
-        custom_header = SelectiveSortHeaderView(Qt.Orientation.Horizontal, self.table)
+        # Create and set our custom header that prevents sorting on specific columns AND has checkbox
+        custom_header = NonSortableHeaderView(Qt.Orientation.Horizontal, self.table)
         self.table.setHorizontalHeader(custom_header)
 
         # Ensure header is visible
@@ -277,6 +417,9 @@ class TableManager(QObject):
         # Restore sorting state
         self.table.setSortingEnabled(was_sorting_enabled)
 
+        # Update header checkbox state after populating
+        self._update_header_checkbox()
+
     def refresh_games(self, games: List[GameInfo]):
         """Completely refresh table with new games"""
         # Get current sort state before clearing
@@ -296,6 +439,8 @@ class TableManager(QObject):
     def clear_games(self):
         """Clear all games from table"""
         self.table.setRowCount(0)
+        # Update header checkbox state
+        self._update_header_checkbox()
 
     def _add_game_row(self, row: int, game: GameInfo):
         """Add a single game row to the table"""
@@ -384,7 +529,7 @@ class TableManager(QObject):
             col_index += 1
 
         # Transferred status column - centered with emoji
-        status_text = "✔️" if game.transferred else "❌"
+        status_text = "✅" if game.transferred else "❌"
         transferred_item = QTableWidgetItem(status_text)
         transferred_item.setData(Qt.ItemDataRole.UserRole, game.transferred)
         transferred_item.setFlags(
@@ -400,13 +545,20 @@ class TableManager(QObject):
         path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(row, col_index, path_item)
 
+    def _update_header_checkbox(self):
+        """Update the header checkbox state based on current selections"""
+        header = self.table.horizontalHeader()
+        if isinstance(header, NonSortableHeaderView):
+            # Force a repaint of the first section to update checkbox
+            header.updateSection(0)
+
     def get_selected_title_ids(self) -> List[str]:
         """Get list of selected game title IDs"""
         selected_ids = []
 
         for row in range(self.table.rowCount()):
-            checkbox = self.table.cellWidget(row, 0)
-            if checkbox and checkbox.isChecked():
+            checkbox_item = self.table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.CheckState.Checked:
                 title_id_item = self.table.item(row, 2)
                 if title_id_item:
                     selected_ids.append(title_id_item.text())
@@ -419,27 +571,41 @@ class TableManager(QObject):
 
     def select_all_games(self, checked: bool):
         """Select or deselect all games"""
+        check_state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+
         for row in range(self.table.rowCount()):
-            checkbox = self.table.cellWidget(row, 0)
-            if checkbox:
-                checkbox.setChecked(checked)
+            checkbox_item = self.table.item(row, 0)
+            if checkbox_item:
+                checkbox_item.setCheckState(check_state)
+
+        # Update header checkbox after changing all items
+        self._update_header_checkbox()
 
     def update_game_transferred_status(self, title_id: str, is_transferred: bool):
         """Update the transferred status for a specific game"""
         for row in range(self.table.rowCount()):
             title_id_item = self.table.item(row, 2)
             if title_id_item and title_id_item.text() == title_id:
-                # Find transferred column (last column)
-                transferred_col = self.table.columnCount() - 1
+                # Find transferred column based on platform
+                if self.current_platform == "xbox":
+                    transferred_col = 5
+                elif self.current_platform == "xbla":
+                    transferred_col = 7
+                else:  # xbox360
+                    transferred_col = 6
+
                 transferred_item = self.table.item(row, transferred_col)
                 if transferred_item:
-                    transferred_item.setText("Yes" if is_transferred else "No")
+                    transferred_item.setText("✅" if is_transferred else "❌")
+                    transferred_item.setData(Qt.ItemDataRole.UserRole, is_transferred)
                 break
 
     def clear_table(self):
         """Clear all table content"""
         self.table.clear()
         self.table.setRowCount(0)
+        # Update header checkbox state
+        self._update_header_checkbox()
 
     def _on_context_menu_requested(self, position):
         """Handle context menu request"""
