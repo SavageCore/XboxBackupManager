@@ -21,6 +21,8 @@ _session = requests.Session()
 
 # Set default timeout for all requests
 _session.timeout = 30
+
+
 class XboxUnity:
     """
     Class to interact with XboxUnity API for title updates.
