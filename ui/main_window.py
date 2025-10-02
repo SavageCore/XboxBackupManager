@@ -468,6 +468,12 @@ class XboxBackupManager(QMainWindow):
         self.batch_dlc_install_worker.dlc_installed.connect(
             self._on_batch_dlc_installed
         )
+        self.batch_dlc_install_worker.dlc_progress.connect(
+            self._on_batch_dlc_install_file_progress
+        )
+        self.batch_dlc_install_worker.dlc_speed.connect(
+            self._on_batch_dlc_install_speed
+        )
         self.batch_dlc_install_worker.batch_complete.connect(
             self._on_batch_dlc_install_complete
         )
@@ -508,7 +514,21 @@ class XboxBackupManager(QMainWindow):
 
     def _on_batch_dlc_installed(self, game_name: str, dlc_file: str):
         # Optionally update status or log
-        pass
+        # Reset file progress when a file completes
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.reset_file_progress()
+
+    def _on_batch_dlc_install_file_progress(self, dlc_file: str, progress: int):
+        """Handle per-file progress updates"""
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.update_file_progress(
+                dlc_file, progress
+            )
+
+    def _on_batch_dlc_install_speed(self, dlc_file: str, speed_bps: float):
+        """Handle transfer speed updates"""
+        if hasattr(self, "batch_dlc_install_progress_dialog"):
+            self.batch_dlc_install_progress_dialog.update_speed(speed_bps)
 
     def _on_batch_dlc_install_complete(self, total_games: int, total_dlcs: int):
         if hasattr(self, "batch_dlc_install_progress_dialog"):

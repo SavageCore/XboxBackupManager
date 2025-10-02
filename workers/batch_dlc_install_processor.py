@@ -2,6 +2,8 @@
 Worker for batch processing DLC installation across multiple games
 """
 
+import os
+import time
 from typing import Any, Dict, List
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -19,6 +21,8 @@ class BatchDLCInstallProcessor(QThread):
     game_started = pyqtSignal(str)  # game_name
     game_completed = pyqtSignal(str, int)  # game_name, dlcs_installed
     dlc_installed = pyqtSignal(str, str)  # game_name, dlc_file
+    dlc_progress = pyqtSignal(str, int)  # dlc_file, progress_percentage
+    dlc_speed = pyqtSignal(str, float)  # dlc_file, speed_in_bytes_per_sec
     batch_complete = pyqtSignal(int, int)  # total_games_processed, total_dlcs_installed
     error_occurred = pyqtSignal(str)  # error_message
 
@@ -32,6 +36,10 @@ class BatchDLCInstallProcessor(QThread):
         self.directory_manager = parent.directory_manager if parent else None
         self.should_stop = False
         self.log_file_path = None
+
+        # Speed tracking
+        self.current_file_start_time = None
+        self.current_file_bytes_transferred = 0
 
     def setup_batch(self, games: List[Dict[str, Any]], mode: str):
         """Setup the batch processing with games list and mode"""
@@ -94,14 +102,50 @@ class BatchDLCInstallProcessor(QThread):
 
                         if not filename:
                             continue
+
+                        # Initialize speed tracking for this file
+                        if os.path.exists(local_dlc_path):
+                            file_size = os.path.getsize(local_dlc_path)
+                        else:
+                            file_size = 0
+                        self.current_file_start_time = time.time()
+                        self.current_file_bytes_transferred = 0
+                        last_speed_update = time.time()
+
+                        # Create progress callback for this DLC file
+                        def progress_callback(progress):
+                            nonlocal last_speed_update
+                            self.dlc_progress.emit(filename, progress)
+
+                            # Calculate and emit speed (update every 0.5 seconds)
+                            current_time = time.time()
+                            if (
+                                file_size > 0
+                                and current_time - last_speed_update >= 0.5
+                            ):
+                                elapsed = current_time - self.current_file_start_time
+                                if elapsed > 0:
+                                    bytes_transferred = int(
+                                        (progress / 100.0) * file_size
+                                    )
+                                    speed_bps = bytes_transferred / elapsed
+                                    self.dlc_speed.emit(filename, speed_bps)
+                                    last_speed_update = current_time
+
                         # Install the DLC
                         if self.current_mode == "ftp":
                             success, message = self.dlc_utils._install_dlc_ftp(
-                                local_dlc_path, title_id, filename
+                                local_dlc_path,
+                                title_id,
+                                filename,
+                                progress_callback=progress_callback,
                             )
                         else:
                             success, message = self.dlc_utils._install_dlc_usb(
-                                local_dlc_path, title_id, filename
+                                local_dlc_path,
+                                title_id,
+                                filename,
+                                progress_callback=progress_callback,
                             )
                         if success:
                             self._log_message(f"  Installed DLC: {filename}")

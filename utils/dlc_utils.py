@@ -259,7 +259,7 @@ class DLCUtils:
         return [dlc for dlc in dlcs if dlc["title_id"] == title_id]
 
     def _install_dlc_ftp(
-        self, local_dlc_path: str, title_id: str, filename: str
+        self, local_dlc_path: str, title_id: str, filename: str, progress_callback=None
     ) -> bool:
         """Install DLC to FTP server"""
         ftp_client = self.ftp_client._get_ftp_connection()
@@ -296,7 +296,9 @@ class DLCUtils:
                 return False, message
 
             # Upload the file
-            success, message = ftp_client.upload_file(local_dlc_path, remote_path)
+            success, message = ftp_client.upload_file(
+                local_dlc_path, remote_path, progress_callback=progress_callback
+            )
             if success:
                 return True, None
             else:
@@ -307,7 +309,7 @@ class DLCUtils:
             ftp_client.disconnect()
 
     def _install_dlc_usb(
-        self, local_dlc_path: str, title_id: str, filename: str
+        self, local_dlc_path: str, title_id: str, filename: str, progress_callback=None
     ) -> bool:
         """Install DLC to USB"""
         if not os.path.exists(local_dlc_path):
@@ -334,10 +336,25 @@ class DLCUtils:
         remote_dir = os.path.dirname(remote_path)
         os.makedirs(remote_dir, exist_ok=True)
         try:
-            # Copy the file
+            # Copy the file with progress tracking
+            file_size = os.path.getsize(local_dlc_path)
+            bytes_copied = 0
+            chunk_size = 8192  # 8KB chunks
+
             with open(local_dlc_path, "rb") as src_file:
                 with open(remote_path, "wb") as dest_file:
-                    dest_file.write(src_file.read())
+                    while True:
+                        chunk = src_file.read(chunk_size)
+                        if not chunk:
+                            break
+                        dest_file.write(chunk)
+                        bytes_copied += len(chunk)
+
+                        # Report progress
+                        if progress_callback and file_size > 0:
+                            progress = int((bytes_copied / file_size) * 100)
+                            progress_callback(progress)
+
             return True, None
         except Exception as e:
             print(f"[ERROR] Failed to copy DLC to USB: {e}")

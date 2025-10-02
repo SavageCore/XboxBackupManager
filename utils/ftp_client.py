@@ -1,4 +1,5 @@
 import ftplib
+import os
 import socket
 import ssl
 from typing import List, Tuple
@@ -329,14 +330,31 @@ class FTPClient(QObject):
         except Exception as e:
             return False, f"Failed to download file: {str(e)}"
 
-    def upload_file(self, local_path: str, remote_path: str) -> Tuple[bool, str]:
+    def upload_file(
+        self, local_path: str, remote_path: str, progress_callback=None
+    ) -> Tuple[bool, str]:
         """Upload a file from local path to FTP server"""
         if not self.is_connected():
             return False, "Not connected to FTP server"
 
         try:
+            file_size = os.path.getsize(local_path)
+            bytes_uploaded = 0
+
+            def progress_tracker(chunk):
+                nonlocal bytes_uploaded
+                bytes_uploaded += len(chunk)
+                if progress_callback and file_size > 0:
+                    progress = int((bytes_uploaded / file_size) * 100)
+                    progress_callback(progress)
+
             with open(local_path, "rb") as local_file:
-                self._ftp.storbinary(f"STOR {remote_path}", local_file)
+                if progress_callback:
+                    self._ftp.storbinary(
+                        f"STOR {remote_path}", local_file, callback=progress_tracker
+                    )
+                else:
+                    self._ftp.storbinary(f"STOR {remote_path}", local_file)
             return True, "File uploaded successfully"
         except ftplib.error_perm as e:
             return False, f"Permission error: {str(e)}"
