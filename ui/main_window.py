@@ -58,6 +58,7 @@ from models.game_info import GameInfo
 from ui.batch_dlc_import_progress_dialog import (
     BatchDLCImportProgressDialog,
 )
+from ui.batch_tu_progress_dialog import BatchTUProgressDialog
 from ui.dlc_info_dialog import DLCInfoDialog
 from ui.dlc_list_dialog import DLCListDialog
 from ui.file_processing_dialog import FileProcessingDialog
@@ -3051,36 +3052,37 @@ class XboxBackupManager(QMainWindow):
             return
 
         # Create progress dialog
-        self.batch_progress_dialog = QProgressDialog(
-            "Initializing batch title update download...",
-            "Cancel",
-            0,
-            len(target_games),
-            self,
+        self.batch_tu_progress_dialog = BatchTUProgressDialog(
+            total_files=len(target_games), parent=self
         )
-        self.batch_progress_dialog.setWindowTitle("Batch Title Updates")
-        self.batch_progress_dialog.setModal(True)
-        self.batch_progress_dialog.show()
+        self.batch_tu_progress_dialog.setModal(True)
+        self.batch_tu_progress_dialog.show()
 
         # Create and setup worker
         self.batch_tu_processor = BatchTitleUpdateProcessor()
         self.batch_tu_processor.setup_batch(target_games, self.current_mode)
 
         # Connect signals
-        self.batch_tu_processor.progress_update.connect(self._on_batch_progress)
-        self.batch_tu_processor.game_started.connect(self._on_batch_game_started)
-        self.batch_tu_processor.game_completed.connect(self._on_batch_game_completed)
+        self.batch_tu_processor.progress_update.connect(self._on_batch_tu_progress)
+        self.batch_tu_processor.game_started.connect(self._on_batch_tu_game_started)
+        self.batch_tu_processor.game_completed.connect(self._on_batch_tu_game_completed)
         self.batch_tu_processor.update_downloaded.connect(
-            self._on_batch_update_downloaded
+            self._on_batch_tu_update_downloaded
         )
-        self.batch_tu_processor.batch_complete.connect(self._on_batch_complete)
-        self.batch_tu_processor.error_occurred.connect(self._on_batch_error)
+        self.batch_tu_processor.update_progress.connect(self._on_batch_tu_file_progress)
+        self.batch_tu_processor.update_speed.connect(self._on_batch_tu_speed)
+        self.batch_tu_processor.status_update.connect(self._on_batch_tu_status_update)
+        self.batch_tu_processor.searching.connect(self._on_batch_tu_searching)
+        self.batch_tu_processor.batch_complete.connect(self._on_batch_tu_complete)
+        self.batch_tu_processor.error_occurred.connect(self._on_batch_tu_error)
 
         # Connect cancel button
-        self.batch_progress_dialog.canceled.connect(
+        self.batch_tu_progress_dialog.cancel_requested.connect(
             self.batch_tu_processor.stop_processing
         )
-        self.batch_progress_dialog.canceled.connect(self._on_batch_cancelled)
+        self.batch_tu_progress_dialog.cancel_requested.connect(
+            self._on_batch_tu_cancelled
+        )
 
         # Disable toolbar actions during batch processing
         self.toolbar_transfer_action.setEnabled(False)
@@ -3356,27 +3358,63 @@ class XboxBackupManager(QMainWindow):
 
         return None
 
-    def _on_batch_progress(self, current: int, total: int):
+    def _on_batch_tu_progress(self, current: int, total: int):
         """Handle batch processing progress"""
-        if hasattr(self, "batch_progress_dialog"):
-            self.batch_progress_dialog.setValue(current)
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.update_progress(current)
 
-    def _on_batch_game_started(self, game_name: str):
+    def _on_batch_tu_game_started(self, game_name: str):
         """Handle batch game processing started"""
-        if hasattr(self, "batch_progress_dialog"):
-            self.batch_progress_dialog.setLabelText(f"Processing: {game_name}")
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.update_progress(
+                self.batch_tu_progress_dialog.progress_bar.value(),
+                f"Processing: {game_name}",
+            )
 
-    def _on_batch_game_completed(self, game_name: str, updates_found: int):
+    def _on_batch_tu_game_completed(self, game_name: str, updates_found: int):
         """Handle batch game processing completed"""
-        return
+        # Reset file progress when a game completes
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.reset_file_progress()
 
-    def _on_batch_update_downloaded(self, game_name: str, version: str, file_path: str):
+    def _on_batch_tu_update_downloaded(
+        self, game_name: str, version: str, file_path: str
+    ):
         """Handle successful update download"""
+        pass
 
-    def _on_batch_complete(self, total_games: int, total_updates: int):
+    def _on_batch_tu_file_progress(self, update_name: str, progress: int):
+        """Handle per-file progress updates"""
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.update_file_progress(update_name, progress)
+
+    def _on_batch_tu_speed(self, update_name: str, speed_bps: float):
+        """Handle transfer speed updates"""
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.update_speed(speed_bps)
+
+    def _on_batch_tu_status_update(self, status_message: str):
+        """Handle status updates during processing"""
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.update_status(status_message)
+
+    def _on_batch_tu_searching(self, is_searching: bool):
+        """Handle indeterminate progress during search phase"""
+        if hasattr(self, "batch_tu_progress_dialog"):
+            if is_searching:
+                self.batch_tu_progress_dialog.set_file_progress_indeterminate()
+            else:
+                self.batch_tu_progress_dialog.set_file_progress_determinate()
+
+    def _on_batch_tu_complete(self, total_games: int, total_updates: int):
         """Handle batch processing completion"""
-        if hasattr(self, "batch_progress_dialog"):
-            self.batch_progress_dialog.close()
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.close()
+            del self.batch_tu_progress_dialog
+        if hasattr(self, "batch_tu_processor"):
+            self.batch_tu_processor.quit()
+            self.batch_tu_processor.wait()
+            del self.batch_tu_processor
 
         # Re-enable toolbar actions
         self.toolbar_transfer_action.setEnabled(True)
@@ -3394,10 +3432,15 @@ class XboxBackupManager(QMainWindow):
             f"See 'batch_tu_download_log.txt' for detailed results.",
         )
 
-    def _on_batch_error(self, error_message: str):
+    def _on_batch_tu_error(self, error_message: str):
         """Handle batch processing error"""
-        if hasattr(self, "batch_progress_dialog"):
-            self.batch_progress_dialog.close()
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.close()
+            del self.batch_tu_progress_dialog
+        if hasattr(self, "batch_tu_processor"):
+            self.batch_tu_processor.quit()
+            self.batch_tu_processor.wait()
+            del self.batch_tu_processor
 
         # Re-enable toolbar actions
         self.toolbar_transfer_action.setEnabled(True)
@@ -3412,8 +3455,16 @@ class XboxBackupManager(QMainWindow):
             f"An error occurred during batch processing:\n\n{error_message}",
         )
 
-    def _on_batch_cancelled(self):
+    def _on_batch_tu_cancelled(self):
         """Handle batch processing cancellation"""
+        if hasattr(self, "batch_tu_progress_dialog"):
+            self.batch_tu_progress_dialog.close()
+            del self.batch_tu_progress_dialog
+        if hasattr(self, "batch_tu_processor"):
+            self.batch_tu_processor.quit()
+            self.batch_tu_processor.wait()
+            del self.batch_tu_processor
+
         # Re-enable toolbar actions
         self.toolbar_transfer_action.setEnabled(True)
         self.toolbar_remove_action.setEnabled(True)
