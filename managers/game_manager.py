@@ -4,7 +4,7 @@ Game Manager - Handles game scanning, filtering, and selection operations
 """
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -32,6 +32,7 @@ class GameManager(QObject):
         self,
         directory: str,
         platform: str,
+        cache_data: Optional[Dict] = None,
     ):
         """Start scanning directory for games"""
         if self.is_scanning:
@@ -39,7 +40,9 @@ class GameManager(QObject):
 
         self.is_scanning = True
 
-        self.current_scanner = DirectoryScanner(directory, platform, self.parent)
+        self.current_scanner = DirectoryScanner(
+            directory, platform, self.parent, cache_data
+        )
 
         # Connect scanner signals
         self.current_scanner.progress.connect(self.scan_progress.emit)
@@ -198,10 +201,12 @@ class GameManager(QObject):
         """Clear all games"""
         self.games = []
 
-    def refresh_scan(self, directory: str, platform: str):
+    def refresh_scan(
+        self, directory: str, platform: str, cache_data: Optional[Dict] = None
+    ):
         """Clear existing games and start fresh scan"""
         self.clear_games()
-        return self.start_scan(directory, platform)
+        return self.start_scan(directory, platform, cache_data)
 
     def get_icon_path(self, title_id: str) -> Optional[str]:
         """Get the icon path for a game by title ID"""

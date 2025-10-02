@@ -1,7 +1,7 @@
 import base64
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -12,6 +12,60 @@ from utils.dlc_utils import DLCUtils
 
 
 class DirectoryScanner(QThread):
+    def _compute_file_hash(self, file_path: str) -> Optional[str]:
+        """Compute SHA1 hash of a file"""
+        import hashlib
+
+        try:
+            sha1 = hashlib.sha1()
+            with open(file_path, "rb") as f:
+                while True:
+                    data = f.read(65536)
+                    if not data:
+                        break
+                    sha1.update(data)
+            return sha1.hexdigest()
+        except Exception as e:
+            print(f"Error computing hash for {file_path}: {e}")
+            return None
+
+    def _build_cache_lookup(self):
+        """Build a lookup dictionary for cached games by folder_path"""
+        self.cache_lookup = {}
+        if self.cache_data and "games" in self.cache_data:
+            for game in self.cache_data["games"]:
+                folder_path = game.get("folder_path")
+                if folder_path:
+                    self.cache_lookup[folder_path] = game
+
+    def _get_cached_game(
+        self, folder_path: str, file_hash: Optional[str]
+    ) -> Optional[GameInfo]:
+        """Check if we have a valid cached entry for this game"""
+        if not file_hash or folder_path not in self.cache_lookup:
+            return None
+
+        cached = self.cache_lookup[folder_path]
+        cached_hash = cached.get("file_hash")
+
+        # If hash matches, return cached game info
+        if cached_hash == file_hash:
+            return GameInfo(
+                title_id=cached["title_id"],
+                name=cached["name"],
+                folder_path=cached["folder_path"],
+                size_bytes=cached["size_bytes"],
+                size_formatted=cached["size_formatted"],
+                transferred=cached.get("transferred", False),
+                last_modified=cached.get("last_modified", 0.0),
+                media_id=cached.get("media_id"),
+                is_extracted_iso=cached.get("is_extracted_iso", False),
+                dlc_count=cached.get("dlc_count", 0),
+                file_hash=cached_hash,
+            )
+
+        return None
+
     """Thread to scan directory for Xbox games"""
 
     progress = pyqtSignal(int, int)  # current, total
@@ -24,6 +78,7 @@ class DirectoryScanner(QThread):
         directory: str,
         platform: str = "xbox360",
         parent=None,
+        cache_data: Optional[Dict] = None,
     ):
         super().__init__()
         self.directory = directory
@@ -31,6 +86,8 @@ class DirectoryScanner(QThread):
         self.should_stop = False
         self.xbox_unity = XboxUnity()
         self.dlc_utils = DLCUtils(parent)
+        self.cache_data = cache_data or {}
+        self._build_cache_lookup()
 
     def run(self):
         """Main scanning logic"""
@@ -83,6 +140,15 @@ class DirectoryScanner(QThread):
     def _process_xbox_game(self, folder_path: str, xbe_path: str) -> Optional[GameInfo]:
         """Process an Xbox game folder"""
         try:
+            # Compute hash of default.xbe
+            file_hash = self._compute_file_hash(xbe_path)
+
+            # Check cache first
+            cached_game = self._get_cached_game(folder_path, file_hash)
+            if cached_game:
+                print(f"Using cached data for: {cached_game.name}")
+                return cached_game
+
             # Use pyxbe to extract title information from XBE file
             xbe_info = SystemUtils.extract_xbe_info(xbe_path)
 
@@ -91,33 +157,29 @@ class DirectoryScanner(QThread):
                 title_name = xbe_info.get("title_name")
                 icon_base64 = xbe_info.get("icon_base64")
 
-                # Use extracted title name, or fall back to folder name
                 if title_name:
                     name = title_name
                 else:
                     folder_name = os.path.basename(folder_path)
                     name = f"Unknown Game ({folder_name})"
             else:
-                # Fallback: use folder name as title ID and name if XBE extraction fails
                 folder_name = os.path.basename(folder_path)
                 title_id = folder_name
                 name = f"Xbox Game ({folder_name})"
                 icon_base64 = None
 
-            # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
 
-            # Create GameInfo object
             game_info = GameInfo(
                 title_id=title_id,
                 name=name,
                 folder_path=folder_path,
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
-                is_extracted_iso=True,  # Xbox games are considered extracted ISOs
+                is_extracted_iso=True,
+                file_hash=file_hash,
             )
 
-            # Cache the icon if we extracted one
             if icon_base64:
                 self._cache_xbe_icon(title_id, icon_base64)
 
@@ -132,35 +194,38 @@ class DirectoryScanner(QThread):
     ) -> Optional[GameInfo]:
         """Process an extracted ISO Xbox 360 game folder"""
         try:
+            # Compute hash of default.xex
+            file_hash = self._compute_file_hash(xex_path)
+
+            # Check cache first
+            cached_game = self._get_cached_game(folder_path, file_hash)
+            if cached_game:
+                print(f"Using cached data for: {cached_game.name}")
+                return cached_game
+
             # Use xextool to extract title ID and media ID from default.xex
             xex_info = SystemUtils.extract_xex_info(xex_path)
 
             if xex_info:
                 title_id = xex_info["title_id"]
-                media_id = xex_info.get("media_id")  # Use .get() to handle None values
-                icon_base64 = xex_info.get("icon_base64")  # Extract icon if available
+                media_id = xex_info.get("media_id")
+                icon_base64 = xex_info.get("icon_base64")
                 game_name = xex_info.get("game_name")
             else:
-                # Fallback: use folder name as title ID if xextool fails
                 folder_name = os.path.basename(folder_path)
                 title_id = folder_name
                 media_id = None
                 icon_base64 = None
                 game_name = None
 
-            # Get title name - prioritize XEX game name, then fallback to title ID
             if game_name:
                 name = game_name
             else:
                 name = f"Unknown Game ({title_id})"
 
-            # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
-
-            # Get DLC count
             dlc_count = self.dlc_utils.get_dlc_count(title_id)
 
-            # Create GameInfo object with media_id
             game_info = GameInfo(
                 title_id=title_id,
                 name=name,
@@ -168,11 +233,11 @@ class DirectoryScanner(QThread):
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
                 media_id=media_id,
-                is_extracted_iso=True,  # Mark this as an extracted ISO game
-                dlc_count=dlc_count,  # Set DLC count
+                is_extracted_iso=True,
+                dlc_count=dlc_count,
+                file_hash=file_hash,
             )
 
-            # Cache the icon if we extracted one
             if icon_base64:
                 self._cache_xex_icon(title_id, icon_base64)
 
@@ -193,26 +258,27 @@ class DirectoryScanner(QThread):
             media_id = None
             game_name = None
 
+            file_hash = None
             if header_files:
                 # Use the first header file found
                 header_file_path = str(header_files[0])
+                file_hash = self._compute_file_hash(header_file_path)
+
+                # Check cache first
+                cached_game = self._get_cached_game(folder_path, file_hash)
+                if cached_game:
+                    print(f"Using cached data for: {cached_game.name}")
+                    return cached_game
 
                 # Extract comprehensive GoD information
                 god_info = self.xbox_unity.get_god_info(header_file_path)
 
                 if god_info:
-                    # Use extracted title_id if available and valid
                     if god_info.get("title_id") and god_info["title_id"] != "00000000":
                         title_id = god_info["title_id"]
-
-                    # Get media_id for title updates
                     media_id = god_info.get("media_id")
-
-                    # Use display_name from GoD header if available
                     if god_info.get("display_name"):
                         game_name = god_info["display_name"]
-
-                    # Cache the icon if available
                     if god_info.get("icon_base64"):
                         self._cache_god_icon(title_id, god_info["icon_base64"])
 
@@ -236,9 +302,10 @@ class DirectoryScanner(QThread):
                 folder_path=folder_path,
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
-                media_id=media_id,  # Add media_id from GoD extraction
-                is_extracted_iso=False,  # Xbox 360 GoD games are not extracted ISOs
-                dlc_count=dlc_count,  # Set DLC count
+                media_id=media_id,
+                is_extracted_iso=False,
+                dlc_count=dlc_count,
+                file_hash=file_hash,
             )
 
             return game_info
@@ -253,39 +320,33 @@ class DirectoryScanner(QThread):
         """Process an XBLA game folder"""
         try:
             header_file_path = xbla_exe
+            file_hash = self._compute_file_hash(header_file_path)
 
-            # Extract comprehensive GoD information
+            # Check cache first
+            cached_game = self._get_cached_game(folder_path, file_hash)
+            if cached_game:
+                print(f"Using cached data for: {cached_game.name}")
+                return cached_game
+
             god_info = self.xbox_unity.get_god_info(header_file_path)
 
             if god_info:
-                # Use extracted title_id if available and valid
                 if god_info.get("title_id") and god_info["title_id"] != "00000000":
                     title_id = god_info["title_id"]
-
-                # Get media_id for title updates
                 media_id = god_info.get("media_id")
-
-                # Use display_name from GoD header if available
                 if god_info.get("display_name"):
                     game_name = god_info["display_name"]
-
-                # Cache the icon if available
                 if god_info.get("icon_base64"):
                     self._cache_god_icon(title_id, god_info["icon_base64"])
-
-                # Get DLC count
                 dlc_count = self.dlc_utils.get_dlc_count(title_id)
 
-            # Get title name - prioritize extracted name, then fallback to title ID
             if game_name:
                 name = game_name
             else:
                 name = f"XBLA Game ({title_id})"
 
-            # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
 
-            # Create GameInfo object
             game_info = GameInfo(
                 title_id=title_id,
                 name=name,
@@ -293,8 +354,9 @@ class DirectoryScanner(QThread):
                 size_bytes=size_bytes,
                 size_formatted=self._format_size(size_bytes),
                 media_id=media_id,
-                is_extracted_iso=False,  # XBLA games are not extracted ISOs
-                dlc_count=dlc_count,  # Set DLC count
+                is_extracted_iso=False,
+                dlc_count=dlc_count,
+                file_hash=file_hash,
             )
 
             return game_info

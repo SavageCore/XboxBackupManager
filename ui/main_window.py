@@ -15,7 +15,7 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import qtawesome as qta
 import requests
@@ -2512,6 +2512,9 @@ class XboxBackupManager(QMainWindow):
             QTimer.singleShot(100, self._rescan_transferred_state)
             return
 
+        # Load cache data to pass to scanner for hash checking
+        cache_data = self._get_cache_data()
+
         # Store current sort settings before clearing table
         if hasattr(self.games_table, "horizontalHeader"):
             header = self.games_table.horizontalHeader()
@@ -2519,7 +2522,9 @@ class XboxBackupManager(QMainWindow):
             self.current_sort_order = header.sortIndicatorOrder()
 
         # Start scan using GameManager - use refresh_scan to clear previous games
-        self.game_manager.refresh_scan(self.current_directory, self.current_platform)
+        self.game_manager.refresh_scan(
+            self.current_directory, self.current_platform, cache_data
+        )
 
     def _finalize_scan(self):
         """Finalize the scan process"""
@@ -5275,6 +5280,7 @@ class XboxBackupManager(QMainWindow):
                     "media_id": getattr(game, "media_id", None),
                     "is_extracted_iso": getattr(game, "is_extracted_iso", False),
                     "dlc_count": getattr(game, "dlc_count", 0),
+                    "file_hash": getattr(game, "file_hash", None),
                 }
                 cache_data["games"].append(game_data)
 
@@ -5283,6 +5289,23 @@ class XboxBackupManager(QMainWindow):
 
         except Exception as e:
             print(f"Error saving scan cache: {e}")
+
+    def _get_cache_data(self) -> Optional[dict]:
+        """Load cache data without populating the UI (for hash checking during scan)"""
+        if not self.current_directory:
+            return None
+
+        cache_file = self._get_cache_file_path()
+        if not cache_file or not cache_file.exists():
+            return None
+
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+            return cache_data
+        except Exception as e:
+            print(f"Error loading cache data: {e}")
+            return None
 
     def _load_scan_cache(self) -> bool:
         """Load scan results from cache if valid"""
@@ -5316,6 +5339,7 @@ class XboxBackupManager(QMainWindow):
                     size_formatted=game_data["size_formatted"],
                     is_extracted_iso=game_data.get("is_extracted_iso", False),
                     dlc_count=game_data.get("dlc_count", 0),
+                    file_hash=game_data.get("file_hash"),
                 )
                 game_info.transferred = game_data.get("transferred", False)
                 game_info.last_modified = game_data.get("last_modified", 0)
