@@ -8,6 +8,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from models.game_info import GameInfo
 from utils.system_utils import SystemUtils
 from utils.xboxunity import XboxUnity
+from utils.dlc_utils import DLCUtils
 
 
 class DirectoryScanner(QThread):
@@ -22,12 +23,14 @@ class DirectoryScanner(QThread):
         self,
         directory: str,
         platform: str = "xbox360",
+        parent=None,
     ):
         super().__init__()
         self.directory = directory
         self.platform = platform
         self.should_stop = False
         self.xbox_unity = XboxUnity()
+        self.dlc_utils = DLCUtils(parent)
 
     def run(self):
         """Main scanning logic"""
@@ -154,6 +157,9 @@ class DirectoryScanner(QThread):
             # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
 
+            # Get DLC count
+            dlc_count = self.dlc_utils.get_dlc_count(title_id)
+
             # Create GameInfo object with media_id
             game_info = GameInfo(
                 title_id=title_id,
@@ -163,6 +169,7 @@ class DirectoryScanner(QThread):
                 size_formatted=self._format_size(size_bytes),
                 media_id=media_id,
                 is_extracted_iso=True,  # Mark this as an extracted ISO game
+                dlc_count=dlc_count,  # Set DLC count
             )
 
             # Cache the icon if we extracted one
@@ -219,6 +226,9 @@ class DirectoryScanner(QThread):
             # Calculate folder size
             size_bytes = self._calculate_directory_size(folder_path)
 
+            # Get DLC count
+            dlc_count = self.dlc_utils.get_dlc_count(title_id)
+
             # Create GameInfo object
             game_info = GameInfo(
                 title_id=title_id,
@@ -228,6 +238,7 @@ class DirectoryScanner(QThread):
                 size_formatted=self._format_size(size_bytes),
                 media_id=media_id,  # Add media_id from GoD extraction
                 is_extracted_iso=False,  # Xbox 360 GoD games are not extracted ISOs
+                dlc_count=dlc_count,  # Set DLC count
             )
 
             return game_info
@@ -263,7 +274,7 @@ class DirectoryScanner(QThread):
                     self._cache_god_icon(title_id, god_info["icon_base64"])
 
                 # Get DLC count
-                dlc_count = self.get_dlc_count(folder_path)
+                dlc_count = self.dlc_utils.get_dlc_count(title_id)
 
             # Get title name - prioritize extracted name, then fallback to title ID
             if game_name:
@@ -422,13 +433,3 @@ class DirectoryScanner(QThread):
 
         except Exception as e:
             print(f"Failed to cache XBE icon for {title_id}: {e}")
-
-    def get_dlc_count(self, folder_path: str) -> int:
-        """Get the number of DLCs associated with a game by title ID"""
-        dlc_folder = Path(folder_path) / "00000002"
-        if dlc_folder.exists() and dlc_folder.is_dir():
-            dlcs_count = len([f for f in dlc_folder.iterdir() if f.is_file()])
-        else:
-            dlcs_count = 0
-
-        return dlcs_count

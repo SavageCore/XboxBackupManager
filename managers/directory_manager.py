@@ -42,6 +42,7 @@ class DirectoryManager(QObject):
         self.current_target_directory = ""
         self.usb_cache_directory = ""
         self.usb_content_directory = ""
+        self.dlc_directory = ""
 
         # File system watcher for directory changes
         self.file_watcher = QFileSystemWatcher()
@@ -129,6 +130,14 @@ class DirectoryManager(QObject):
         """Set directory for specified platform"""
         self.platform_directories[platform] = directory
 
+    def set_dlc_directory(self, directory: str) -> bool:
+        """Set and validate DLC directory"""
+        if not UIUtils.validate_directory_exists(directory):
+            return False
+
+        self.dlc_directory = directory
+        return True
+
     def get_target_directory(self, mode: str, platform: str) -> str:
         """Get target directory for mode and platform"""
         if mode == "ftp":
@@ -152,6 +161,7 @@ class DirectoryManager(QObject):
         self.ftp_target_directories = settings_manager.load_ftp_target_directories()
         self.usb_cache_directory = settings_manager.load_usb_cache_directory()
         self.usb_content_directory = settings_manager.load_usb_content_directory()
+        self.dlc_directory = settings_manager.load_dlc_directory()
 
     def save_directories_to_settings(self, settings_manager):
         """Save directory settings"""
@@ -160,3 +170,4 @@ class DirectoryManager(QObject):
         settings_manager.save_ftp_target_directories(self.ftp_target_directories)
         settings_manager.save_usb_cache_directory(self.usb_cache_directory)
         settings_manager.save_usb_content_directory(self.usb_content_directory)
+        settings_manager.save_dlc_directory(self.dlc_directory)

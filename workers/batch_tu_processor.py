@@ -3,6 +3,7 @@ Worker for batch processing title update downloads across multiple games
 """
 
 import os
+import time
 from typing import Any, Dict, List
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -22,6 +23,10 @@ class BatchTitleUpdateProcessor(QThread):
     update_downloaded = pyqtSignal(
         str, str, str
     )  # game_name, update_version, file_path
+    update_progress = pyqtSignal(str, int)  # update_name, progress_percentage
+    update_speed = pyqtSignal(str, float)  # update_name, speed_in_bytes_per_sec
+    status_update = pyqtSignal(str)  # status_message
+    searching = pyqtSignal(bool)  # True when searching, False when done
     batch_complete = pyqtSignal(
         int, int
     )  # total_games_processed, total_updates_downloaded
@@ -83,26 +88,40 @@ class BatchTitleUpdateProcessor(QThread):
 
                 try:
                     # Get media ID from game folder
+                    self.searching.emit(True)  # Start indeterminate progress
+                    self.status_update.emit(f"Getting media ID for {game_name}...")
                     media_id = self.xbox_unity.get_media_id(folder_path)
 
                     if not media_id:
                         self._log_message(f"  No media ID found for {game_name}")
+                        self.searching.emit(False)  # Stop indeterminate progress
                         self.game_completed.emit(game_name, 0)
                         continue
 
                     # Search for title updates
+                    self.status_update.emit(
+                        f"Searching for title updates for {game_name}..."
+                    )
                     updates = self.xbox_unity.search_title_updates(
                         media_id=media_id, title_id=title_id
                     )
 
                     if not updates:
                         self._log_message(f"  No title updates found for {game_name}")
+                        self.status_update.emit(
+                            f"No title updates found for {game_name}"
+                        )
+                        self.searching.emit(False)  # Stop indeterminate progress
                         self.game_completed.emit(game_name, 0)
                         continue
 
                     # Sort updates by version (highest first)
                     updates = sorted(
                         updates, key=lambda x: int(x.get("version", 0)), reverse=True
+                    )
+
+                    self.status_update.emit(
+                        f"Found {len(updates)} update(s) for {game_name}, checking installation status..."
                     )
 
                     # Find the highest version that's not installed
@@ -123,6 +142,7 @@ class BatchTitleUpdateProcessor(QThread):
                             self._log_message(
                                 f"  All title updates already installed for {game_name}"
                             )
+                        self.searching.emit(False)  # Stop indeterminate progress
                         self.game_completed.emit(game_name, 0)
                         continue
 
@@ -131,12 +151,39 @@ class BatchTitleUpdateProcessor(QThread):
                     self._log_message(
                         f"  Installing latest available version {version} for {game_name}"
                     )
+                    self.status_update.emit(
+                        f"Downloading version {version} for {game_name}..."
+                    )
+                    self.searching.emit(
+                        False
+                    )  # Stop indeterminate, start download progress
                     download_url = latest_update.get("downloadUrl", "")
+
+                    # Initialize speed tracking for this download
+                    start_time = time.time()
+                    last_speed_update = time.time()
+                    update_name = f"{game_name} v{version}"
+
+                    # Create progress callback for this download
+                    def progress_callback(downloaded, total):
+                        nonlocal last_speed_update
+                        if total > 0:
+                            progress = int((downloaded / total) * 100)
+                            self.update_progress.emit(update_name, progress)
+
+                            # Calculate and emit speed (update every 0.5 seconds)
+                            current_time = time.time()
+                            if current_time - last_speed_update >= 0.5:
+                                elapsed = current_time - start_time
+                                if elapsed > 0:
+                                    speed_bps = downloaded / elapsed
+                                    self.update_speed.emit(update_name, speed_bps)
+                                    last_speed_update = current_time
 
                     # Download the update
                     destination = os.path.join("cache", "tu", title_id) + os.sep
                     success, filename = self.xbox_unity.download_title_update(
-                        download_url, destination
+                        download_url, destination, progress_callback=progress_callback
                     )
 
                     if success:
@@ -342,34 +389,15 @@ class BatchTitleUpdateProcessor(QThread):
                     )
                 else:
                     # Get file size using FTP SIZE command
-                    file_size = self._get_ftp_file_size(ftp_client, item["full_path"])
+                    file_size = self.ftp_client._get_ftp_file_size(
+                        ftp_client, item["full_path"]
+                    )
                     files.append((item["full_path"], item["name"], file_size))
 
         except Exception as e:
             self._log_message(f"    [DEBUG] Error listing FTP directory {path}: {e}")
 
         return files
-
-    def _get_ftp_file_size(self, ftp_client, filepath):
-        """Get the size of a file on FTP server"""
-        try:
-            # Use the FTP SIZE command if the client supports it
-            if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
-                try:
-                    size = ftp_client._ftp.size(filepath)
-                    return size if size is not None else 0
-                except Exception as e:
-                    self._log_message(
-                        f"    [DEBUG] Could not get size for {filepath}: {e}"
-                    )
-                    return 0
-            else:
-                return 0
-        except Exception as e:
-            self._log_message(
-                f"    [DEBUG] Error getting FTP file size for {filepath}: {e}"
-            )
-            return 0
 
     def _install_update(self, local_path: str, title_id: str, filename: str) -> bool:
         """Install the downloaded update"""

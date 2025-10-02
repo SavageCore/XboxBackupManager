@@ -60,7 +60,7 @@ class SettingsManager:
 
     def save_table_settings(self, platform, header, sort_column, sort_order):
         """Save table column widths and sort settings"""
-        show_dlcs = platform in ["xbla"]
+        show_dlcs = platform in ["xbox360", "xbla"]
         column_count = 6 if show_dlcs else 5
 
         for i in range(column_count):
@@ -74,7 +74,7 @@ class SettingsManager:
 
     def load_table_settings(self, platform):
         """Load table settings"""
-        show_dlcs = platform in ["xbla"]
+        show_dlcs = platform in ["xbox360", "xbla"]
         column_count = 6 if show_dlcs else 5
 
         column_widths = {}
@@ -206,3 +206,11 @@ class SettingsManager:
     def load_ftp_content_directory(self) -> str:
         """Load FTP content directory"""
         return self.settings.value("ftp_content_directory", "")
+
+    def save_dlc_directory(self, directory: str):
+        """Save DLC directory"""
+        self.settings.setValue("dlc_directory", directory)
+
+    def load_dlc_directory(self) -> str:
+        """Load DLC directory"""
+        return self.settings.value("dlc_directory", "")

@@ -26,6 +26,7 @@ class GameManager(QObject):
         self.current_scanner = None
         self.games: List[GameInfo] = []
         self.is_scanning = False
+        self.parent = parent
 
     def start_scan(
         self,
@@ -38,7 +39,7 @@ class GameManager(QObject):
 
         self.is_scanning = True
 
-        self.current_scanner = DirectoryScanner(directory, platform)
+        self.current_scanner = DirectoryScanner(directory, platform, self.parent)
 
         # Connect scanner signals
         self.current_scanner.progress.connect(self.scan_progress.emit)
@@ -125,6 +126,14 @@ class GameManager(QObject):
     def get_total_size(self) -> int:
         """Get total size of all games in bytes"""
         return sum(game.size_bytes for game in self.games)
+
+    def increment_dlc_count(self, title_id: str):
+        """Increment the DLC count for a game by title ID"""
+        game = self.find_game_by_title_id(title_id)
+        if game:
+            game.dlc_count += 1
+            return True
+        return False
 
     def filter_games(self, filter_text: str) -> List[GameInfo]:
         """Filter games by name or title ID"""
