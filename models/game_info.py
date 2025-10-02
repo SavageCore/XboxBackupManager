@@ -16,6 +16,7 @@ class GameInfo:
     media_id: Optional[str] = None  # Media ID for extracted ISO games
     is_extracted_iso: bool = False  # Flag to indicate if this is an extracted ISO game
     dlc_count: int = 0  # Number of DLCs associated with the game
+    file_hash: Optional[str] = None  # SHA1 hash of key file for cache validation
 
     @property
     def _size_formatted(self) -> str:
