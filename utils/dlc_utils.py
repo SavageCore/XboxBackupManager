@@ -404,8 +404,8 @@ class DLCUtils:
                             )
 
             if removed_files:
-                button.setText("Download")
-                # Update button styling to blue for download
+                button.setText("Install")
+                # Update button styling to blue for install
                 button.setStyleSheet(
                     """
                     QPushButton {
@@ -429,13 +429,9 @@ class DLCUtils:
                     }
                 """
                 )
-                button.clicked.disconnect()
-                # Reconnect to install action
-                button.clicked.connect(
-                    lambda checked, btn=button, dlc=dlc: self._install(btn, dlc)
-                )
+                # Note: Button reconnection should be handled by the dialog, not utils
             else:
-                print("No title update files found to remove")
+                print("No DLC files found to remove")
 
         finally:
             ftp_client.disconnect()
@@ -477,7 +473,7 @@ class DLCUtils:
 
         if removed_files:
             button.setText("Install")
-            # Update button styling to blue for download
+            # Update button styling to blue for install
             button.setStyleSheet(
                 """
                 QPushButton {
@@ -501,11 +497,7 @@ class DLCUtils:
                 }
             """
             )
-            button.clicked.disconnect()
-            # Reconnect to install action
-            button.clicked.connect(
-                lambda checked, btn=button, dlc=dlc: self._install(btn=btn, dlc=dlc)
-            )
+            # Note: Button reconnection should be handled by the dialog, not utils
         else:
             print("No DLC files found to remove")
 

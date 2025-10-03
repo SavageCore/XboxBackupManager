@@ -1,15 +1,19 @@
 import os
+import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
+    QProgressBar,
 )
 
 from utils.dlc_utils import DLCUtils
@@ -42,6 +46,10 @@ class DLCListDialog(QDialog):
         self.game_name = (
             self.game_manager.get_game_name(self.title_id) or "Unknown Game"
         )
+
+        # Track DLC counts for button state
+        self._installed_dlcs_count = 0
+        self._total_dlcs_count = 0
 
         self._init_ui()
 
@@ -182,6 +190,100 @@ class DLCListDialog(QDialog):
         else:
             self.dlc_utils._uninstall_dlc_usb(title_id, button, dlc)
 
+        # Update the installed count and bulk button state
+        self._installed_dlcs_count -= 1
+        self._update_bulk_button_state()
+
+        # Reconnect button to install action after uninstall
+        # The utils methods already updated the button text and style
+        try:
+            button.clicked.disconnect()
+        except Exception:
+            pass
+        button.clicked.connect(lambda checked, btn=button, d=dlc: self._install(btn, d))
+
+    def _update_bulk_button_state(self):
+        """Update the bulk Install/Uninstall All button state based on installed DLC count"""
+        if not hasattr(self, "uninstall_all_button"):
+            return
+
+        if self._installed_dlcs_count == 0:
+            self.uninstall_all_button.setText("Install All DLC")
+            self.uninstall_all_button.setStyleSheet(
+                """
+                    QPushButton {
+                        background-color: #3498db;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        padding: 6px 12px;
+                        font-size: 11px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #2980b9;
+                    }
+                    QPushButton:pressed {
+                        background-color: #21618c;
+                    }
+                    QPushButton:disabled {
+                        background-color: #95a5a6;
+                        color: #ecf0f1;
+                    }
+                """
+            )
+        elif self._installed_dlcs_count == self._total_dlcs_count:
+            self.uninstall_all_button.setText("Uninstall All DLC")
+            self.uninstall_all_button.setStyleSheet(
+                """
+                    QPushButton {
+                        background-color: #e74c3c;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        padding: 6px 12px;
+                        font-size: 11px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #c0392b;
+                    }
+                    QPushButton:pressed {
+                        background-color: #a93226;
+                    }
+                    QPushButton:disabled {
+                        background-color: #95a5a6;
+                        color: #ecf0f1;
+                    }
+                """
+            )
+        else:
+            # Mixed state - show both options (orange)
+            self.uninstall_all_button.setText("Install/Uninstall All")
+            self.uninstall_all_button.setStyleSheet(
+                """
+                    QPushButton {
+                        background-color: #f39c12;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        padding: 6px 12px;
+                        font-size: 11px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #e67e22;
+                    }
+                    QPushButton:pressed {
+                        background-color: #d35400;
+                    }
+                    QPushButton:disabled {
+                        background-color: #95a5a6;
+                        color: #ecf0f1;
+                    }
+                """
+            )
+
     def _init_ui(self):
         """Initialize the dialog UI"""
         self.setWindowTitle("Manage DLC")
@@ -194,7 +296,9 @@ class DLCListDialog(QDialog):
         main_layout.setSpacing(10)
         main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # Title header
+        # Title header with uninstall all button on top right
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel(f"DLCs for {self.game_name} ({self.title_id})")
         title_label.setStyleSheet(
             """
@@ -205,7 +309,36 @@ class DLCListDialog(QDialog):
                 }
             """
         )
-        main_layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        # Install/Uninstall All button (top right)
+        self.uninstall_all_button = QPushButton("Install/Uninstall All DLC")
+        self.uninstall_all_button.setStyleSheet(
+            """
+                QPushButton {
+                    background-color: #e74c3c;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 6px 12px;
+                    font-size: 11px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #c0392b;
+                }
+                QPushButton:pressed {
+                    background-color: #a93226;
+                }
+                QPushButton:disabled {
+                    background-color: #95a5a6;
+                    color: #ecf0f1;
+                }
+            """
+        )
+        self.uninstall_all_button.clicked.connect(self._on_bulk_action_clicked)
+        header_layout.addWidget(self.uninstall_all_button)
+        main_layout.addLayout(header_layout)
 
         # Scroll area for DLCs
         scroll_area = QScrollArea()
@@ -230,7 +363,37 @@ class DLCListDialog(QDialog):
 
         dlcs = self.dlc_utils.load_dlc_index(self.title_id)
         if not dlcs:
-            return False
+            self.uninstall_all_button.setEnabled(False)
+            scroll_area.setWidget(content_widget)
+            main_layout.addWidget(scroll_area)
+            # Only show close button at bottom
+            button_layout = QHBoxLayout()
+            button_layout.addStretch()
+            close_button = QPushButton("Close")
+            close_button.setStyleSheet(
+                """
+                    QPushButton {
+                        background-color: #95a5a6;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        padding: 10px 20px;
+                        font-size: 12px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #7f8c8d;
+                    }
+                """
+            )
+            close_button.clicked.connect(self.close)
+            button_layout.addWidget(close_button)
+            main_layout.addLayout(button_layout)
+            return
+
+        # Store total DLC count and reset installed count
+        self._total_dlcs_count = len(dlcs)
+        self._installed_dlcs_count = 0
 
         # Process each DLC
         for i, dlc in enumerate(dlcs):
@@ -376,7 +539,7 @@ class DLCListDialog(QDialog):
             size_layout.addWidget(size_button, alignment=Qt.AlignmentFlag.AlignCenter)
             size_layout.addStretch()
 
-            # Right side: Action button (clean, no extra containers)
+            # Right side: Action button and progress bar
             button_widget = QWidget()
             button_widget.setStyleSheet("background: transparent;")
             button_widget.setFixedWidth(110)
@@ -384,6 +547,8 @@ class DLCListDialog(QDialog):
             button_layout.setContentsMargins(0, 0, 0, 0)
 
             is_installed = self._is_dlc_installed(self.title_id, dlc)
+            if is_installed:
+                self._installed_dlcs_count += 1
 
             action_button = QPushButton("Uninstall" if is_installed else "Install")
             action_button.setFixedSize(100, 32)
@@ -411,14 +576,26 @@ class DLCListDialog(QDialog):
                 """
             )
 
-            # Center the button vertically
+            # Progress bar for install
+            progress_bar = QProgressBar()
+            progress_bar.setFixedSize(100, 10)
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            progress_bar.setVisible(False)
             button_layout.addStretch()
             button_layout.addWidget(
                 action_button, alignment=Qt.AlignmentFlag.AlignCenter
             )
+            button_layout.addWidget(
+                progress_bar, alignment=Qt.AlignmentFlag.AlignCenter
+            )
             button_layout.addStretch()
 
             # Connect button actions
+            try:
+                action_button.clicked.disconnect()
+            except Exception:
+                pass
             if is_installed:
                 action_button.clicked.connect(
                     lambda checked, btn=action_button, dlc=dlc: self._uninstall_dlc(
@@ -426,15 +603,28 @@ class DLCListDialog(QDialog):
                     )
                 )
             else:
-                action_button.clicked.connect(
-                    lambda checked, btn=action_button, dlc=dlc: self._install(btn, dlc)
-                )
+
+                def install_with_progress(
+                    checked, btn=action_button, dlc=dlc, pbar=progress_bar
+                ):
+                    pbar.setVisible(True)
+                    pbar.setValue(0)
+
+                    def update_progress(val):
+                        pbar.setValue(val)
+                        if val == 100:
+                            pbar.setVisible(False)
+
+                    result = self._install(btn, dlc, progress_callback=update_progress)
+                    if not result:
+                        pbar.setVisible(False)
+
+                action_button.clicked.connect(install_with_progress)
 
             # Add all widgets to card layout with proper stretch factors
             card_layout.addWidget(left_widget, 0)  # Fixed size, no stretch
             card_layout.addWidget(size_widget, 0)  # Fixed size, no stretch
             card_layout.addWidget(button_widget, 0)  # Fixed size, no stretch
-            # Remove the addStretch that was causing layout issues
 
             content_layout.addWidget(update_frame)
 
@@ -445,7 +635,9 @@ class DLCListDialog(QDialog):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
 
-        # Close button at bottom
+        # Button layout at bottom (only Close button)
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
         close_button = QPushButton("Close")
         close_button.setStyleSheet(
             """
@@ -464,30 +656,29 @@ class DLCListDialog(QDialog):
             """
         )
         close_button.clicked.connect(self.close)
-
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
         button_layout.addWidget(close_button)
-
         main_layout.addLayout(button_layout)
 
-    def _install(self, btn: QPushButton, dlc: dict) -> None:
-        """Install the selected DLC"""
+        # Update button text and state based on installed DLCs
+        self._update_bulk_button_state()
+
+    def _install(self, btn: QPushButton, dlc: dict, progress_callback=None) -> bool:
+        """Install the selected DLC with optional progress callback"""
         title_id = dlc.get("title_id", "")
         filename = dlc.get("file", "")
 
         local_dlc_path = f"{self.directory_manager.dlc_directory}/{title_id}/{filename}"
         if not local_dlc_path or not os.path.exists(local_dlc_path):
             print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
-            return
+            return False
 
         if self.current_mode == "ftp":
             success = self.dlc_utils._install_dlc_ftp(
-                local_dlc_path, title_id, filename
+                local_dlc_path, title_id, filename, progress_callback=progress_callback
             )
         else:
             success = self.dlc_utils._install_dlc_usb(
-                local_dlc_path, title_id, filename
+                local_dlc_path, title_id, filename, progress_callback=progress_callback
             )
 
         if success:
@@ -521,8 +712,13 @@ class DLCListDialog(QDialog):
             btn.clicked.connect(
                 lambda checked, b=btn, d=dlc: self._uninstall_dlc(title_id, b, d)
             )
+            # Update the installed count and bulk button state
+            self._installed_dlcs_count += 1
+            self._update_bulk_button_state()
+            return True
         else:
             print(f"[ERROR] Failed to install DLC: {filename}")
+            return False
 
     def _open_dlc_in_explorer(self):
         """Open the DLC file's containing folder in Explorer"""
@@ -536,3 +732,260 @@ class DLCListDialog(QDialog):
             UIUtils.show_warning(
                 self, "File Not Found", f"DLC file not found:\n{dlc_path}"
             )
+
+    def _on_bulk_action_clicked(self):
+        """Install all or uninstall all DLC for this game based on current state"""
+        # Load DLC list
+        dlcs = self.dlc_utils.load_dlc_index(self.title_id)
+        if not dlcs:
+            QMessageBox.information(
+                self,
+                "No DLC Found",
+                "No DLC found for this game.",
+            )
+            return
+
+        # Check how many are actually installed
+        installed_dlcs = [
+            dlc for dlc in dlcs if self._is_dlc_installed(self.title_id, dlc)
+        ]
+        uninstalled_dlcs = [
+            dlc for dlc in dlcs if not self._is_dlc_installed(self.title_id, dlc)
+        ]
+
+        # Determine action based on button text
+        button_text = self.uninstall_all_button.text()
+
+        # Check in order of specificity - mixed state first
+        if "/" in button_text:
+            # Mixed state - ask user what they want to do
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Install or Uninstall?")
+            msg_box.setText(
+                f"This game has:\n"
+                f"• {len(uninstalled_dlcs)} DLC not installed\n"
+                f"• {len(installed_dlcs)} DLC installed\n\n"
+                f"What would you like to do?"
+            )
+            install_button = msg_box.addButton(
+                "Install All", QMessageBox.ButtonRole.YesRole
+            )
+            uninstall_button = msg_box.addButton(
+                "Uninstall All", QMessageBox.ButtonRole.NoRole
+            )
+            cancel_button = msg_box.addButton(
+                "Cancel", QMessageBox.ButtonRole.RejectRole
+            )
+            msg_box.setDefaultButton(cancel_button)
+
+            msg_box.exec()
+
+            clicked_button = msg_box.clickedButton()
+            if clicked_button == install_button:
+                self._install_all_dlcs(uninstalled_dlcs)
+            elif clicked_button == uninstall_button:
+                self._uninstall_all_dlcs(installed_dlcs)
+        elif button_text.startswith("Uninstall") and installed_dlcs:
+            # Uninstall all installed DLC
+            self._uninstall_all_dlcs(installed_dlcs)
+        elif button_text.startswith("Install") and uninstalled_dlcs:
+            # Install all uninstalled DLC
+            self._install_all_dlcs(uninstalled_dlcs)
+
+    def _install_all_dlcs(self, dlcs_to_install):
+        """Install all provided DLC"""
+        if not dlcs_to_install:
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Confirm Install All",
+            f"Are you sure you want to install {len(dlcs_to_install)} DLC for {self.game_name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Create progress dialog
+        from ui.batch_dlc_import_progress_dialog import BatchDLCImportProgressDialog
+
+        progress_dialog = BatchDLCImportProgressDialog(len(dlcs_to_install), self)
+        progress_dialog.setWindowTitle("Install All DLC")
+        progress_dialog.label.setText("Installing DLC...")
+        progress_dialog.show()
+
+        # Install each DLC
+        success_count = 0
+        failed_dlcs = []
+
+        for idx, dlc in enumerate(dlcs_to_install):
+            if progress_dialog.is_cancelled():
+                break
+
+            # Process events to update UI
+            QApplication.processEvents()
+
+            try:
+                title_id = dlc.get("title_id", "")
+                filename = dlc.get("file", "")
+
+                local_dlc_path = (
+                    f"{self.directory_manager.dlc_directory}/{title_id}/{filename}"
+                )
+                if not local_dlc_path or not os.path.exists(local_dlc_path):
+                    failed_dlcs.append(
+                        f"{dlc.get('display_name', 'Unknown')}: Local file not found"
+                    )
+                    print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
+                    progress_dialog.update_progress(
+                        idx + 1, f"Installed {idx + 1}/{len(dlcs_to_install)} DLC"
+                    )
+                    progress_dialog.reset_file_progress()
+                    QApplication.processEvents()
+                    continue
+
+                # Update progress dialog with current file
+                progress_dialog.update_progress(
+                    idx,
+                    f"Installing {idx + 1}/{len(dlcs_to_install)}: {dlc.get('display_name', filename)}",
+                )
+                progress_dialog.reset_file_progress()
+                QApplication.processEvents()
+
+                # Initialize speed tracking for this file
+                if os.path.exists(local_dlc_path):
+                    file_size = os.path.getsize(local_dlc_path)
+                else:
+                    file_size = 0
+                file_start_time = time.time()
+                last_speed_update = time.time()
+
+                # Create progress callback for per-file progress with speed tracking
+                def file_progress_callback(val):
+                    nonlocal last_speed_update
+                    progress_dialog.update_file_progress(filename, val)
+
+                    # Calculate and emit speed (update every 0.5 seconds)
+                    current_time = time.time()
+                    if file_size > 0 and current_time - last_speed_update >= 0.5:
+                        elapsed = current_time - file_start_time
+                        if elapsed > 0:
+                            bytes_transferred = int((val / 100.0) * file_size)
+                            speed_bps = bytes_transferred / elapsed
+                            progress_dialog.update_speed(speed_bps)
+                            last_speed_update = current_time
+
+                    QApplication.processEvents()
+
+                # Install with progress callback
+                if self.current_mode == "ftp":
+                    success = self.dlc_utils._install_dlc_ftp(
+                        local_dlc_path,
+                        title_id,
+                        filename,
+                        progress_callback=file_progress_callback,
+                    )
+                else:
+                    success = self.dlc_utils._install_dlc_usb(
+                        local_dlc_path,
+                        title_id,
+                        filename,
+                        progress_callback=file_progress_callback,
+                    )
+
+                if success:
+                    success_count += 1
+                else:
+                    failed_dlcs.append(
+                        f"{dlc.get('display_name', 'Unknown')}: Installation failed"
+                    )
+
+            except Exception as e:
+                failed_dlcs.append(f"{dlc.get('display_name', 'Unknown')}: {str(e)}")
+                print(f"[ERROR] Failed to install DLC {dlc.get('file')}: {e}")
+
+        # Update final progress
+        progress_dialog.update_progress(len(dlcs_to_install), "Installation complete")
+        progress_dialog.close()
+
+        # Show results
+        if failed_dlcs:
+            QMessageBox.warning(
+                self,
+                "Install Complete with Errors",
+                f"Successfully installed {success_count} of {len(dlcs_to_install)} DLC.\n\n"
+                f"Failed to install:\n" + "\n".join(failed_dlcs[:5]),
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Install Complete",
+                f"Successfully installed all {success_count} DLC for {self.game_name}.",
+            )
+
+        # Refresh the dialog to update button states
+        self.close()
+        new_dialog = DLCListDialog(self.title_id, self.parent())
+        new_dialog.exec()
+
+    def _uninstall_all_dlcs(self, dlcs_to_uninstall):
+        """Uninstall all provided DLC"""
+        if not dlcs_to_uninstall:
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Confirm Uninstall All",
+            f"Are you sure you want to uninstall {len(dlcs_to_uninstall)} installed DLC for {self.game_name}?\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Uninstall each DLC
+        success_count = 0
+        failed_dlcs = []
+
+        for dlc in dlcs_to_uninstall:
+            try:
+                # Uninstall without UI updates - call utils directly
+                if self.current_mode == "ftp":
+                    # Create a dummy button just for the utils method signature
+                    dummy_button = QPushButton()
+                    self.dlc_utils._uninstall_dlc_ftp(self.title_id, dummy_button, dlc)
+                else:
+                    dummy_button = QPushButton()
+                    self.dlc_utils._uninstall_dlc_usb(self.title_id, dummy_button, dlc)
+
+                success_count += 1
+            except Exception as e:
+                failed_dlcs.append(f"{dlc.get('display_name', 'Unknown')}: {str(e)}")
+                print(f"[ERROR] Failed to uninstall DLC {dlc.get('file')}: {e}")
+
+        # Show results
+        if failed_dlcs:
+            QMessageBox.warning(
+                self,
+                "Uninstall Complete with Errors",
+                f"Successfully uninstalled {success_count} of {len(dlcs_to_uninstall)} DLC.\n\n"
+                f"Failed to uninstall:\n" + "\n".join(failed_dlcs[:5]),
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Uninstall Complete",
+                f"Successfully uninstalled all {success_count} DLC for {self.game_name}.",
+            )
+
+        # Refresh the dialog to update button states
+        self.close()
+        # Re-open the dialog to show updated state
+        new_dialog = DLCListDialog(self.title_id, self.parent())
+        new_dialog.exec()
