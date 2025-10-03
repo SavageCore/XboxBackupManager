@@ -3104,7 +3104,9 @@ class XboxBackupManager(QMainWindow):
             self._on_batch_tu_update_downloaded
         )
         self.batch_tu_processor.update_progress.connect(self._on_batch_tu_file_progress)
-        self.batch_tu_processor.update_speed.connect(self._on_batch_tu_speed)
+        self.batch_tu_processor.update_progress_bytes.connect(
+            self._on_batch_tu_progress_bytes
+        )
         self.batch_tu_processor.status_update.connect(self._on_batch_tu_status_update)
         self.batch_tu_processor.searching.connect(self._on_batch_tu_searching)
         self.batch_tu_processor.batch_complete.connect(self._on_batch_tu_complete)
@@ -3422,10 +3424,14 @@ class XboxBackupManager(QMainWindow):
         if hasattr(self, "batch_tu_progress_dialog"):
             self.batch_tu_progress_dialog.update_file_progress(update_name, progress)
 
-    def _on_batch_tu_speed(self, update_name: str, speed_bps: float):
-        """Handle transfer speed updates"""
+    def _on_batch_tu_progress_bytes(
+        self, update_name: str, current_bytes: int, total_bytes: int
+    ):
+        """Handle progress with bytes for time remaining calculation (includes speed)"""
         if hasattr(self, "batch_tu_progress_dialog"):
-            self.batch_tu_progress_dialog.update_speed(speed_bps)
+            self.batch_tu_progress_dialog.update_progress_with_speed(
+                current_bytes, total_bytes
+            )
 
     def _on_batch_tu_status_update(self, status_message: str):
         """Handle status updates during processing"""

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from utils.title_update_utils import TitleUpdateUtils
@@ -49,6 +50,9 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         self.current_mode = parent.current_mode if parent else "usb"
 
         self.ftp_client = FTPClient()
+
+        # Store path labels for each update version so we can update them after install
+        self.path_labels = {}
 
         # Initialize download worker
         self.download_worker = TitleUpdateDownloadWorker()
@@ -98,109 +102,22 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return None
 
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            cache_folder = self.settings_manager.load_ftp_cache_directory()
+        content_folder = self.settings_manager.load_ftp_content_directory()
+        cache_folder = self.settings_manager.load_ftp_cache_directory()
 
-            return TitleUpdateUtils.find_install_info(
-                title_id,
-                update,
-                content_folder,
-                cache_folder,
-                is_ftp=True,
-                ftp_client=ftp_client,
-            )
-        finally:
-            ftp_client.disconnect()
-
-    def _is_title_update_installed(self, title_id: str, update) -> bool:
-        """Check if a title update is installed by looking in Content and Cache folders"""
-        if self.current_mode == "ftp":
-            return self._is_title_update_installed_ftp(title_id, update)
-        else:
-            return self._is_title_update_installed_usb(title_id, update)
-
-    def _is_title_update_installed_usb(self, title_id: str, update) -> bool:
-        """Check if title update is installed on USB/local storage"""
-        content_folder = self.settings_manager.load_usb_content_directory()
-        cache_folder = self.settings_manager.load_usb_cache_directory()
-
-        if content_folder:
-            if not content_folder.endswith("0000000000000000"):
-                content_folder = os.path.join(content_folder, "0000000000000000")
-        else:
-            return False
-
-        possible_paths = [
-            f"{content_folder}/{title_id}/000B0000",
+        return TitleUpdateUtils.find_install_info(
+            title_id,
+            update,
+            content_folder,
             cache_folder,
-        ]
-
-        title_update_info = update.get("cached_info")
-        if not title_update_info:
-            return False
-
-        for base_path in possible_paths:
-            if base_path and os.path.exists(base_path):
-                for root, dirs, files in os.walk(base_path):
-                    for file in files:
-                        if file.upper() == title_update_info.get(
-                            "fileName", ""
-                        ).upper() and os.path.getsize(
-                            os.path.join(root, file)
-                        ) == title_update_info.get(
-                            "size", 0
-                        ):
-                            return True
-        return False
-
-    def _is_title_update_installed_ftp(self, title_id: str, update) -> bool:
-        """Check if title update is installed on FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
-        if not ftp_client:
-            return False
-
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            cache_folder = self.settings_manager.load_ftp_cache_directory()
-
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
-
-            possible_paths = [
-                f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-                cache_folder,
-            ]
-
-            title_update_info = update.get("cached_info")
-            if not title_update_info:
-                return False
-
-            expected_filename = title_update_info.get("fileName", "")
-            expected_size = title_update_info.get("size", 0)
-
-            for base_path in possible_paths:
-                if not base_path:
-                    continue
-
-                # Get recursive file listing from FTP
-                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
-
-                for file_path, filename, file_size in files:
-                    if (
-                        filename.upper() == expected_filename.upper()
-                        and file_size == expected_size
-                    ):
-                        return True
-
-            return False
-
-        finally:
-            ftp_client.disconnect()
+            is_ftp=True,
+            ftp_client=ftp_client,
+        )
+        # Note: Don't disconnect - using persistent connection manager
 
     def _uninstall_title_update(
         self,
@@ -310,139 +227,129 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         update: dict,
     ) -> None:
         """Uninstall title update from FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return
 
-        try:
-            removed_files = []
+        removed_files = []
 
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            cache_folder = self.settings_manager.load_ftp_cache_directory()
+        content_folder = self.settings_manager.load_ftp_content_directory()
+        cache_folder = self.settings_manager.load_ftp_cache_directory()
 
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
+        if content_folder and not content_folder.endswith("0000000000000000"):
+            content_folder = f"{content_folder}/0000000000000000"
 
-            possible_paths = [
-                f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-                cache_folder,
-            ]
+        possible_paths = [
+            f"{content_folder}/{title_id}/000B0000" if content_folder else None,
+            cache_folder,
+        ]
 
-            title_update_info = update.get("cached_info")
-            if not title_update_info:
-                return
+        title_update_info = update.get("cached_info")
+        if not title_update_info:
+            return
 
-            expected_filename = title_update_info.get("fileName", "")
+        expected_filename = title_update_info.get("fileName", "")
 
-            for base_path in possible_paths:
-                if not base_path:
-                    continue
+        for base_path in possible_paths:
+            if not base_path:
+                continue
 
-                # Get recursive file listing from FTP
-                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
+            # Get recursive file listing from FTP
+            files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
-                for file_path, filename, file_size in files:
-                    if filename.upper() == expected_filename.upper():
-                        success, message = ftp_client.remove_file(file_path)
-                        if success:
-                            removed_files.append(file_path)
-                        else:
-                            print(
-                                f"[ERROR] Failed to remove file {file_path}: {message}"
-                            )
+            for file_path, filename, file_size in files:
+                if filename.upper() == expected_filename.upper():
+                    success, message = ftp_client.remove_file(file_path)
+                    if success:
+                        removed_files.append(file_path)
+                    else:
+                        print(f"[ERROR] Failed to remove file {file_path}: {message}")
 
-            if removed_files:
-                button.setText("Download")
-                # Update button styling to blue for download
-                button.setStyleSheet(
-                    """
-                    QPushButton {
-                        background-color: #3498db;
-                        color: white;
-                        border: none;
-                        border-radius: 5px;
-                        padding: 8px 16px;
-                        font-size: 12px;
-                        font-weight: 500;
-                    }
-                    QPushButton:hover {
-                        background-color: #2980b9;
-                    }
-                    QPushButton:pressed {
-                        background-color: #21618c;
-                    }
-                    QPushButton:disabled {
-                        background-color: #95a5a6;
-                        color: #ecf0f1;
-                    }
+        if removed_files:
+            button.setText("Download")
+            # Update button styling to blue for download
+            button.setStyleSheet(
                 """
+                QPushButton {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #2980b9;
+                }
+                QPushButton:pressed {
+                    background-color: #21618c;
+                }
+                QPushButton:disabled {
+                    background-color: #95a5a6;
+                    color: #ecf0f1;
+                }
+            """
+            )
+            button.clicked.disconnect()
+            # Reconnect to download action
+            download_url = update.get("downloadUrl", "")
+            destination = f"cache/tu/{title_id}/"
+            button.clicked.connect(
+                lambda checked, url=download_url, btn=button, ver=version, mid=media_id, upd=update: self._download_and_install(
+                    url, destination, title_id, btn, ver, mid, upd
                 )
-                button.clicked.disconnect()
-                # Reconnect to download action
-                download_url = update.get("downloadUrl", "")
-                destination = f"cache/tu/{title_id}/"
-                button.clicked.connect(
-                    lambda checked, url=download_url, btn=button, ver=version, mid=media_id, upd=update: self._download_and_install(
-                        url, destination, title_id, btn, ver, mid, upd
-                    )
-                )
-            else:
-                print("No title update files found to remove")
-
-        finally:
-            ftp_client.disconnect()
+            )
+        else:
+            print("No title update files found to remove")
+        # Note: Don't disconnect - using persistent connection manager
 
     def _install_title_update_ftp(
         self, local_tu_path: str, title_id: str, filename: str
     ) -> bool:
         """Install title update to FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return False
 
-        try:
-            # Determine destination based on filename case (same logic as USB)
-            if filename.islower():
-                content_folder = self.settings_manager.load_ftp_content_directory()
-                if content_folder:
-                    if not content_folder.endswith("0000000000000000"):
-                        content_folder = f"{content_folder}/0000000000000000"
-                    remote_path = f"{content_folder}/{title_id}/000B0000/{filename}"
-                else:
-                    print("[ERROR] FTP Content folder not configured")
-                    return False
-            elif filename.isupper():
-                cache_folder = self.settings_manager.load_ftp_cache_directory()
-                if cache_folder:
-                    remote_path = f"{cache_folder}/{filename}"
-                else:
-                    print("[ERROR] FTP Cache folder not configured")
-                    return False
+        # Determine destination based on filename case (same logic as USB)
+        if filename.islower():
+            content_folder = self.settings_manager.load_ftp_content_directory()
+            if content_folder:
+                if not content_folder.endswith("0000000000000000"):
+                    content_folder = f"{content_folder}/0000000000000000"
+                remote_path = f"{content_folder}/{title_id}/000B0000/{filename}"
             else:
-                print(
-                    "[ERROR] Unable to determine TU destination based on filename case"
-                )
+                print("[ERROR] FTP Content folder not configured")
                 return False
-
-            # Create remote directory structure recursively
-            remote_dir = str(Path(remote_path).parent).replace("\\", "/")
-            success, message = ftp_client.create_directory_recursive(remote_dir)
-            if not success:
-                print(f"[ERROR] Failed to create FTP directory structure: {message}")
-                return False
-
-            # Upload the file
-            success, message = ftp_client.upload_file(local_tu_path, remote_path)
-            if success:
-                return True
+        elif filename.isupper():
+            cache_folder = self.settings_manager.load_ftp_cache_directory()
+            if cache_folder:
+                remote_path = f"{cache_folder}/{filename}"
             else:
-                print(f"[ERROR] Failed to upload TU to FTP: {message}")
+                print("[ERROR] FTP Cache folder not configured")
                 return False
+        else:
+            print("[ERROR] Unable to determine TU destination based on filename case")
+            return False
 
-        finally:
-            ftp_client.disconnect()
+        # Create remote directory structure recursively
+        remote_dir = str(Path(remote_path).parent).replace("\\", "/")
+        success, message = ftp_client.create_directory_recursive(remote_dir)
+        if not success:
+            print(f"[ERROR] Failed to create FTP directory structure: {message}")
+            return False
+
+        # Upload the file
+        success, message = ftp_client.upload_file(local_tu_path, remote_path)
+        if success:
+            return True
+        else:
+            print(f"[ERROR] Failed to upload TU to FTP: {message}")
+            return False
+        # Note: Don't disconnect - using persistent connection manager
 
     def _init_ui(self):
         """Initialize the dialog UI"""
@@ -603,12 +510,18 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             left_layout.addWidget(date_label)
 
             # Path info (smallest, most muted)
-            is_installed = self._is_title_update_installed(self.title_id, update)
+            is_installed = TitleUpdateUtils._is_title_update_installed(
+                self, self.title_id, update
+            )
+
+            # Initialize variables
+            path_filename_label = None
+            full_text = "Unknown"
 
             if is_installed:
                 install_info = self._get_install_info(self.title_id, update)
-                filename = install_info["filename"]
                 if install_info:
+                    filename = install_info["filename"]
                     if install_info["location"] == "Content":
                         display_text = f"📁 Content/{self.title_id}/000B0000/{filename}"
                         full_text = f"Content/0000000000000000/{self.title_id}/000B0000/{filename}"
@@ -616,6 +529,12 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                         display_text = f"📁 {install_info['location']}/{filename}"
                         full_text = f"{install_info['location']}/{filename}"
                     path_filename_label = self._create_path_label(display_text)
+                else:
+                    # Installed but couldn't get install info (e.g., FTP connection issue)
+                    path_filename_label = self._create_path_label(
+                        "📁 Installed (location unknown)"
+                    )
+                    full_text = "Installed but location could not be determined"
             else:
                 # Show predicted install location for non-installed updates
                 title_update_info = update.get("cached_info")
@@ -632,32 +551,36 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     path_filename_label = self._create_path_label(display_text)
                 else:
                     path_filename_label = self._create_path_label("Unknown/Unknown")
+                    full_text = "Unknown"
 
-            path_filename_label.setToolTip(full_text)
-            path_filename_label.setStyleSheet(
-                """
-                        QLabel {
-                            border: none;
-                            font-size: 14px;
-                            color: rgba(255,255,255,0.4);
-                            margin: 0px;
-                            padding: 0px;
-                            font-family: 'Consolas', 'Monaco', monospace;
-                        }
-                        QLabel:hover {
-                            color: #4FC3F7;
-                            text-decoration: underline;
-                        }
+            if path_filename_label:
+                path_filename_label.setToolTip(full_text)
+                path_filename_label.setStyleSheet(
                     """
-            )
-            path_filename_label.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextBrowserInteraction
-            )
-            path_filename_label.setCursor(Qt.CursorShape.PointingHandCursor)
-            path_filename_label.mousePressEvent = (
-                lambda event: self._open_tu_in_explorer()
-            )
-            left_layout.addWidget(path_filename_label)
+                            QLabel {
+                                border: none;
+                                font-size: 14px;
+                                color: rgba(255,255,255,0.4);
+                                margin: 0px;
+                                padding: 0px;
+                                font-family: 'Consolas', 'Monaco', monospace;
+                            }
+                            QLabel:hover {
+                                color: #4FC3F7;
+                                text-decoration: underline;
+                            }
+                        """
+                )
+                path_filename_label.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextBrowserInteraction
+                )
+                path_filename_label.setCursor(Qt.CursorShape.PointingHandCursor)
+                path_filename_label.mousePressEvent = (
+                    lambda event: self._open_tu_in_explorer()
+                )
+                left_layout.addWidget(path_filename_label)
+                # Store the label so we can update it after install
+                self.path_labels[version] = path_filename_label
 
             # Push content to top
             left_layout.addStretch()
@@ -965,7 +888,9 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             size_label.setMinimumWidth(70)  # Reduce minimum width
 
             # Action button (right side)
-            is_installed = self._is_title_update_installed(self.title_id, update)
+            is_installed = TitleUpdateUtils._is_title_update_installed(
+                self, self.title_id, update
+            )
 
             # Add path/filename info for all updates in single line format
             # First check if it's actually installed to get real info
@@ -1189,6 +1114,21 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                         title_id, version, media_id, button, upd
                     )
                 )
+
+                # Update the path label to show install location
+                if version in self.path_labels:
+                    path_label = self.path_labels[version]
+                    install_info = self._get_install_info(title_id, update)
+                    if install_info:
+                        filename = install_info.get("filename", filename)
+                        if install_info["location"] == "Content":
+                            display_text = f"📁 Content/{title_id}/000B0000/{filename}"
+                            full_text = f"Content/0000000000000000/{title_id}/000B0000/{filename}"
+                        else:
+                            display_text = f"📁 {install_info['location']}/{filename}"
+                            full_text = f"{install_info['location']}/{filename}"
+                        path_label.setText(display_text)
+                        path_label.setToolTip(full_text)
 
                 # Emit success signal to main window
                 self.download_complete.emit(update_name, True, filename, local_path)

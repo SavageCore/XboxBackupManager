@@ -1,5 +1,4 @@
 import os
-import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -17,12 +16,13 @@ from PyQt6.QtWidgets import (
 )
 
 from utils.dlc_utils import DLCUtils
-from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from utils.title_update_utils import TitleUpdateUtils
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
+from workers.single_dlc_installer import SingleDLCInstaller
 
 
 class DLCListDialog(QDialog):
@@ -41,7 +41,7 @@ class DLCListDialog(QDialog):
 
         self.dlc_utils = DLCUtils(parent)
         self.ui_utils = UIUtils()
-        self.ftp_client = FTPClient()
+        # Note: Using persistent FTP connection manager instead of creating new instances
 
         self.game_name = (
             self.game_manager.get_game_name(self.title_id) or "Unknown Game"
@@ -50,6 +50,9 @@ class DLCListDialog(QDialog):
         # Track DLC counts for button state
         self._installed_dlcs_count = 0
         self._total_dlcs_count = 0
+
+        # Track active DLC installer worker
+        self._active_installer = None
 
         self._init_ui()
 
@@ -86,24 +89,22 @@ class DLCListDialog(QDialog):
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return None
 
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            cache_folder = self.settings_manager.load_ftp_cache_directory()
+        content_folder = self.settings_manager.load_ftp_content_directory()
+        cache_folder = self.settings_manager.load_ftp_cache_directory()
 
-            return TitleUpdateUtils.find_install_info(
-                title_id,
-                update,
-                content_folder,
-                cache_folder,
-                is_ftp=True,
-                ftp_client=ftp_client,
-            )
-        finally:
-            ftp_client.disconnect()
+        return TitleUpdateUtils.find_install_info(
+            title_id,
+            update,
+            content_folder,
+            cache_folder,
+            is_ftp=True,
+            ftp_client=ftp_client,
+        )
+        # Note: Don't disconnect - using persistent connection manager
 
     def _is_dlc_installed(self, title_id: str, dlc) -> bool:
         """Check if a DLC is installed by looking in Content folder"""
@@ -142,41 +143,38 @@ class DLCListDialog(QDialog):
 
     def _is_dlc_installed_ftp(self, title_id: str, dlc) -> bool:
         """Check if DLC is installed on FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return False
 
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
+        content_folder = self.settings_manager.load_ftp_content_directory()
 
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
+        if content_folder and not content_folder.endswith("0000000000000000"):
+            content_folder = f"{content_folder}/0000000000000000"
 
-            possible_paths = [
-                f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-            ]
+        possible_paths = [
+            f"{content_folder}/{title_id}/00000002" if content_folder else None,
+        ]
 
-            expected_filename = dlc.get("file", "")
-            expected_size = dlc.get("size", 0)
+        expected_filename = dlc.get("file", "")
+        expected_size = dlc.get("size", 0)
 
-            for base_path in possible_paths:
-                if not base_path:
-                    continue
+        for base_path in possible_paths:
+            if not base_path:
+                continue
 
-                # Get recursive file listing from FTP
-                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
+            # Get recursive file listing from FTP
+            files = ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
-                for file_path, filename, file_size in files:
-                    if (
-                        filename.upper() == expected_filename.upper()
-                        and file_size == expected_size
-                    ):
-                        return True
+            for file_path, filename, file_size in files:
+                if (
+                    filename.upper() == expected_filename.upper()
+                    and file_size == expected_size
+                ):
+                    return True
 
-            return False
-
-        finally:
-            ftp_client.disconnect()
+        return False
+        # Note: Don't disconnect - using persistent connection manager
 
     def _uninstall_dlc(
         self,
@@ -663,7 +661,7 @@ class DLCListDialog(QDialog):
         self._update_bulk_button_state()
 
     def _install(self, btn: QPushButton, dlc: dict, progress_callback=None) -> bool:
-        """Install the selected DLC with optional progress callback"""
+        """Install the selected DLC with optional progress callback using background worker"""
         title_id = dlc.get("title_id", "")
         filename = dlc.get("file", "")
 
@@ -672,14 +670,53 @@ class DLCListDialog(QDialog):
             print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
             return False
 
-        if self.current_mode == "ftp":
-            success = self.dlc_utils._install_dlc_ftp(
-                local_dlc_path, title_id, filename, progress_callback=progress_callback
+        # Disable button during installation
+        btn.setEnabled(False)
+        btn.setText("Installing...")
+
+        # Create progress dialog
+        from ui.single_dlc_install_progress_dialog import SingleDLCInstallProgressDialog
+
+        dlc_name = dlc.get("name", filename)
+        progress_dialog = SingleDLCInstallProgressDialog(dlc_name, self)
+        progress_dialog.show()
+
+        # Create and start worker
+        self._active_installer = SingleDLCInstaller(
+            self.dlc_utils, local_dlc_path, title_id, filename, self.current_mode, self
+        )
+
+        # Connect progress signal to dialog
+        self._active_installer.progress.connect(
+            lambda current, total: progress_dialog.update_progress(current, total)
+        )
+
+        # Connect finished signal
+        self._active_installer.finished.connect(
+            lambda success, message: self._on_install_complete(
+                success, message, btn, dlc, title_id, progress_dialog
             )
-        else:
-            success = self.dlc_utils._install_dlc_usb(
-                local_dlc_path, title_id, filename, progress_callback=progress_callback
-            )
+        )
+
+        # Start installation in background
+        self._active_installer.start()
+        return True  # Will be updated when finished signal arrives
+
+    def _on_install_complete(
+        self,
+        success: bool,
+        message: str,
+        btn: QPushButton,
+        dlc: dict,
+        title_id: str,
+        progress_dialog,
+    ):
+        """Handle completion of DLC installation"""
+        # Close progress dialog
+        progress_dialog.close()
+
+        # Re-enable button
+        btn.setEnabled(True)
 
         if success:
             btn.setText("Uninstall")
@@ -715,10 +752,36 @@ class DLCListDialog(QDialog):
             # Update the installed count and bulk button state
             self._installed_dlcs_count += 1
             self._update_bulk_button_state()
-            return True
         else:
-            print(f"[ERROR] Failed to install DLC: {filename}")
-            return False
+            # Reset button to install state
+            btn.setText("Install")
+            btn.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #2980b9;
+                }
+                QPushButton:pressed {
+                    background-color: #21618c;
+                }
+                QPushButton:disabled {
+                    background-color: #95a5a6;
+                    color: #ecf0f1;
+                }
+            """
+            )
+            error_msg = message if message else "Installation failed"
+            print(
+                f"[ERROR] Failed to install DLC: {dlc.get('file', 'Unknown')} - {error_msg}"
+            )
 
     def _open_dlc_in_explorer(self):
         """Open the DLC file's containing folder in Explorer"""
@@ -855,41 +918,31 @@ class DLCListDialog(QDialog):
                 progress_dialog.reset_file_progress()
                 QApplication.processEvents()
 
-                # Initialize speed tracking for this file
-                if os.path.exists(local_dlc_path):
-                    file_size = os.path.getsize(local_dlc_path)
-                else:
-                    file_size = 0
-                file_start_time = time.time()
-                last_speed_update = time.time()
-
-                # Create progress callback for per-file progress with speed tracking
-                def file_progress_callback(val):
-                    nonlocal last_speed_update
-                    progress_dialog.update_file_progress(filename, val)
-
-                    # Calculate and emit speed (update every 0.5 seconds)
-                    current_time = time.time()
-                    if file_size > 0 and current_time - last_speed_update >= 0.5:
-                        elapsed = current_time - file_start_time
-                        if elapsed > 0:
-                            bytes_transferred = int((val / 100.0) * file_size)
-                            speed_bps = bytes_transferred / elapsed
-                            progress_dialog.update_speed(speed_bps)
-                            last_speed_update = current_time
-
+                # Create progress callback for per-file progress with speed and time tracking
+                def file_progress_callback(current_bytes, total_bytes):
+                    progress_dialog.update_progress_with_speed(
+                        current_bytes, total_bytes
+                    )
+                    progress_dialog.update_file_progress(
+                        filename,
+                        (
+                            int((current_bytes / total_bytes) * 100)
+                            if total_bytes > 0
+                            else 0
+                        ),
+                    )
                     QApplication.processEvents()
 
                 # Install with progress callback
                 if self.current_mode == "ftp":
-                    success = self.dlc_utils._install_dlc_ftp(
+                    success, message = self.dlc_utils._install_dlc_ftp(
                         local_dlc_path,
                         title_id,
                         filename,
                         progress_callback=file_progress_callback,
                     )
                 else:
-                    success = self.dlc_utils._install_dlc_usb(
+                    success, message = self.dlc_utils._install_dlc_usb(
                         local_dlc_path,
                         title_id,
                         filename,
@@ -899,8 +952,9 @@ class DLCListDialog(QDialog):
                 if success:
                     success_count += 1
                 else:
+                    error_msg = message if message else "Installation failed"
                     failed_dlcs.append(
-                        f"{dlc.get('display_name', 'Unknown')}: Installation failed"
+                        f"{dlc.get('display_name', 'Unknown')}: {error_msg}"
                     )
 
             except Exception as e:

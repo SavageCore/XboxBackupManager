@@ -2,7 +2,6 @@
 Worker for batch processing DLC installation across multiple games
 """
 
-import os
 import time
 from typing import Any, Dict, List
 
@@ -104,33 +103,29 @@ class BatchDLCInstallProcessor(QThread):
                             continue
 
                         # Initialize speed tracking for this file
-                        if os.path.exists(local_dlc_path):
-                            file_size = os.path.getsize(local_dlc_path)
-                        else:
-                            file_size = 0
                         self.current_file_start_time = time.time()
                         self.current_file_bytes_transferred = 0
                         last_speed_update = time.time()
 
-                        # Create progress callback for this DLC file
-                        def progress_callback(progress):
+                        # Create progress callback for this DLC file (receives bytes)
+                        def progress_callback(current_bytes, total_bytes):
                             nonlocal last_speed_update
-                            self.dlc_progress.emit(filename, progress)
 
-                            # Calculate and emit speed (update every 0.5 seconds)
-                            current_time = time.time()
-                            if (
-                                file_size > 0
-                                and current_time - last_speed_update >= 0.5
-                            ):
-                                elapsed = current_time - self.current_file_start_time
-                                if elapsed > 0:
-                                    bytes_transferred = int(
-                                        (progress / 100.0) * file_size
+                            # Calculate percentage for progress signal
+                            if total_bytes > 0:
+                                progress = int((current_bytes / total_bytes) * 100)
+                                self.dlc_progress.emit(filename, progress)
+
+                                # Calculate and emit speed (update every 0.5 seconds)
+                                current_time = time.time()
+                                if current_time - last_speed_update >= 0.5:
+                                    elapsed = (
+                                        current_time - self.current_file_start_time
                                     )
-                                    speed_bps = bytes_transferred / elapsed
-                                    self.dlc_speed.emit(filename, speed_bps)
-                                    last_speed_update = current_time
+                                    if elapsed > 0:
+                                        speed_bps = current_bytes / elapsed
+                                        self.dlc_speed.emit(filename, speed_bps)
+                                        last_speed_update = current_time
 
                         # Install the DLC
                         if self.current_mode == "ftp":
