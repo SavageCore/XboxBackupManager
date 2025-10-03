@@ -5,7 +5,6 @@ from typing import Dict, Optional
 
 from PyQt6.QtWidgets import QPushButton
 
-from utils.ftp_client import FTPClient
 from utils.ftp_connection_manager import get_ftp_manager
 
 
@@ -14,7 +13,7 @@ class DLCUtils:
     def __init__(self, parent):
         self.directory_manager = parent.directory_manager
         self.settings_manager = parent.settings_manager
-        self.ftp_client = FTPClient()
+        # Note: Using persistent FTP connection manager instead of creating new instances
 
     def parse_file(self, dlc_path: str) -> Optional[Dict[str, Optional[str]]]:
         """
@@ -268,50 +267,62 @@ class DLCUtils:
             print("[ERROR] Could not connect to FTP server")
             return False, "Could not connect to FTP server"
 
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            if content_folder:
-                if not content_folder.endswith("0000000000000000"):
-                    content_folder = f"{content_folder}/0000000000000000"
-                remote_path = f"{content_folder}/{title_id}/00000002/{filename}"
-            else:
-                print("[ERROR] FTP Content folder not configured")
-                return False, "FTP Content folder not configured"
+        # Verify connection is actually working before proceeding
+        if not ftp_client.is_connected():
+            print("[WARN] FTP not connected, attempting reconnection...")
+            ftp_client = get_ftp_manager().get_connection()
+            if not ftp_client:
+                print("[ERROR] Could not reconnect to FTP server")
+                return False, "Could not reconnect to FTP server"
 
-            # Check if target file already exists
-            files = self.ftp_client._ftp_list_files_recursive(
-                ftp_client, os.path.dirname(remote_path)
-            )
-            for file_path, fname, file_size in files:
-                if fname.upper() == filename.upper() and file_size == os.path.getsize(
-                    local_dlc_path
-                ):
-                    return False, "DLC file already exists"
+        content_folder = self.settings_manager.load_ftp_content_directory()
+        if content_folder:
+            if not content_folder.endswith("0000000000000000"):
+                content_folder = f"{content_folder}/0000000000000000"
+            remote_path = f"{content_folder}/{title_id}/00000002/{filename}"
+        else:
+            print("[ERROR] FTP Content folder not configured")
+            return False, "FTP Content folder not configured"
 
-            # Create remote directory structure recursively
-            remote_dir = str(Path(remote_path).parent).replace("\\", "/")
-            success, message = ftp_client.create_directory_recursive(remote_dir)
-            if not success:
-                print(f"[ERROR] Failed to create FTP directory structure: {message}")
-                return False, message
+        # Check if target file already exists
+        files = ftp_client._ftp_list_files_recursive(
+            ftp_client, os.path.dirname(remote_path)
+        )
+        for file_path, fname, file_size in files:
+            if fname.upper() == filename.upper() and file_size == os.path.getsize(
+                local_dlc_path
+            ):
+                return False, "DLC file already exists"
 
-            # Upload the file
-            success, message = ftp_client.upload_file(
-                local_dlc_path, remote_path, progress_callback=progress_callback
-            )
-            if success:
-                return True, None
-            else:
-                print(f"[ERROR] Failed to upload DLC to FTP: {message}")
-                return False, message
+        # Create remote directory structure recursively
+        remote_dir = str(Path(remote_path).parent).replace("\\", "/")
+        success, message = ftp_client.create_directory_recursive(remote_dir)
+        if not success:
+            print(f"[ERROR] Failed to create FTP directory structure: {message}")
+            return False, message
 
-        finally:
-            ftp_client.disconnect()
+        # Upload the file
+        success, message = ftp_client.upload_file(
+            local_dlc_path, remote_path, progress_callback=progress_callback
+        )
+        if success:
+            return True, None
+        else:
+            print(f"[ERROR] Failed to upload DLC to FTP: {message}")
+            return False, message
+        # Note: Don't disconnect - using persistent connection manager
 
     def _install_dlc_usb(
         self, local_dlc_path: str, title_id: str, filename: str, progress_callback=None
     ) -> bool:
-        """Install DLC to USB"""
+        """Install DLC to USB
+
+        Args:
+            local_dlc_path: Path to local DLC file
+            title_id: Xbox title ID
+            filename: DLC filename
+            progress_callback: Optional callback function that receives (bytes_transferred, total_bytes)
+        """
         if not os.path.exists(local_dlc_path):
             print(f"[ERROR] Local DLC file not found: {local_dlc_path}")
             return False, "Local DLC file not found"
@@ -349,10 +360,9 @@ class DLCUtils:
                         dest_file.write(chunk)
                         bytes_copied += len(chunk)
 
-                        # Report progress
+                        # Report progress with bytes transferred and total size
                         if progress_callback and file_size > 0:
-                            progress = int((bytes_copied / file_size) * 100)
-                            progress_callback(progress)
+                            progress_callback(bytes_copied, file_size)
 
             return True, None
         except Exception as e:
@@ -371,69 +381,65 @@ class DLCUtils:
             print("[ERROR] Could not connect to FTP server")
             return
 
-        try:
-            removed_files = []
+        removed_files = []
 
-            content_folder = self.settings_manager.load_ftp_content_directory()
+        content_folder = self.settings_manager.load_ftp_content_directory()
 
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
+        if content_folder and not content_folder.endswith("0000000000000000"):
+            content_folder = f"{content_folder}/0000000000000000"
 
-            possible_paths = [
-                f"{content_folder}/{title_id}/dlc" if content_folder else None,
-            ]
+        # DLCs are installed in the 00000002 folder (not "dlc")
+        possible_paths = [
+            f"{content_folder}/{title_id}/00000002" if content_folder else None,
+        ]
 
-            expected_filename = dlc.get("file", "")
+        expected_filename = dlc.get("file", "")
 
-            for base_path in possible_paths:
-                if not base_path:
-                    continue
+        for base_path in possible_paths:
+            if not base_path:
+                continue
 
-                # Get recursive file listing from FTP
-                files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
+            # Get recursive file listing from FTP
+            files = ftp_client._ftp_list_files_recursive(ftp_client, base_path)
 
-                for file_path, filename, file_size in files:
-                    if filename.upper() == expected_filename.upper():
-                        success, message = ftp_client.remove_file(file_path)
-                        if success:
-                            removed_files.append(file_path)
-                        else:
-                            print(
-                                f"[ERROR] Failed to remove file {file_path}: {message}"
-                            )
+            for file_path, filename, file_size in files:
+                if filename.upper() == expected_filename.upper():
+                    success, message = ftp_client.remove_file(file_path)
+                    if success:
+                        removed_files.append(file_path)
+                    else:
+                        print(f"[ERROR] Failed to remove file {file_path}: {message}")
 
-            if removed_files:
-                button.setText("Install")
-                # Update button styling to blue for install
-                button.setStyleSheet(
-                    """
-                    QPushButton {
-                        background-color: #3498db;
-                        color: white;
-                        border: none;
-                        border-radius: 5px;
-                        padding: 8px 16px;
-                        font-size: 12px;
-                        font-weight: 500;
-                    }
-                    QPushButton:hover {
-                        background-color: #2980b9;
-                    }
-                    QPushButton:pressed {
-                        background-color: #21618c;
-                    }
-                    QPushButton:disabled {
-                        background-color: #95a5a6;
-                        color: #ecf0f1;
-                    }
+        if removed_files:
+            button.setText("Install")
+            # Update button styling to blue for install
+            button.setStyleSheet(
                 """
-                )
-                # Note: Button reconnection should be handled by the dialog, not utils
-            else:
-                print("No DLC files found to remove")
-
-        finally:
-            ftp_client.disconnect()
+                QPushButton {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #2980b9;
+                }
+                QPushButton:pressed {
+                    background-color: #21618c;
+                }
+                QPushButton:disabled {
+                    background-color: #95a5a6;
+                    color: #ecf0f1;
+                }
+            """
+            )
+            # Note: Button reconnection should be handled by the dialog, not utils
+        else:
+            print("No DLC files found to remove")
+        # Note: Don't disconnect - using persistent connection manager
 
     def _uninstall_dlc_usb(
         self,

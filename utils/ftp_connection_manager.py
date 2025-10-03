@@ -72,7 +72,6 @@ class FTPConnectionManager(QObject):
             )
 
             if success:
-                print(f"[INFO] FTP connection established: {message}")
                 self._start_keep_alive()
                 self._last_activity = time.time()
                 return self._client
@@ -94,7 +93,6 @@ class FTPConnectionManager(QObject):
         self._keep_alive_timer = QTimer()
         self._keep_alive_timer.timeout.connect(self._send_keep_alive)
         self._keep_alive_timer.start(self._keep_alive_interval)
-        print("[INFO] FTP keep-alive timer started (30s interval)")
 
     def _send_keep_alive(self):
         """Send NOOP command to keep connection alive"""

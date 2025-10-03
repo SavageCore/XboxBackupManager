@@ -135,6 +135,7 @@ class FTPClient(QObject):
                 parts = line.split(None, 8)
                 if len(parts) >= 9:
                     permissions = parts[0]
+                    size_str = parts[4]  # File size is typically in column 5
                     name = parts[8]
 
                     # Skip . and .. entries
@@ -143,11 +144,18 @@ class FTPClient(QObject):
 
                     is_directory = permissions.startswith("d")
 
+                    # Parse size (0 for directories)
+                    try:
+                        size = 0 if is_directory else int(size_str)
+                    except (ValueError, IndexError):
+                        size = 0
+
                     items.append(
                         {
                             "name": name,
                             "is_directory": is_directory,
                             "permissions": permissions,
+                            "size": size,
                             "full_path": f"{path.rstrip('/')}/{name}",
                         }
                     )
@@ -333,7 +341,13 @@ class FTPClient(QObject):
     def upload_file(
         self, local_path: str, remote_path: str, progress_callback=None
     ) -> Tuple[bool, str]:
-        """Upload a file from local path to FTP server"""
+        """Upload a file from local path to FTP server
+
+        Args:
+            local_path: Path to local file
+            remote_path: Path on FTP server
+            progress_callback: Optional callback function that receives (bytes_transferred, total_bytes)
+        """
         if not self.is_connected():
             return False, "Not connected to FTP server"
 
@@ -345,8 +359,8 @@ class FTPClient(QObject):
                 nonlocal bytes_uploaded
                 bytes_uploaded += len(chunk)
                 if progress_callback and file_size > 0:
-                    progress = int((bytes_uploaded / file_size) * 100)
-                    progress_callback(progress)
+                    # Call with both bytes transferred and total size
+                    progress_callback(bytes_uploaded, file_size)
 
             with open(local_path, "rb") as local_file:
                 if progress_callback:
@@ -393,13 +407,34 @@ class FTPClient(QObject):
         return files
 
     def _get_ftp_file_size(self, ftp_client, filepath):
-        """Get the size of a file on FTP server"""
+        """Get the size of a file on FTP server, handling large files (>2GB) correctly"""
         try:
             # Use the FTP SIZE command if the client supports it
             if hasattr(ftp_client, "_ftp") and ftp_client._ftp:
                 try:
-                    size = ftp_client._ftp.size(filepath)
-                    return size if size is not None else 0
+                    # Send SIZE command directly and parse response
+                    # This bypasses any potential issues with ftplib's size() method
+                    resp = ftp_client._ftp.sendcmd(f"SIZE {filepath}")
+
+                    if resp[:3] == "213":
+                        size_str = resp[3:].strip()
+                        # Parse as Python int (arbitrary precision)
+                        size_result = int(size_str)
+
+                        # Check if we got a negative value (indicates 32-bit signed overflow)
+                        if size_result < 0:
+                            # The FTP server likely sent the correct value, but something
+                            # interpreted it as signed 32-bit. Convert from signed to unsigned.
+                            # Add 2^32 to convert from negative signed to positive unsigned
+                            size_result = size_result + (1 << 32)
+
+                        return size_result if size_result >= 0 else 0
+                    else:
+                        print(
+                            f"[DEBUG] Unexpected SIZE response for {filepath}: {resp}"
+                        )
+                        return 0
+
                 except Exception as e:
                     print(f"[DEBUG] Could not get size for {filepath}: {e}")
                     return 0

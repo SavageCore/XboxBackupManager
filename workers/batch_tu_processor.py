@@ -4,11 +4,12 @@ Worker for batch processing title update downloads across multiple games
 
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, List
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 from utils.settings_manager import SettingsManager
 from utils.xboxunity import XboxUnity
 
@@ -25,6 +26,9 @@ class BatchTitleUpdateProcessor(QThread):
     )  # game_name, update_version, file_path
     update_progress = pyqtSignal(str, int)  # update_name, progress_percentage
     update_speed = pyqtSignal(str, float)  # update_name, speed_in_bytes_per_sec
+    update_progress_bytes = pyqtSignal(
+        str, int, int
+    )  # update_name, current_bytes, total_bytes
     status_update = pyqtSignal(str)  # status_message
     searching = pyqtSignal(bool)  # True when searching, False when done
     batch_complete = pyqtSignal(
@@ -87,18 +91,25 @@ class BatchTitleUpdateProcessor(QThread):
                 )
 
                 try:
-                    # Get media ID from game folder
-                    self.searching.emit(True)  # Start indeterminate progress
-                    self.status_update.emit(f"Getting media ID for {game_name}...")
-                    media_id = self.xbox_unity.get_media_id(folder_path)
+                    # Get media ID from game folder (only for local paths)
+                    media_id = None
+                    if folder_path and Path(folder_path).exists():
+                        self.searching.emit(True)  # Start indeterminate progress
+                        self.status_update.emit(f"Getting media ID for {game_name}...")
+                        media_id = self.xbox_unity.get_media_id(folder_path)
 
-                    if not media_id:
-                        self._log_message(f"  No media ID found for {game_name}")
-                        self.searching.emit(False)  # Stop indeterminate progress
-                        self.game_completed.emit(game_name, 0)
-                        continue
+                        if not media_id:
+                            self._log_message(
+                                f"  Could not extract media ID from {game_name}"
+                            )
+                            # Continue anyway - media_id is optional
+                    else:
+                        # For FTP or non-existent paths, skip media_id extraction
+                        self._log_message(
+                            "  Skipping media ID extraction (remote/FTP path)"
+                        )
 
-                    # Search for title updates
+                    # Search for title updates (media_id is optional, title_id is required)
                     self.status_update.emit(
                         f"Searching for title updates for {game_name}..."
                     )
@@ -162,17 +173,26 @@ class BatchTitleUpdateProcessor(QThread):
                     # Initialize speed tracking for this download
                     start_time = time.time()
                     last_speed_update = time.time()
+                    last_progress_update = time.time()
                     update_name = f"{game_name} v{version}"
 
                     # Create progress callback for this download
                     def progress_callback(downloaded, total):
-                        nonlocal last_speed_update
+                        nonlocal last_speed_update, last_progress_update
                         if total > 0:
-                            progress = int((downloaded / total) * 100)
-                            self.update_progress.emit(update_name, progress)
+                            current_time = time.time()
+
+                            # Throttle updates to every 0.2 seconds to avoid UI overload
+                            if current_time - last_progress_update >= 0.2:
+                                progress = int((downloaded / total) * 100)
+                                self.update_progress.emit(update_name, progress)
+                                # Emit bytes for time remaining calculation
+                                self.update_progress_bytes.emit(
+                                    update_name, downloaded, total
+                                )
+                                last_progress_update = current_time
 
                             # Calculate and emit speed (update every 0.5 seconds)
-                            current_time = time.time()
                             if current_time - last_speed_update >= 0.5:
                                 elapsed = current_time - start_time
                                 if elapsed > 0:
@@ -300,8 +320,9 @@ class BatchTitleUpdateProcessor(QThread):
 
     def _is_title_update_installed_ftp(self, title_id: str, update) -> bool:
         """Check if title update is installed on FTP server"""
-        ftp_client = self._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
+            self._log_message("    [ERROR] Could not get FTP connection")
             return False
 
         try:
@@ -342,36 +363,7 @@ class BatchTitleUpdateProcessor(QThread):
         except Exception as e:
             self._log_message(f"    Error checking FTP installation: {str(e)}")
             return False
-        finally:
-            ftp_client.disconnect()
-
-    def _get_ftp_connection(self):
-        """Create and return an FTP connection using settings"""
-        try:
-            ftp_settings = self.settings_manager.load_ftp_settings()
-            ftp_host = ftp_settings.get("host")
-            ftp_port = ftp_settings.get("port")
-            ftp_user = ftp_settings.get("username")
-            ftp_pass = ftp_settings.get("password")
-
-            if not all([ftp_host, ftp_port, ftp_user, ftp_pass]):
-                self._log_message("    [ERROR] FTP credentials not configured")
-                return None
-
-            ftp_client = FTPClient()
-            success, message = ftp_client.connect(
-                ftp_host, ftp_user, ftp_pass, int(ftp_port)
-            )
-
-            if success:
-                return ftp_client
-            else:
-                self._log_message(f"    [ERROR] FTP connection failed: {message}")
-                return None
-
-        except Exception as e:
-            self._log_message(f"    [ERROR] Failed to connect to FTP: {e}")
-            return None
+        # Note: Don't disconnect - using persistent connection manager
 
     def _ftp_list_files_recursive(self, ftp_client, path):
         """Recursively list files in FTP directory with size information"""
@@ -388,10 +380,8 @@ class BatchTitleUpdateProcessor(QThread):
                         self._ftp_list_files_recursive(ftp_client, item["full_path"])
                     )
                 else:
-                    # Get file size using FTP SIZE command
-                    file_size = self.ftp_client._get_ftp_file_size(
-                        ftp_client, item["full_path"]
-                    )
+                    # Size is now included in list_directory results
+                    file_size = item.get("size", 0)
                     files.append((item["full_path"], item["name"], file_size))
 
         except Exception as e:
@@ -417,94 +407,84 @@ class BatchTitleUpdateProcessor(QThread):
     ) -> bool:
         """Install title update to FTP server"""
         try:
-            ftp_client = self._get_ftp_connection()
+            ftp_client = get_ftp_manager().get_connection()
             if not ftp_client:
+                self._log_message("    [ERROR] Could not get FTP connection")
                 return False
 
-            try:
-                # Determine destination based on filename case (same logic as USB)
-                if filename.islower():
-                    # Move to Content folder
-                    # Example path: Content/0000000000000000/{TITLE_ID}/000B0000
-                    content_folder = self.settings_manager.load_ftp_content_directory()
-                    if not content_folder:
-                        self._log_message(
-                            "    [ERROR] FTP Content folder not found in settings."
-                        )
-                        return False
-
-                    # Ensure we're set to Content/0000000000000000/
-                    if not content_folder.endswith("0000000000000000"):
-                        content_folder = (
-                            f"{content_folder.rstrip('/')}/0000000000000000"
-                        )
-
-                    destination_dir = (
-                        f"{content_folder.rstrip('/')}/{title_id}/000B0000"
+            # Determine destination based on filename case (same logic as USB)
+            if filename.islower():
+                # Move to Content folder
+                # Example path: Content/0000000000000000/{TITLE_ID}/000B0000
+                content_folder = self.settings_manager.load_ftp_content_directory()
+                if not content_folder:
+                    self._log_message(
+                        "    [ERROR] FTP Content folder not found in settings."
                     )
-                    destination_file = f"{destination_dir}/{filename}"
-
-                    # Create directory structure if it doesn't exist
-                    success, message = ftp_client.create_directory_recursive(
-                        destination_dir
-                    )
-                    if not success:
-                        self._log_message(
-                            f"    Failed to create FTP directory {destination_dir}: {message}"
-                        )
-                        return False
-
-                    # Upload the file
-                    success, message = ftp_client.upload_file(
-                        local_path, destination_file
-                    )
-                    if success:
-                        self._log_message(
-                            f"    Installed title update to Content: {destination_file}"
-                        )
-                        return True
-                    else:
-                        self._log_message(f"    Failed to upload to Content: {message}")
-                        return False
-
-                elif filename.isupper():
-                    # Move to Cache folder
-                    cache_folder = self.settings_manager.load_ftp_cache_directory()
-                    if not cache_folder:
-                        self._log_message(
-                            "    [ERROR] FTP Cache folder not found in settings."
-                        )
-                        return False
-
-                    destination_file = f"{cache_folder.rstrip('/')}/{filename}"
-                    cache_dir = cache_folder.rstrip("/")
-
-                    # Ensure cache directory exists
-                    success, message = ftp_client.create_directory_recursive(cache_dir)
-                    if not success:
-                        self._log_message(
-                            f"    Failed to create FTP cache directory {cache_dir}: {message}"
-                        )
-                        return False
-
-                    # Upload the file
-                    success, message = ftp_client.upload_file(
-                        local_path, destination_file
-                    )
-                    if success:
-                        self._log_message(
-                            f"    Installed title update to Cache: {destination_file}"
-                        )
-                        return True
-                    else:
-                        self._log_message(f"    Failed to upload to Cache: {message}")
-                        return False
-                else:
-                    self._log_message(f"    Unknown filename format: {filename}")
                     return False
 
-            finally:
-                ftp_client.disconnect()
+                # Ensure we're set to Content/0000000000000000/
+                if not content_folder.endswith("0000000000000000"):
+                    content_folder = f"{content_folder.rstrip('/')}/0000000000000000"
+
+                destination_dir = f"{content_folder.rstrip('/')}/{title_id}/000B0000"
+                destination_file = f"{destination_dir}/{filename}"
+
+                # Create directory structure if it doesn't exist
+                success, message = ftp_client.create_directory_recursive(
+                    destination_dir
+                )
+                if not success:
+                    self._log_message(
+                        f"    Failed to create FTP directory {destination_dir}: {message}"
+                    )
+                    return False
+
+                # Upload the file
+                success, message = ftp_client.upload_file(local_path, destination_file)
+                if success:
+                    self._log_message(
+                        f"    Installed title update to Content: {destination_file}"
+                    )
+                    return True
+                else:
+                    self._log_message(f"    Failed to upload to Content: {message}")
+                    return False
+
+            elif filename.isupper():
+                # Move to Cache folder
+                cache_folder = self.settings_manager.load_ftp_cache_directory()
+                if not cache_folder:
+                    self._log_message(
+                        "    [ERROR] FTP Cache folder not found in settings."
+                    )
+                    return False
+
+                destination_file = f"{cache_folder.rstrip('/')}/{filename}"
+                cache_dir = cache_folder.rstrip("/")
+
+                # Ensure cache directory exists
+                success, message = ftp_client.create_directory_recursive(cache_dir)
+                if not success:
+                    self._log_message(
+                        f"    Failed to create FTP cache directory {cache_dir}: {message}"
+                    )
+                    return False
+
+                # Upload the file
+                success, message = ftp_client.upload_file(local_path, destination_file)
+                if success:
+                    self._log_message(
+                        f"    Installed title update to Cache: {destination_file}"
+                    )
+                    return True
+                else:
+                    self._log_message(f"    Failed to upload to Cache: {message}")
+                    return False
+            else:
+                self._log_message(f"    Unknown filename format: {filename}")
+                return False
+            # Note: Don't disconnect - using persistent connection manager
 
         except Exception as e:
             self._log_message(f"    Error during FTP installation: {str(e)}")

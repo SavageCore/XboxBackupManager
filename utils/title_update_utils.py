@@ -147,6 +147,7 @@ class TitleUpdateUtils:
             try:
                 success, items, _ = ftp_client.list_directory(path)
                 if not success:
+                    print(f"[DEBUG] Failed to list directory: {path}")
                     return None
 
                 for item in items:
@@ -165,6 +166,7 @@ class TitleUpdateUtils:
                                 "installed": True,
                                 "location": location_type,
                                 "path": item["full_path"],
+                                "filename": item["name"],
                                 "size": expected_size,
                             }
                 return None
