@@ -73,6 +73,7 @@ from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
 from utils.system_utils import SystemUtils
+from workers.title_update_fetcher import TitleUpdateFetchWorker
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
 from workers.batch_dlc_import import BatchDLCImportWorker
@@ -2997,36 +2998,65 @@ class XboxBackupManager(QMainWindow):
         if not title_id:
             return
 
-        media_id = self.xboxunity.get_media_id(folder_path)
+        # Show loading dialog (but only after a delay to avoid flashing)
+        from PyQt6.QtWidgets import QProgressDialog
+        from PyQt6.QtCore import Qt
 
-        if not media_id:
-            QMessageBox.information(
-                self,
-                "Title Updates",
-                f"No media ID found for Title ID: {title_id}",
-            )
-            return
-
-        updates = self.xboxunity.search_title_updates(
-            media_id=media_id, title_id=title_id
+        progress_dialog = QProgressDialog(
+            "Reading game data from disk...",
+            None,  # No cancel button
+            0,
+            0,  # Indeterminate progress
+            self,
         )
-        if not updates:
+        progress_dialog.setWindowTitle("Loading Title Updates")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(500)  # Only show if it takes more than 500ms
+        progress_dialog.setValue(0)
+
+        # Flag to track if worker completed
+        worker_completed = False
+
+        # Create and start the worker
+        self.tu_fetch_worker = TitleUpdateFetchWorker(folder_path, title_id, self)
+
+        def on_status_update(message):
+            """Update the progress dialog message"""
+            progress_dialog.setLabelText(message)
+
+        def on_fetch_complete(media_id, updates):
+            nonlocal worker_completed
+            worker_completed = True
+            progress_dialog.close()
+
+            # Open the title updates dialog with the fetched data
+            dialog = XboxUnityTitleUpdatesDialog(self, title_id, updates)
+
+            # Connect download signals to main window progress display
+            dialog.download_started.connect(self._on_tu_download_started)
+            dialog.download_progress.connect(self._on_tu_download_progress)
+            dialog.download_complete.connect(self._on_tu_download_complete)
+            dialog.download_error.connect(self._on_tu_download_error)
+
+            dialog.exec()
+
+        def on_fetch_error(error_message):
+            nonlocal worker_completed
+            worker_completed = True
+            progress_dialog.close()
             QMessageBox.information(
                 self,
                 "Title Updates",
-                f"No title updates found for Title ID: {title_id}",
+                error_message,
             )
-            return
 
-        dialog = XboxUnityTitleUpdatesDialog(self, title_id, updates)
+        # Connect signals
+        self.tu_fetch_worker.status_update.connect(on_status_update)
+        self.tu_fetch_worker.fetch_complete.connect(on_fetch_complete)
+        self.tu_fetch_worker.fetch_error.connect(on_fetch_error)
 
-        # Connect download signals to main window progress display
-        dialog.download_started.connect(self._on_tu_download_started)
-        dialog.download_progress.connect(self._on_tu_download_progress)
-        dialog.download_complete.connect(self._on_tu_download_complete)
-        dialog.download_error.connect(self._on_tu_download_error)
-
-        dialog.exec()
+        # Start the worker
+        self.tu_fetch_worker.start()
 
     def batch_download_title_updates(self):
         """Batch download missing title updates for all games in target"""
@@ -5507,7 +5537,6 @@ class XboxBackupManager(QMainWindow):
         self, current: int, total: int, current_file: str = ""
     ):
         """Update batch DLC import progress dialog."""
-        print(f"[INFO] Batch DLC Import Progress: {current}/{total} - {current_file}")
         self.dlc_import_progress_dialog.update_progress(
             current, f"Importing: {current_file} ({current}/{total})"
         )

@@ -264,7 +264,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                                 print(f"Error removing file {file}: {e}")
 
         if removed_files:
-            print(f"Removed title update files: {removed_files}")
             button.setText("Download")
             # Update button styling to blue for download
             button.setStyleSheet(

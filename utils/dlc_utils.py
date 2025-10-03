@@ -285,7 +285,6 @@ class DLCUtils:
                 if fname.upper() == filename.upper() and file_size == os.path.getsize(
                     local_dlc_path
                 ):
-                    print(f"[INFO] DLC file already exists on FTP: {remote_path}")
                     return False, "DLC file already exists"
 
             # Create remote directory structure recursively
@@ -329,7 +328,6 @@ class DLCUtils:
         if os.path.isfile(remote_path) and os.path.getsize(
             remote_path
         ) == os.path.getsize(local_dlc_path):
-            print(f"[INFO] DLC file already exists on USB: {remote_path}")
             return False, "DLC file already exists"
 
         # Create local directory structure if it doesn't exist
