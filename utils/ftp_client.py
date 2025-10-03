@@ -363,33 +363,10 @@ class FTPClient(QObject):
         except Exception as e:
             return False, f"Failed to upload file: {str(e)}"
 
-    def _get_ftp_connection(self):
-        """Create and return an FTP connection using settings"""
-        try:
-            self.ftp_settings = self.settings_manager.load_ftp_settings()
-            ftp_host = self.ftp_settings.get("host")
-            ftp_port = self.ftp_settings.get("port")
-            ftp_user = self.ftp_settings.get("username")
-            ftp_pass = self.ftp_settings.get("password")
-
-            if not all([ftp_host, ftp_port, ftp_user, ftp_pass]):
-                print("[ERROR] FTP credentials not configured")
-                return None
-
-            ftp_client = FTPClient()
-            success, message = ftp_client.connect(
-                ftp_host, ftp_user, ftp_pass, int(ftp_port)
-            )
-
-            if success:
-                return ftp_client
-            else:
-                print(f"[ERROR] FTP connection failed: {message}")
-                return None
-
-        except Exception as e:
-            print(f"[ERROR] Failed to connect to FTP: {e}")
-            return None
+    # _get_ftp_connection method removed - now using global FTP connection manager
+    # See utils/ftp_connection_manager.py for the new persistent connection approach
+    # Usage: from utils.ftp_connection_manager import get_ftp_manager
+    #        ftp_client = get_ftp_manager().get_connection()
 
     def _ftp_list_files_recursive(self, ftp_client, path):
         """Recursively list files in FTP directory with size information"""

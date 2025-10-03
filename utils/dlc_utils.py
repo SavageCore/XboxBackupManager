@@ -6,6 +6,7 @@ from typing import Dict, Optional
 from PyQt6.QtWidgets import QPushButton
 
 from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 
 
 class DLCUtils:
@@ -262,7 +263,7 @@ class DLCUtils:
         self, local_dlc_path: str, title_id: str, filename: str, progress_callback=None
     ) -> bool:
         """Install DLC to FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return False, "Could not connect to FTP server"
@@ -365,7 +366,7 @@ class DLCUtils:
         dlc: dict,
     ) -> None:
         """Uninstall DLC from FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return

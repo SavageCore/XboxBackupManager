@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 
 from utils.dlc_utils import DLCUtils
 from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from utils.title_update_utils import TitleUpdateUtils
@@ -86,7 +87,7 @@ class DLCListDialog(QDialog):
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return None
 
@@ -142,7 +143,7 @@ class DLCListDialog(QDialog):
 
     def _is_dlc_installed_ftp(self, title_id: str, dlc) -> bool:
         """Check if DLC is installed on FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return False
 

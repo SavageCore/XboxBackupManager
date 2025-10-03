@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 from utils.settings_manager import SettingsManager
 from utils.system_utils import SystemUtils
 from utils.title_update_utils import TitleUpdateUtils
@@ -98,7 +99,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _get_install_info_ftp(self, title_id: str, update) -> dict:
         """Get install info for FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return None
 
@@ -160,7 +161,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
     def _is_title_update_installed_ftp(self, title_id: str, update) -> bool:
         """Check if title update is installed on FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             return False
 
@@ -310,7 +311,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         update: dict,
     ) -> None:
         """Uninstall title update from FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return
@@ -397,7 +398,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         self, local_tu_path: str, title_id: str, filename: str
     ) -> bool:
         """Install title update to FTP server"""
-        ftp_client = self.ftp_client._get_ftp_connection()
+        ftp_client = get_ftp_manager().get_connection()
         if not ftp_client:
             print("[ERROR] Could not connect to FTP server")
             return False
