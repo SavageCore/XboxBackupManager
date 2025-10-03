@@ -107,7 +107,6 @@ class FTPConnectionManager(QObject):
 
             try:
                 if self._client.is_connected():
-                    print("[DEBUG] Sending FTP keep-alive (NOOP)")
                     self._last_activity = time.time()
                 else:
                     print("[WARN] FTP connection lost, attempting reconnect...")

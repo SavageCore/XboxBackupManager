@@ -401,8 +401,8 @@ class FTPClient(QObject):
                     file_size = self._get_ftp_file_size(ftp_client, item["full_path"])
                     files.append((item["full_path"], item["name"], file_size))
 
-        except Exception as e:
-            print(f"[DEBUG] Error listing FTP directory {path}: {e}")
+        except Exception:
+            pass
 
         return files
 
@@ -430,16 +430,11 @@ class FTPClient(QObject):
 
                         return size_result if size_result >= 0 else 0
                     else:
-                        print(
-                            f"[DEBUG] Unexpected SIZE response for {filepath}: {resp}"
-                        )
                         return 0
 
-                except Exception as e:
-                    print(f"[DEBUG] Could not get size for {filepath}: {e}")
+                except Exception:
                     return 0
             else:
                 return 0
-        except Exception as e:
-            print(f"[DEBUG] Error getting FTP file size for {filepath}: {e}")
+        except Exception:
             return 0

@@ -119,88 +119,6 @@ class XboxUnityTitleUpdatesDialog(QDialog):
         )
         # Note: Don't disconnect - using persistent connection manager
 
-    def _is_title_update_installed(self, title_id: str, update) -> bool:
-        """Check if a title update is installed by looking in Content and Cache folders"""
-        if self.current_mode == "ftp":
-            return self._is_title_update_installed_ftp(title_id, update)
-        else:
-            return self._is_title_update_installed_usb(title_id, update)
-
-    def _is_title_update_installed_usb(self, title_id: str, update) -> bool:
-        """Check if title update is installed on USB/local storage"""
-        content_folder = self.settings_manager.load_usb_content_directory()
-        cache_folder = self.settings_manager.load_usb_cache_directory()
-
-        if content_folder:
-            if not content_folder.endswith("0000000000000000"):
-                content_folder = os.path.join(content_folder, "0000000000000000")
-        else:
-            return False
-
-        possible_paths = [
-            f"{content_folder}/{title_id}/000B0000",
-            cache_folder,
-        ]
-
-        title_update_info = update.get("cached_info")
-        if not title_update_info:
-            return False
-
-        for base_path in possible_paths:
-            if base_path and os.path.exists(base_path):
-                for root, dirs, files in os.walk(base_path):
-                    for file in files:
-                        if file.upper() == title_update_info.get(
-                            "fileName", ""
-                        ).upper() and os.path.getsize(
-                            os.path.join(root, file)
-                        ) == title_update_info.get(
-                            "size", 0
-                        ):
-                            return True
-        return False
-
-    def _is_title_update_installed_ftp(self, title_id: str, update) -> bool:
-        """Check if title update is installed on FTP server"""
-        ftp_client = get_ftp_manager().get_connection()
-        if not ftp_client:
-            return False
-
-        content_folder = self.settings_manager.load_ftp_content_directory()
-        cache_folder = self.settings_manager.load_ftp_cache_directory()
-
-        if content_folder and not content_folder.endswith("0000000000000000"):
-            content_folder = f"{content_folder}/0000000000000000"
-
-        possible_paths = [
-            f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-            cache_folder,
-        ]
-
-        title_update_info = update.get("cached_info")
-        if not title_update_info:
-            return False
-
-        expected_filename = title_update_info.get("fileName", "")
-        expected_size = title_update_info.get("size", 0)
-
-        for base_path in possible_paths:
-            if not base_path:
-                continue
-
-            # Get recursive file listing from FTP
-            files = self.ftp_client._ftp_list_files_recursive(ftp_client, base_path)
-
-            for file_path, filename, file_size in files:
-                if (
-                    filename.upper() == expected_filename.upper()
-                    and file_size == expected_size
-                ):
-                    return True
-
-        return False
-        # Note: Don't disconnect - using persistent connection manager
-
     def _uninstall_title_update(
         self,
         title_id: str,
@@ -592,7 +510,9 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             left_layout.addWidget(date_label)
 
             # Path info (smallest, most muted)
-            is_installed = self._is_title_update_installed(self.title_id, update)
+            is_installed = TitleUpdateUtils._is_title_update_installed(
+                self, self.title_id, update
+            )
 
             # Initialize variables
             path_filename_label = None
@@ -968,7 +888,9 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             size_label.setMinimumWidth(70)  # Reduce minimum width
 
             # Action button (right side)
-            is_installed = self._is_title_update_installed(self.title_id, update)
+            is_installed = TitleUpdateUtils._is_title_update_installed(
+                self, self.title_id, update
+            )
 
             # Add path/filename info for all updates in single line format
             # First check if it's actually installed to get real info

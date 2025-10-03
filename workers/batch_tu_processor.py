@@ -11,6 +11,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from utils.ftp_connection_manager import get_ftp_manager
 from utils.settings_manager import SettingsManager
+from utils.title_update_utils import TitleUpdateUtils
 from utils.xboxunity import XboxUnity
 
 
@@ -135,29 +136,23 @@ class BatchTitleUpdateProcessor(QThread):
                         f"Found {len(updates)} update(s) for {game_name}, checking installation status..."
                     )
 
-                    # Find the highest version that's not installed
-                    latest_update = None
+                    # Check if any update is already installed (highest version first)
+                    installed_version = None
                     for update in updates:
-                        if not self._is_update_installed(title_id, update):
-                            latest_update = update
+                        if self._is_update_installed(title_id, update):
+                            installed_version = int(update.get("version", 0))
                             break
 
-                    if not latest_update:
-                        # All updates are already installed
-                        latest_version = updates[0] if updates else None
-                        if latest_version:
-                            self._log_message(
-                                f"  Latest title update (version {latest_version.get('version')}) already installed for {game_name}"
-                            )
-                        else:
-                            self._log_message(
-                                f"  All title updates already installed for {game_name}"
-                            )
+                    if installed_version is not None:
+                        self._log_message(
+                            f"  Latest title update (version {installed_version}) already installed for {game_name}"
+                        )
                         self.searching.emit(False)  # Stop indeterminate progress
                         self.game_completed.emit(game_name, 0)
                         continue
 
-                    # Download and install the latest missing update
+                    # No update installed, install the latest available version
+                    latest_update = updates[0]
                     version = latest_update.get("version", "N/A")
                     self._log_message(
                         f"  Installing latest available version {version} for {game_name}"
@@ -247,9 +242,11 @@ class BatchTitleUpdateProcessor(QThread):
 
     def _is_update_installed(self, title_id: str, update: dict) -> bool:
         """Check if an update is already installed"""
+        self._log_message(
+            f"    Checking installation status for version {update.get('version', 'N/A')}"
+        )
         try:
             version = update.get("version", "N/A")
-            # Remove the verbose logging here - we'll log at a higher level
 
             # Get update info first
             download_url = update.get("downloadUrl", "")
@@ -265,105 +262,24 @@ class BatchTitleUpdateProcessor(QThread):
 
             update["cached_info"] = title_update_info
 
-            # Check installation based on current mode
-            if self.current_mode == "ftp":
-                result = self._is_title_update_installed_ftp(title_id, update)
-            else:
-                result = self._is_title_update_installed_usb(title_id, update)
+            # Check installation
+            result = TitleUpdateUtils._is_title_update_installed(
+                title_id, update, self.current_mode, self.settings_manager
+            )
 
-            return result
+            if result:
+                self._log_message(f"    Version {version} is already installed")
+                return True
+
+            # If not installed, we need to download and install
+            self._log_message(f"    Version {version} is not installed")
+            return False
 
         except Exception as e:
             self._log_message(
                 f"    Error checking installation status for version {version}: {str(e)}"
             )
             return False
-
-    def _is_title_update_installed_usb(self, title_id: str, update) -> bool:
-        """Check if title update is installed on USB/local storage"""
-        try:
-            content_folder = self.settings_manager.load_usb_content_directory()
-            cache_folder = self.settings_manager.load_usb_cache_directory()
-
-            if content_folder:
-                if not content_folder.endswith("0000000000000000"):
-                    content_folder = os.path.join(content_folder, "0000000000000000")
-            else:
-                return False
-
-            possible_paths = [
-                os.path.join(content_folder, title_id, "000B0000"),
-                cache_folder,
-            ]
-
-            title_update_info = update.get("cached_info")
-            if not title_update_info:
-                return False
-
-            expected_filename = title_update_info.get("fileName", "")
-            expected_size = title_update_info.get("size", 0)
-
-            for base_path in possible_paths:
-                if base_path and os.path.exists(base_path):
-                    for root, dirs, files in os.walk(base_path):
-                        for file in files:
-                            file_size = os.path.getsize(os.path.join(root, file))
-                            if (
-                                file.upper() == expected_filename.upper()
-                                and file_size == expected_size
-                            ):
-                                return True
-            return False
-        except Exception as e:
-            self._log_message(f"    Error checking USB installation: {str(e)}")
-            return False
-
-    def _is_title_update_installed_ftp(self, title_id: str, update) -> bool:
-        """Check if title update is installed on FTP server"""
-        ftp_client = get_ftp_manager().get_connection()
-        if not ftp_client:
-            self._log_message("    [ERROR] Could not get FTP connection")
-            return False
-
-        try:
-            content_folder = self.settings_manager.load_ftp_content_directory()
-            cache_folder = self.settings_manager.load_ftp_cache_directory()
-
-            if content_folder and not content_folder.endswith("0000000000000000"):
-                content_folder = f"{content_folder}/0000000000000000"
-
-            possible_paths = [
-                f"{content_folder}/{title_id}/000B0000" if content_folder else None,
-                cache_folder,
-            ]
-
-            title_update_info = update.get("cached_info")
-            if not title_update_info:
-                return False
-
-            expected_filename = title_update_info.get("fileName", "")
-            expected_size = title_update_info.get("size", 0)
-
-            for base_path in possible_paths:
-                if not base_path:
-                    continue
-
-                # Get recursive file listing from FTP
-                files = self._ftp_list_files_recursive(ftp_client, base_path)
-
-                for file_path, filename, file_size in files:
-                    if (
-                        filename.upper() == expected_filename.upper()
-                        and file_size == expected_size
-                    ):
-                        return True
-
-            return False
-
-        except Exception as e:
-            self._log_message(f"    Error checking FTP installation: {str(e)}")
-            return False
-        # Note: Don't disconnect - using persistent connection manager
 
     def _ftp_list_files_recursive(self, ftp_client, path):
         """Recursively list files in FTP directory with size information"""
@@ -384,8 +300,8 @@ class BatchTitleUpdateProcessor(QThread):
                     file_size = item.get("size", 0)
                     files.append((item["full_path"], item["name"], file_size))
 
-        except Exception as e:
-            self._log_message(f"    [DEBUG] Error listing FTP directory {path}: {e}")
+        except Exception:
+            pass
 
         return files
 
