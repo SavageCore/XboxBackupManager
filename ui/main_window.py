@@ -69,6 +69,7 @@ from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
 from utils.dlc_utils import DLCUtils
 from utils.ftp_client import FTPClient
+from utils.ftp_connection_manager import get_ftp_manager
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
@@ -1024,6 +1025,16 @@ class XboxBackupManager(QMainWindow):
         if not self.current_directory or not os.path.exists(self.current_directory):
             return
 
+        # Skip transferred state check in FTP mode if not connected (don't block startup)
+        if self.current_mode == "ftp":
+            ftp_manager = get_ftp_manager()
+            # Check if there's an EXISTING connection without trying to create one
+            if not (ftp_manager._client and ftp_manager._client.is_connected()):
+                # Just mark all as not transferred for now
+                for game in self.games:
+                    game.transferred = False
+                return
+
         # Clear existing transferred state
         for game in self.games:
             game.transferred = False
@@ -1768,19 +1779,14 @@ class XboxBackupManager(QMainWindow):
             return False
 
         if self.current_mode == "ftp":
-            ftp_client = FTPClient()
-
-            # Are we connected? If not connect
-            if not ftp_client.is_connected():
-                ftp_client.connect(
-                    self.ftp_settings["host"],
-                    self.ftp_settings["username"],
-                    self.ftp_settings["password"],
-                    self.ftp_settings.get("port", 21),
-                )
-
             try:
-                # For extracted ISO games, always use game.name
+                # Use persistent connection manager - don't block on connection
+                ftp_manager = get_ftp_manager()
+                ftp_client = ftp_manager.get_connection()
+
+                # If we can't get a connection, just return False (don't block)
+                if not ftp_client or not ftp_client.is_connected():
+                    return False  # For extracted ISO games, always use game.name
                 if getattr(game, "is_extracted_iso", False):
                     target_path = (
                         f"{self.current_target_directory.rstrip('/')}/{game.name}"
@@ -2200,39 +2206,49 @@ class XboxBackupManager(QMainWindow):
 
         # Set current target directory based on mode
         if self.current_mode == "ftp":
-            # Don't try to connect immediately on startup - just set the labels
-            ftp_target = self.ftp_target_directories[self.current_platform]
-            self.current_target_directory = ftp_target
-            self.target_directory_label.setText(f"FTP: {ftp_target}")
-            self.target_space_label.setText("(FTP)")  # Don't try to get space info yet
+            # Quick FTP availability check - don't block
+            ftp_manager = get_ftp_manager()
+            ftp_client = ftp_manager.get_connection()
 
-            # Test connection in background without blocking startup
-            QTimer.singleShot(1000, self._test_ftp_connection_on_startup)
+            if not ftp_client or not ftp_client.is_connected():
+                # FTP not available, switch to USB mode
+                self.current_mode = "usb"
+                self.usb_mode_action.setChecked(True)
+                self.ftp_mode_action.setChecked(False)
+                self.status_manager.show_message(
+                    "FTP server not available, switched to USB mode"
+                )
+            else:
+                # FTP is available
+                ftp_target = self.ftp_target_directories[self.current_platform]
+                self.current_target_directory = ftp_target
+                self.target_directory_label.setText(f"FTP: {ftp_target}")
+                self.target_space_label.setText("(FTP)")
+                self.status_manager.show_message("FTP mode active")
 
-        # Set current target directory based on mode and check availability
+        # Set current target directory for USB mode
         if self.current_mode == "usb":
             target_dir = self.usb_target_directories[self.current_platform]
             text = target_dir
-        else:
-            target_dir = self.ftp_target_directories[self.current_platform]
-            text = f"FTP: {target_dir}"
-        if target_dir:
-            # Check if target directory is available/mounted
-            is_available = self._check_target_directory_availability(target_dir)
-            if is_available:
-                self.current_target_directory = target_dir
-                self.target_directory_label.setText(text)
-                self._update_target_space_label(target_dir)
-                self.status_manager.show_message(
-                    f"Target directory available: {target_dir}"
-                )
+            if target_dir:
+                # Check if target directory is available/mounted
+                is_available = self._check_target_directory_availability(target_dir)
+                if is_available:
+                    self.current_target_directory = target_dir
+                    self.target_directory_label.setText(text)
+                    self._update_target_space_label(target_dir)
+                    self.status_manager.show_message(
+                        f"Target directory available: {target_dir}"
+                    )
+                else:
+                    # Target directory not available
+                    self.current_target_directory = ""
+                    self.target_directory_label.setText(
+                        "Target directory not available"
+                    )
+                    self._handle_unavailable_target_directory(target_dir)
             else:
-                # Target directory not available
-                self.current_target_directory = ""
-                self.target_directory_label.setText("Target directory not available")
-                self._handle_unavailable_target_directory(target_dir)
-        else:
-            self.target_directory_label.setText("No target directory selected")
+                self.target_directory_label.setText("No target directory selected")
 
         # Update platform label
         self.platform_label.setText(self.platform_names[self.current_platform])
@@ -3788,19 +3804,12 @@ class XboxBackupManager(QMainWindow):
 
             # Handle FTP mode
             if self.current_mode == "ftp":
-                ftp_client = FTPClient()
                 try:
-                    # Try to connect first
-                    success, message = ftp_client.connect(
-                        self.ftp_settings["host"],
-                        self.ftp_settings["username"],
-                        self.ftp_settings["password"],
-                        self.ftp_settings.get("port", 21),
-                        self.ftp_settings.get("use_tls", False),
-                    )
+                    # Use persistent connection manager for fast check
+                    ftp_manager = get_ftp_manager()
+                    ftp_client = ftp_manager.get_connection()
 
-                    if not success:
-                        print(f"FTP connection failed: {message}")
+                    if not ftp_client or not ftp_client.is_connected():
                         return False
 
                     # Check if directory exists
@@ -3809,8 +3818,6 @@ class XboxBackupManager(QMainWindow):
                 except Exception as e:
                     print(f"FTP error checking target directory: {e}")
                     return False
-                finally:
-                    ftp_client.disconnect()
             else:
                 # USB/local mode - existing logic
                 if not os.path.exists(target_path):
@@ -3834,19 +3841,12 @@ class XboxBackupManager(QMainWindow):
 
             # Handle FTP mode
             if self.current_mode == "ftp":
-                ftp_client = FTPClient()
                 try:
-                    # Try to connect first
-                    success, message = ftp_client.connect(
-                        self.ftp_settings["host"],
-                        self.ftp_settings["username"],
-                        self.ftp_settings["password"],
-                        self.ftp_settings.get("port", 21),
-                        self.ftp_settings.get("use_tls", False),
-                    )
+                    # Use persistent connection manager for fast check
+                    ftp_manager = get_ftp_manager()
+                    ftp_client = ftp_manager.get_connection()
 
-                    if not success:
-                        print(f"FTP connection failed: {message}")
+                    if not ftp_client or not ftp_client.is_connected():
                         return False
 
                     # Check if directory exists
@@ -3855,8 +3855,6 @@ class XboxBackupManager(QMainWindow):
                 except Exception as e:
                     print(f"FTP error checking cache directory: {e}")
                     return False
-                finally:
-                    ftp_client.disconnect()
             else:
                 # USB/local mode - existing logic
                 if not os.path.exists(target_path):
@@ -3880,29 +3878,20 @@ class XboxBackupManager(QMainWindow):
 
             # Handle FTP mode
             if self.current_mode == "ftp":
-                ftp_client = FTPClient()
                 try:
-                    # Try to connect first
-                    success, message = ftp_client.connect(
-                        self.ftp_settings["host"],
-                        self.ftp_settings["username"],
-                        self.ftp_settings["password"],
-                        self.ftp_settings.get("port", 21),
-                        self.ftp_settings.get("use_tls", False),
-                    )
+                    # Use persistent connection manager for fast check
+                    ftp_manager = get_ftp_manager()
+                    ftp_client = ftp_manager.get_connection()
 
-                    if not success:
-                        print(f"FTP connection failed: {message}")
+                    if not ftp_client or not ftp_client.is_connected():
                         return False
 
                     # Check if directory exists
                     return ftp_client.directory_exists(target_path)
 
                 except Exception as e:
-                    print(f"FTP error checking cache directory: {e}")
+                    print(f"FTP error checking content directory: {e}")
                     return False
-                finally:
-                    ftp_client.disconnect()
             else:
                 # USB/local mode - existing logic
                 if not os.path.exists(target_path):
@@ -5522,13 +5511,21 @@ class XboxBackupManager(QMainWindow):
             self.status_manager.show_message("FTP connection ready")
             # Now it's safe to check target directory availability
             if self.current_target_directory:
-                is_available = self._check_target_directory_availability(
-                    self.current_target_directory
-                )
-                if not is_available:
-                    self.status_manager.show_message(
-                        "FTP target directory not accessible"
-                    )
+                try:
+                    ftp_manager = get_ftp_manager()
+                    ftp_client = ftp_manager.get_connection()
+                    if ftp_client and ftp_client.is_connected():
+                        is_available = ftp_client.directory_exists(
+                            self.current_target_directory
+                        )
+                        if not is_available:
+                            self.status_manager.show_message(
+                                "FTP target directory not accessible"
+                            )
+                    else:
+                        self.status_manager.show_message("FTP connection not available")
+                except Exception as e:
+                    self.status_manager.show_message(f"FTP check failed: {e}")
         else:
             self.status_manager.show_message(f"FTP connection failed: {message}")
             # Optionally switch to USB mode or show warning

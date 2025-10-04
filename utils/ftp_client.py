@@ -47,7 +47,7 @@ class FTPClient(QObject):
                 # Fall back to regular FTP
                 self._ftp = ftplib.FTP()
 
-            self._ftp.connect(host, port, timeout=10)
+            self._ftp.connect(host, port, timeout=5)
             self._ftp.login(username, password)
 
             if use_tls and isinstance(self._ftp, ftplib.FTP_TLS):

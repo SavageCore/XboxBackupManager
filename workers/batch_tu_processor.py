@@ -70,6 +70,17 @@ class BatchTitleUpdateProcessor(QThread):
             self.error_occurred.emit("No games to process")
             return
 
+        # Fast FTP check if mode is ftp
+        if self.current_mode == "ftp":
+            ftp_manager = get_ftp_manager()
+            ftp_client = ftp_manager.get_connection()
+            if not ftp_client or not ftp_client.is_connected():
+                self._log_message("FTP server not available, switching to USB mode.")
+                self.status_update.emit(
+                    "FTP server not available, switching to USB mode."
+                )
+                self.current_mode = "usb"
+
         total_games = len(self.games_to_process)
         total_updates_downloaded = 0
 
