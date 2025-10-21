@@ -1,6 +1,6 @@
 ruff==0.14.1
 darkdetect==0.8.0
-psutil==7.1.0
+psutil==7.1.1
 pyinstaller==6.16.0
 PyQt6==6.9.1
 pyxbe==1.0.3
