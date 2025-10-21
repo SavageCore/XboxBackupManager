@@ -1,4 +1,4 @@
-black==25.9.0
+ruff==0.14.1
 darkdetect==0.8.0
 psutil==7.1.0
 pyinstaller==6.16.0
