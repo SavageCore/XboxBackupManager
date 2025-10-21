@@ -1,0 +1,19 @@
+[project]
+name = "xboxbackupmanager"
+version = "0.1.0"
+description = "Xbox and Xbox 360 Backup Manager"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "darkdetect>=0.8.0",
+    "psutil>=7.1.1",
+    "pyinstaller>=6.16.0",
+    "pyqt6>=6.9.1",
+    "pyxbe>=1.0.3",
+    "qt-material>=2.17",
+    "qtawesome>=1.4.0",
+    "requests>=2.32.5",
+    "ruff>=0.14.1",
+    "semver>=3.0.4",
+    "watchdog>=6.0.0",
+]
