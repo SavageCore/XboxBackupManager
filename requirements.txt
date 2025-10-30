@@ -19,7 +19,7 @@ packaging==25.0
     #   pyinstaller
     #   pyinstaller-hooks-contrib
     #   qtpy
-pefile==2023.2.7
+pefile==2024.8.26
     # via pyinstaller
 psutil==7.1.1
     # via xboxbackupmanager (pyproject.toml)
