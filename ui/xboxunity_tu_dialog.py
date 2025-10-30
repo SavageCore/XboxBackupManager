@@ -171,9 +171,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                             "fileName", ""
                         ).upper() and os.path.getsize(
                             os.path.join(root, file)
-                        ) == title_update_info.get(
-                            "size", 0
-                        ):
+                        ) == title_update_info.get("size", 0):
                             try:
                                 os.remove(os.path.join(root, file))
                                 removed_files.append(os.path.join(root, file))
@@ -211,7 +209,12 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             download_url = update.get("downloadUrl", "")
             destination = f"cache/tu/{title_id}/"
             button.clicked.connect(
-                lambda checked, url=download_url, btn=button, ver=version, mid=media_id, upd=update: self._download_and_install(
+                lambda checked,
+                url=download_url,
+                btn=button,
+                ver=version,
+                mid=media_id,
+                upd=update: self._download_and_install(
                     url, destination, title_id, btn, ver, mid, upd
                 )
             )
@@ -297,7 +300,12 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             download_url = update.get("downloadUrl", "")
             destination = f"cache/tu/{title_id}/"
             button.clicked.connect(
-                lambda checked, url=download_url, btn=button, ver=version, mid=media_id, upd=update: self._download_and_install(
+                lambda checked,
+                url=download_url,
+                btn=button,
+                ver=version,
+                mid=media_id,
+                upd=update: self._download_and_install(
                     url, destination, title_id, btn, ver, mid, upd
                 )
             )
@@ -459,7 +467,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             update_frame.setStyleSheet(
                 f"""
                         QFrame {{
-                            background-color: {'rgba(255,255,255,0.05)' if i % 2 == 0 else 'rgba(255,255,255,0.02)'};
+                            background-color: {"rgba(255,255,255,0.05)" if i % 2 == 0 else "rgba(255,255,255,0.02)"};
                             border: 1px solid rgba(255,255,255,0.1);
                             border-radius: 6px;
                             margin: 1px;
@@ -511,7 +519,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
             # Path info (smallest, most muted)
             is_installed = TitleUpdateUtils._is_title_update_installed(
-                self, self.title_id, update
+                self.title_id, update, self.current_mode, self.settings_manager
             )
 
             # Initialize variables
@@ -626,7 +634,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             action_button.setStyleSheet(
                 f"""
                         QPushButton {{
-                            background-color: {'#e74c3c' if is_installed else '#3498db'};
+                            background-color: {"#e74c3c" if is_installed else "#3498db"};
                             color: white;
                             border: none;
                             border-radius: 5px;
@@ -635,10 +643,10 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                             margin: 0px;
                         }}
                         QPushButton:hover {{
-                            background-color: {'#c0392b' if is_installed else '#2980b9'};
+                            background-color: {"#c0392b" if is_installed else "#2980b9"};
                         }}
                         QPushButton:pressed {{
-                            background-color: {'#a93226' if is_installed else '#21618c'};
+                            background-color: {"#a93226" if is_installed else "#21618c"};
                         }}
                         QPushButton:disabled {{
                             background-color: #95a5a6;
@@ -659,14 +667,23 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             if is_installed:
                 # Connect uninstall action
                 action_button.clicked.connect(
-                    lambda checked, ver=version, mid=media_id, btn=action_button, upd=update: self._uninstall_title_update(
+                    lambda checked,
+                    ver=version,
+                    mid=media_id,
+                    btn=action_button,
+                    upd=update: self._uninstall_title_update(
                         self.title_id, ver, mid, btn, upd
                     )
                 )
             else:
                 # Connect download and install action
                 action_button.clicked.connect(
-                    lambda checked, url=download_url, btn=action_button, ver=version, mid=media_id, upd=update: self._download_and_install(
+                    lambda checked,
+                    url=download_url,
+                    btn=action_button,
+                    ver=version,
+                    mid=media_id,
+                    upd=update: self._download_and_install(
                         url, destination, self.title_id, btn, ver, mid, upd
                     )
                 )
@@ -830,7 +847,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             update_frame.setStyleSheet(
                 f"""
                 QFrame {{
-                    background-color: {'rgba(255,255,255,0.05)' if i % 2 == 0 else 'rgba(255,255,255,0.02)'};
+                    background-color: {"rgba(255,255,255,0.05)" if i % 2 == 0 else "rgba(255,255,255,0.02)"};
                     border: 1px solid rgba(255,255,255,0.1);
                     border-radius: 6px;
                     margin: 1px;
@@ -889,7 +906,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
 
             # Action button (right side)
             is_installed = TitleUpdateUtils._is_title_update_installed(
-                self, self.title_id, update
+                self.title_id, update, self.current_mode, self.settings_manager
             )
 
             # Add path/filename info for all updates in single line format
@@ -939,7 +956,7 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             action_button.setStyleSheet(
                 f"""
                 QPushButton {{
-                    background-color: {'#e74c3c' if is_installed else '#3498db'};
+                    background-color: {"#e74c3c" if is_installed else "#3498db"};
                     color: white;
                     border: none;
                     border-radius: 5px;
@@ -948,10 +965,10 @@ class XboxUnityTitleUpdatesDialog(QDialog):
                     font-weight: 500;
                 }}
                 QPushButton:hover {{
-                    background-color: {'#c0392b' if is_installed else '#2980b9'};
+                    background-color: {"#c0392b" if is_installed else "#2980b9"};
                 }}
                 QPushButton:pressed {{
-                    background-color: {'#a93226' if is_installed else '#21618c'};
+                    background-color: {"#a93226" if is_installed else "#21618c"};
                 }}
                 QPushButton:disabled {{
                     background-color: #95a5a6;
@@ -965,14 +982,23 @@ class XboxUnityTitleUpdatesDialog(QDialog):
             if is_installed:
                 # Connect uninstall action
                 action_button.clicked.connect(
-                    lambda checked, ver=version, mid=media_id, btn=action_button, upd=update: self._uninstall_title_update(
+                    lambda checked,
+                    ver=version,
+                    mid=media_id,
+                    btn=action_button,
+                    upd=update: self._uninstall_title_update(
                         self.title_id, ver, mid, btn, upd
                     )
                 )
             else:
                 # Connect download and install action
                 action_button.clicked.connect(
-                    lambda checked, url=download_url, btn=action_button, ver=version, mid=media_id, upd=update: self._download_and_install(
+                    lambda checked,
+                    url=download_url,
+                    btn=action_button,
+                    ver=version,
+                    mid=media_id,
+                    upd=update: self._download_and_install(
                         url, destination, self.title_id, btn, ver, mid, upd
                     )
                 )

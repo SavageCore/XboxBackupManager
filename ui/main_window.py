@@ -1283,34 +1283,13 @@ class XboxBackupManager(QMainWindow):
         has_selected = self._get_selected_games_count() > 0
 
         if self.current_mode == "ftp":
-            # For FTP mode, check if we can connect and directory exists
+            # For FTP mode, just check if settings are configured and target directory is set
+            # Don't try to connect here as it's called frequently and can block the UI
             has_target = bool(
                 self.ftp_settings
                 and self.ftp_settings.get("host")
                 and self.ftp_target_directories[self.current_platform]
             )
-
-            if has_target:
-                # Quick validation - don't actually connect here as it's called frequently
-                ftp_client = FTPClient()
-                try:
-                    success, message = ftp_client.connect(
-                        self.ftp_settings["host"],
-                        self.ftp_settings["username"],
-                        self.ftp_settings["password"],
-                        self.ftp_settings.get("port", 21),
-                        self.ftp_settings.get("use_tls", False),
-                    )
-                    if success:
-                        has_target = ftp_client.directory_exists(
-                            self.ftp_target_directories[self.current_platform]
-                        )
-                    else:
-                        has_target = False
-                except Exception:
-                    has_target = False
-                finally:
-                    ftp_client.disconnect()
         else:
             # USB mode
             has_target = bool(
@@ -1514,6 +1493,7 @@ class XboxBackupManager(QMainWindow):
                 self.ftp_settings["password"],
                 self.current_target_directory,
                 self.ftp_settings.get("port", 21),
+                current_platform=self.current_platform,
             )
         else:
             self.transfer_worker = FileTransferWorker(
@@ -2352,7 +2332,7 @@ class XboxBackupManager(QMainWindow):
             self.scan_timer.stop()
             self.scan_timer.start(self.scan_delay)
             self.status_manager.show_message(
-                f"Directory changed - rescanning in {self.scan_delay//1000}s..."
+                f"Directory changed - rescanning in {self.scan_delay // 1000}s..."
             )
 
     def _on_directory_changed(self, new_directory: str):
@@ -2377,7 +2357,7 @@ class XboxBackupManager(QMainWindow):
         self.scan_timer.stop()
         self.scan_timer.start(self.scan_delay)
         self.status_manager.show_message(
-            f"Directory changed - rescanning in {self.scan_delay//1000}s..."
+            f"Directory changed - rescanning in {self.scan_delay // 1000}s..."
         )
 
     def _on_scan_started(self):
@@ -3264,6 +3244,15 @@ class XboxBackupManager(QMainWindow):
 
     def _extract_title_id(self, folder_name: str, folder_path: str):
         """Extract title ID from folder name or path"""
+        # For XBLA, the folder name is always the title ID
+        if self.current_platform == "xbla":
+            # Check if folder name looks like a hex title ID (8 characters)
+            if len(folder_name) == 8 and all(
+                c in "0123456789ABCDEFabcdef" for c in folder_name
+            ):
+                return folder_name.upper()
+            return None
+
         # For Xbox 360, check if it's an extracted ISO game first
         if self.current_platform == "xbox360":
             folder_path_obj = Path(folder_path)
@@ -3322,6 +3311,15 @@ class XboxBackupManager(QMainWindow):
         self, folder_name: str, folder_path: str, ftp_client: FTPClient
     ):
         """Extract title ID from folder name or path for FTP connections"""
+        # For XBLA, the folder name is always the title ID
+        if self.current_platform == "xbla":
+            # Check if folder name looks like a hex title ID (8 characters)
+            if len(folder_name) == 8 and all(
+                c in "0123456789ABCDEFabcdef" for c in folder_name
+            ):
+                return folder_name.upper()
+            return None
+
         # For Xbox 360, check if it's an extracted ISO game first
         if self.current_platform == "xbox360":
             # Check if this is an extracted ISO game (has default.xex)

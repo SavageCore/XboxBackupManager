@@ -49,7 +49,13 @@ class TransferManager(QObject):
 
         if current_mode == "ftp":
             self.current_worker = FTPTransferWorker(
-                games_to_transfer, target_directory, ftp_settings, current_platform
+                games_to_transfer,
+                ftp_settings["host"],
+                ftp_settings["username"],
+                ftp_settings["password"],
+                target_directory,
+                ftp_settings.get("port", 21),
+                current_platform=current_platform,
             )
         else:
             self.current_worker = FileTransferWorker(
