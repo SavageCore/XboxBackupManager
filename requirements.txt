@@ -27,7 +27,7 @@ pyinstaller==6.16.0
     # via xboxbackupmanager (pyproject.toml)
 pyinstaller-hooks-contrib==2025.9
     # via pyinstaller
-pyqt6==6.9.1
+pyqt6==6.10.0
     # via xboxbackupmanager (pyproject.toml)
 pyqt6-qt6==6.10.0
     # via pyqt6
