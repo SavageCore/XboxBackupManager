@@ -45,7 +45,7 @@ qtpy==2.4.3
     # via qtawesome
 requests==2.32.5
     # via xboxbackupmanager (pyproject.toml)
-ruff==0.14.2
+ruff==0.14.3
     # via xboxbackupmanager (pyproject.toml)
 semver==3.0.4
     # via xboxbackupmanager (pyproject.toml)
