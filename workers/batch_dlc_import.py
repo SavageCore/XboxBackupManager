@@ -53,9 +53,10 @@ class BatchDLCImportWorker(QThread):
                     file_existed = os.path.exists(target_path)
                     if not file_existed:
                         try:
-                            with open(file_path, "rb") as src, open(
-                                target_path, "wb"
-                            ) as dst:
+                            with (
+                                open(file_path, "rb") as src,
+                                open(target_path, "wb") as dst,
+                            ):
                                 dst.write(src.read())
                         except Exception as e:
                             log_by_game.setdefault(game_name, []).append(

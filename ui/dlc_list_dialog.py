@@ -135,9 +135,7 @@ class DLCListDialog(QDialog):
                             "file", ""
                         ).upper() and os.path.getsize(
                             os.path.join(root, file)
-                        ) == dlc.get(
-                            "size", 0
-                        ):
+                        ) == dlc.get("size", 0):
                             return True
         return False
 
@@ -407,7 +405,7 @@ class DLCListDialog(QDialog):
             update_frame.setStyleSheet(
                 f"""
                     QFrame {{
-                        background-color: {'rgba(255,255,255,0.05)' if i % 2 == 0 else 'rgba(255,255,255,0.02)'};
+                        background-color: {"rgba(255,255,255,0.05)" if i % 2 == 0 else "rgba(255,255,255,0.02)"};
                         border: 1px solid rgba(255,255,255,0.1);
                         border-radius: 6px;
                         margin: 1px;
@@ -553,7 +551,7 @@ class DLCListDialog(QDialog):
             action_button.setStyleSheet(
                 f"""
                     QPushButton {{
-                        background-color: {'#e74c3c' if is_installed else '#3498db'};
+                        background-color: {"#e74c3c" if is_installed else "#3498db"};
                         color: white;
                         border: none;
                         border-radius: 5px;
@@ -562,10 +560,10 @@ class DLCListDialog(QDialog):
                         margin: 0px;
                     }}
                     QPushButton:hover {{
-                        background-color: {'#c0392b' if is_installed else '#2980b9'};
+                        background-color: {"#c0392b" if is_installed else "#2980b9"};
                     }}
                     QPushButton:pressed {{
-                        background-color: {'#a93226' if is_installed else '#21618c'};
+                        background-color: {"#a93226" if is_installed else "#21618c"};
                     }}
                     QPushButton:disabled {{
                         background-color: #95a5a6;

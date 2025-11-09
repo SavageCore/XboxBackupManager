@@ -247,9 +247,7 @@ class TitleUpdateUtils:
                             "fileName", ""
                         ).upper() and os.path.getsize(
                             os.path.join(root, file)
-                        ) == title_update_info.get(
-                            "size", 0
-                        ):
+                        ) == title_update_info.get("size", 0):
                             return True
         return False
 

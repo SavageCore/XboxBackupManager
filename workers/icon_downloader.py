@@ -421,9 +421,9 @@ class IconDownloader(QThread):
     def _decode_a8r8g8b8(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode A8R8G8B8 format (32-bit ARGB)"""
         expected_size = w * h * 4
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         # First read the swizzled data into a temporary array
         swizzled_pixels = []
@@ -438,9 +438,9 @@ class IconDownloader(QThread):
     def _decode_x8r8g8b8(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode X8R8G8B8 format (32-bit RGB with unused alpha)"""
         expected_size = w * h * 4
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         # First read the swizzled data into a temporary array
         swizzled_pixels = []
@@ -455,9 +455,9 @@ class IconDownloader(QThread):
     def _decode_r5g6b5(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode R5G6B5 format (16-bit RGB)"""
         expected_size = w * h * 2
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         swizzled_pixels = []
         for i in range(0, expected_size, 2):
@@ -516,9 +516,9 @@ class IconDownloader(QThread):
         """Decode A1R5G5B5 format (16-bit ARGB with 1-bit alpha)"""
         pixels: List[RGBA] = []
         expected_size = w * h * 2
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         for i in range(0, len(data), 2):
             if i + 1 < len(data):
@@ -627,9 +627,9 @@ class IconDownloader(QThread):
     def _decode_dds_a8r8g8b8(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode DDS A8R8G8B8 format (32-bit ARGB) - linear format, no swizzling"""
         expected_size = w * h * 4
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         pixels = []
         for i in range(0, expected_size, 4):
@@ -642,9 +642,9 @@ class IconDownloader(QThread):
     def _decode_dds_x8r8g8b8(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode DDS X8R8G8B8 format (32-bit RGB) - linear format, no swizzling"""
         expected_size = w * h * 4
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         pixels = []
         for i in range(0, expected_size, 4):
@@ -657,9 +657,9 @@ class IconDownloader(QThread):
     def _decode_dds_r5g6b5(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode DDS R5G6B5 format (16-bit RGB) - linear format, no swizzling"""
         expected_size = w * h * 2
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         pixels = []
         for i in range(0, expected_size, 2):
@@ -673,9 +673,9 @@ class IconDownloader(QThread):
         """Decode X1R5G5B5 format (16-bit RGB with unused bit)"""
         pixels: List[RGBA] = []
         expected_size = w * h * 2
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         for i in range(0, len(data), 2):
             if i + 1 < len(data):
@@ -691,9 +691,9 @@ class IconDownloader(QThread):
         """Decode A4R4G4B4 format (16-bit ARGB with 4 bits per channel)"""
         pixels: List[RGBA] = []
         expected_size = w * h * 2
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         for i in range(0, len(data), 2):
             if i + 1 < len(data):
@@ -710,9 +710,9 @@ class IconDownloader(QThread):
         """Decode A8 format (8-bit alpha only)"""
         pixels: List[RGBA] = []
         expected_size = w * h
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         for i in range(len(data)):
             a = data[i] / 255.0
@@ -723,9 +723,9 @@ class IconDownloader(QThread):
     def _decode_a8b8g8r8(self, w: int, h: int, data: bytes) -> List["RGBA"]:
         """Decode A8B8G8R8 format (32-bit ABGR)"""
         expected_size = w * h * 4
-        assert (
-            len(data) >= expected_size
-        ), f"Not enough data: expected {expected_size}, got {len(data)}"
+        assert len(data) >= expected_size, (
+            f"Not enough data: expected {expected_size}, got {len(data)}"
+        )
 
         swizzled_pixels = []
         for i in range(0, expected_size, 4):
