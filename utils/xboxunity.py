@@ -503,7 +503,6 @@ class XboxUnity:
 
                 # The folder may not exist yet, so create it
                 os.makedirs(destination, exist_ok=True)
-
                 shutil.move(tu_path, destination)
                 return True
             else:

@@ -4801,8 +4801,8 @@ class XboxBackupManager(QMainWindow):
 
     def _create_god_directly(self, iso_path, reuse_dialog=False):
         """Create GOD file directly with iso2god-x86_64-windows.exe using progress dialog"""
-        usb_content_dir = self.settings_manager.load_usb_content_directory()
-        dest_dir = os.path.join(usb_content_dir, "0000000000000000")
+        # Output GOD file next to the source ISO/ZIP file
+        dest_dir = os.path.dirname(iso_path)
 
         # Ensure the output directory exists
         os.makedirs(dest_dir, exist_ok=True)
