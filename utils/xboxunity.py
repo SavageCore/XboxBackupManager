@@ -567,6 +567,19 @@ class XboxUnity:
                             return xex_info["media_id"]
                     return None
 
+                # Check for XBLA folder structure (000D0000 subfolder with executable)
+                xbla_folder = file_path / "000D0000"
+                if xbla_folder.exists():
+                    xbla_files = [f for f in xbla_folder.iterdir() if f.is_file()]
+                    if xbla_files:
+                        # Try to extract from the first file in XBLA folder
+                        for xbla_file in xbla_files:
+                            filename = xbla_file.name
+                            return self._extract_media_id_from_god_header(
+                                str(xbla_file)
+                            )
+                    return None
+
                 # If no .xex files, treat as GoD game
                 god_header_path = file_path / "00007000"
                 if god_header_path.exists():
