@@ -9,7 +9,6 @@ from utils.ftp_connection_manager import get_ftp_manager
 
 
 class DLCUtils:
-
     def __init__(self, parent):
         self.directory_manager = parent.directory_manager
         self.settings_manager = parent.settings_manager
@@ -349,7 +348,7 @@ class DLCUtils:
             # Copy the file with progress tracking
             file_size = os.path.getsize(local_dlc_path)
             bytes_copied = 0
-            chunk_size = 8192  # 8KB chunks
+            chunk_size = 2 * 1024 * 1024  # 2MB chunks for better performance
 
             with open(local_dlc_path, "rb") as src_file:
                 with open(remote_path, "wb") as dest_file:
@@ -467,9 +466,7 @@ class DLCUtils:
                             "file", ""
                         ).upper() and os.path.getsize(
                             os.path.join(root, file)
-                        ) == dlc.get(
-                            "size", 0
-                        ):
+                        ) == dlc.get("size", 0):
                             try:
                                 os.remove(os.path.join(root, file))
                                 removed_files.append(os.path.join(root, file))

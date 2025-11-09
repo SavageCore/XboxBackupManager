@@ -5658,7 +5658,12 @@ class XboxBackupManager(QMainWindow):
                                 open(file_path, "rb") as src,
                                 open(target_path, "wb") as dst,
                             ):
-                                dst.write(src.read())
+                                # Copy in 2MB chunks to avoid loading entire file into memory
+                                while True:
+                                    chunk = src.read(2 * 1024 * 1024)
+                                    if not chunk:
+                                        break
+                                    dst.write(chunk)
                         except Exception as e:
                             QMessageBox.warning(
                                 self, "DLC Save Error", f"Failed to save DLC: {e}"
