@@ -3189,6 +3189,17 @@ class XboxBackupManager(QMainWindow):
                                     pass  # If we can't check, assume it's not extracted ISO
 
                             game_name = self.game_manager.get_game_name(title_id)
+
+                            # If game name is not in loaded games, try to get it from cache
+                            if not game_name:
+                                game_name = self.game_manager.get_game_name_from_cache(
+                                    title_id, self.current_platform
+                                )
+
+                            # If still no name, use Unknown
+                            if not game_name:
+                                game_name = "Unknown"
+
                             games.append(
                                 {
                                     "name": game_name,
@@ -3228,6 +3239,17 @@ class XboxBackupManager(QMainWindow):
                                 is_extracted_iso = xex_path.exists()
 
                             game_name = self.game_manager.get_game_name(title_id)
+
+                            # If game name is not in loaded games, try to get it from cache
+                            if not game_name:
+                                game_name = self.game_manager.get_game_name_from_cache(
+                                    title_id, self.current_platform
+                                )
+
+                            # If still no name, use Unknown
+                            if not game_name:
+                                game_name = "Unknown"
+
                             games.append(
                                 {
                                     "name": game_name,

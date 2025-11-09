@@ -3,6 +3,7 @@
 Game Manager - Handles game scanning, filtering, and selection operations
 """
 
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -110,15 +111,19 @@ class GameManager(QObject):
 
     def find_game_by_title_id(self, title_id: str) -> Optional[GameInfo]:
         """Find a game by its title ID"""
+        print(f"[DEBUG] Searching for game with Title ID: {title_id}")
         for game in self.games:
             if game.title_id == title_id:
+                print(f"[DEBUG] Found game: {game.name}")
                 return game
         return None
 
     def get_game_name(self, title_id: str) -> Optional[str]:
         """Get the name of a game by its title ID"""
+        print(f"[DEBUG] Looking up game name for Title ID: {title_id}")
         game = self.find_game_by_title_id(title_id)
         if game:
+            print(f"[DEBUG] Found game name: {game.name}")
             return game.name
         return None
 
@@ -213,4 +218,72 @@ class GameManager(QObject):
         icon_path = Path("cache/icons") / f"{title_id}.png"
         if icon_path.exists():
             return str(icon_path)
+        return None
+
+    def get_game_name_from_cache(self, title_id: str, platform: str) -> Optional[str]:
+        """Get game name from cache file for a given title ID
+
+        Checks the specified platform's cache first, then checks other platform caches
+        as fallback (useful when target directory contains mixed platform games).
+        Note: Only XBLA and Xbox 360 support title updates, so only check those caches.
+        """
+        cache_dir = Path("cache")
+
+        # Build list of cache patterns to check - specified platform first, then others
+        # Note: Only XBLA and Xbox 360 support title updates
+        cache_patterns = []
+
+        if platform == "xbla":
+            cache_patterns = [
+                "scan_cache_xbla_*.json",
+                "scan_cache_xbox360_*.json",  # Fallback: Xbox 360 games might be in target
+            ]
+        elif platform == "xbox360":
+            cache_patterns = [
+                "scan_cache_xbox360_*.json",
+                "scan_cache_xbla_*.json",  # Fallback: XBLA games might be in target
+            ]
+        elif platform == "xbox":
+            # Original Xbox doesn't have title updates, but still check XBLA/360 in case
+            cache_patterns = [
+                "scan_cache_xbox_*.json",
+                "scan_cache_xbox360_*.json",
+                "scan_cache_xbla_*.json",
+            ]
+        else:
+            return None
+
+        # Try each cache pattern in order
+        for cache_pattern in cache_patterns:
+            cache_files = list(cache_dir.glob(cache_pattern))
+            if not cache_files:
+                continue
+
+            # Use the first (and should be only) cache file for this pattern
+            cache_file = cache_files[0]
+
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cache_data = json.load(f)
+
+                # Cache format is a dict with metadata and "games" key containing the list
+                if isinstance(cache_data, dict):
+                    games_list = cache_data.get("games", [])
+
+                    for game_entry in games_list:
+                        entry_title_id = game_entry.get("title_id")
+                        if entry_title_id == title_id:
+                            name = game_entry.get("name")
+                            return name
+
+                elif isinstance(cache_data, list):
+                    for game_entry in cache_data:
+                        entry_title_id = game_entry.get("title_id")
+                        if entry_title_id == title_id:
+                            name = game_entry.get("name")
+                            return name
+
+            except Exception:
+                continue
+
         return None
