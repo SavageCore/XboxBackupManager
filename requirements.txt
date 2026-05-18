@@ -49,7 +49,7 @@ ruff==0.14.6
     # via xboxbackupmanager (pyproject.toml)
 semver==3.0.4
     # via xboxbackupmanager (pyproject.toml)
-setuptools==80.9.0
+setuptools==82.0.1
     # via
     #   pyinstaller
     #   pyinstaller-hooks-contrib
