@@ -53,7 +53,7 @@ setuptools==80.9.0
     # via
     #   pyinstaller
     #   pyinstaller-hooks-contrib
-urllib3==2.5.0
+urllib3==2.7.0
     # via requests
 watchdog==6.0.0
     # via xboxbackupmanager (pyproject.toml)
