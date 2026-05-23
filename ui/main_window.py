@@ -73,7 +73,11 @@ from utils.ftp_connection_manager import get_ftp_manager
 from utils.github import check_for_update, update
 from utils.settings_manager import SettingsManager
 from utils.status_manager import StatusManager
-from utils.system_utils import SystemUtils
+from utils.system_utils import (
+    SystemUtils,
+    get_xdvdfs_binary_name,
+    get_iso2god_binary_name,
+)
 from workers.title_update_fetcher import TitleUpdateFetchWorker
 from utils.ui_utils import UIUtils
 from utils.xboxunity import XboxUnity
@@ -4754,7 +4758,7 @@ class XboxBackupManager(QMainWindow):
             self.god_temp_isos = []
 
     def _create_god(self):
-        """Create GOD file with iso2god-x86_64-windows.exe"""
+        """Create GOD file with iso2god"""
         if not self.god_file_path:
             QMessageBox.warning(
                 self, "No files selected", "Please select an ISO/ZIP file to convert."
@@ -4822,7 +4826,7 @@ class XboxBackupManager(QMainWindow):
         self.progress_bar.setVisible(False)
 
     def _create_god_directly(self, iso_path, reuse_dialog=False):
-        """Create GOD file directly with iso2god-x86_64-windows.exe using progress dialog"""
+        """Create GOD file directly with iso2god using progress dialog"""
         # Output GOD file next to the source ISO/ZIP file
         dest_dir = os.path.dirname(iso_path)
 
@@ -4903,8 +4907,8 @@ class XboxBackupManager(QMainWindow):
 
     def _check_required_tools(self):
         """Check for required executables and set up watchers"""
-        self.xdvdfs_path = os.path.join(os.getcwd(), "xdvdfs.exe")
-        self.iso2god_path = os.path.join(os.getcwd(), "iso2god-x86_64-windows.exe")
+        self.xdvdfs_path = os.path.join(os.getcwd(), get_xdvdfs_binary_name())
+        self.iso2god_path = os.path.join(os.getcwd(), get_iso2god_binary_name())
         self.xextool_path = os.path.join(os.getcwd(), "XexTool.exe")
 
         self.xdvdfs_found = os.path.exists(self.xdvdfs_path)
@@ -4990,23 +4994,30 @@ class XboxBackupManager(QMainWindow):
                 response.raise_for_status()
                 release_info = response.json()
                 assets = release_info.get("assets", [])
+                _xdvdfs_platform = (
+                    "windows"
+                    if os.name == "nt"
+                    else ("macos" if sys.platform == "darwin" else "linux")
+                )
                 download_url = None
                 for asset in assets:
                     if (
                         asset.get("name", "").endswith(".zip")
-                        and "windows" in asset.get("name", "").lower()
+                        and _xdvdfs_platform in asset.get("name", "").lower()
                     ):
                         download_url = asset.get("browser_download_url")
                         break
                 if not download_url:
-                    download_url = "https://github.com/antangelo/xdvdfs/releases/download/v0.8.3/xdvdfs-windows-1cc850bf1b3487fad7ec7c9eed01d83e8fc75ba4.zip"
+                    download_url = f"https://github.com/antangelo/xdvdfs/releases/download/v0.8.3/xdvdfs-{_xdvdfs_platform}-1cc850bf1b3487fad7ec7c9eed01d83e8fc75ba4.zip"
 
                 xdvdfs_layout = QHBoxLayout()
-                xdvdfs_label = QLabel("xdvdfs.exe:")
+                xdvdfs_label = QLabel(f"{get_xdvdfs_binary_name()}:")
                 xdvdfs_button = QPushButton("Download")
                 xdvdfs_button.setObjectName("xdvdfs_download_button")
                 xdvdfs_button.clicked.connect(
-                    lambda: QDesktopServices.openUrl(QUrl(download_url))
+                    lambda checked=False, url=download_url: QDesktopServices.openUrl(
+                        QUrl(url)
+                    )
                 )
                 xdvdfs_layout.addWidget(xdvdfs_label)
                 xdvdfs_layout.addWidget(xdvdfs_button)
@@ -5016,16 +5027,14 @@ class XboxBackupManager(QMainWindow):
 
         # iso2god download
         if not self.iso2god_found:
+            _iso2god_binary = get_iso2god_binary_name()
+            _iso2god_url = f"https://github.com/iliazeus/iso2god-rs/releases/latest/download/{_iso2god_binary}"
             iso2god_layout = QHBoxLayout()
-            iso2god_label = QLabel("iso2god-x86_64-windows.exe:")
+            iso2god_label = QLabel(f"{_iso2god_binary}:")
             iso2god_button = QPushButton("Download")
             iso2god_button.setObjectName("iso2god_download_button")
             iso2god_button.clicked.connect(
-                lambda: QDesktopServices.openUrl(
-                    QUrl(
-                        "https://github.com/iliazeus/iso2god-rs/releases/latest/download/iso2god-x86_64-windows.exe"
-                    )
-                )
+                lambda: QDesktopServices.openUrl(QUrl(_iso2god_url))
             )
             iso2god_layout.addWidget(iso2god_label)
             iso2god_layout.addWidget(iso2god_button)
@@ -5048,11 +5057,17 @@ class XboxBackupManager(QMainWindow):
                     download_url = "https://github.com/mLoaDs/XexTool/releases/download/v6.6/xextool_v6.6.zip"
 
                 xextool_layout = QHBoxLayout()
-                xextool_label = QLabel("XexTool.exe:")
+                xextool_label = QLabel(
+                    "XexTool.exe:"
+                    if os.name == "nt"
+                    else "XexTool.exe (requires Wine on Linux/macOS):"
+                )
                 xextool_button = QPushButton("Download")
                 xextool_button.setObjectName("xextool_download_button")
                 xextool_button.clicked.connect(
-                    lambda: QDesktopServices.openUrl(QUrl(download_url))
+                    lambda checked=False, url=download_url: QDesktopServices.openUrl(
+                        QUrl(url)
+                    )
                 )
                 xextool_layout.addWidget(xextool_label)
                 xextool_layout.addWidget(xextool_button)
@@ -5060,12 +5075,23 @@ class XboxBackupManager(QMainWindow):
             except requests.RequestException as e:
                 print(f"Error fetching XexTool download URL: {e}")
 
-        instructions = QLabel(
-            "After downloading:\n"
-            "• Place files next to the application executable or your Downloads folder\n"
-            "• The app will automatically detect and move them if required\n"
-            "• xdvdfs and XexTool will be extracted from the ZIP automatically"
-        )
+        if os.name == "nt":
+            instructions_text = (
+                "After downloading:\n"
+                "• Place files next to the application executable or your Downloads folder\n"
+                "• The app will automatically detect and move them if required\n"
+                "• xdvdfs and XexTool will be extracted from the ZIP automatically"
+            )
+        else:
+            instructions_text = (
+                "After downloading:\n"
+                "• Place files next to the application executable or your Downloads folder\n"
+                "• The app will automatically detect and move them if required\n"
+                "• xdvdfs will be extracted from the ZIP automatically\n"
+                "• iso2god is a plain binary — no extraction needed\n"
+                "• XexTool requires Wine to run on Linux/macOS"
+            )
+        instructions = QLabel(instructions_text)
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
@@ -5105,9 +5131,13 @@ class XboxBackupManager(QMainWindow):
                 file_path = os.path.join(path, filename)
 
                 # Handle xdvdfs ZIP
-                # Sample file name to check against: xdvdfs-windows-1cc850bf1b3487fad7ec7c9eed01d83e8fc75ba4.zip
+                _xdvdfs_platform = (
+                    "windows"
+                    if os.name == "nt"
+                    else ("macos" if sys.platform == "darwin" else "linux")
+                )
                 if (
-                    filename.startswith("xdvdfs-windows-")
+                    filename.startswith(f"xdvdfs-{_xdvdfs_platform}-")
                     and filename.endswith(".zip")
                     and not self.xdvdfs_found
                 ):
@@ -5120,18 +5150,18 @@ class XboxBackupManager(QMainWindow):
                         # Already in current directory, extract it
                         self._extract_xdvdfs_zip(file_path)
 
-                # Handle iso2god EXE
-                elif (
-                    filename == "iso2god-x86_64-windows.exe" and not self.iso2god_found
-                ):
+                # Handle iso2god binary
+                elif filename == get_iso2god_binary_name() and not self.iso2god_found:
                     if is_downloads:
-                        # Move EXE to current directory
                         dest_path = self.iso2god_path
                         shutil.move(file_path, dest_path)
+                        if os.name != "nt":
+                            os.chmod(dest_path, 0o755)
                         self.iso2god_found = True
                         self._update_tools_status()
                     else:
-                        # Already in current directory
+                        if os.name != "nt":
+                            os.chmod(file_path, 0o755)
                         self.iso2god_found = True
                         self._update_tools_status()
 
@@ -5154,19 +5184,24 @@ class XboxBackupManager(QMainWindow):
             print(f"Error handling file change: {e}")
 
     def _extract_xdvdfs_zip(self, zip_path):
-        """Extract xdvdfs.exe from the ZIP file"""
+        """Extract xdvdfs binary from the ZIP file"""
         try:
+            binary_name = get_xdvdfs_binary_name()
             extracted = False
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                # Look for the exe file in the ZIP, it is under the `artifacts` subdirectory, ensure we only extract that file into the current directory
+                # Look for the binary in the ZIP (may be under an `artifacts` subdirectory)
                 for zip_info in zip_ref.infolist():
-                    if zip_info.filename == "xdvdfs.exe":
-                        zip_info.filename = os.path.basename(zip_info.filename)
+                    if zip_info.filename == binary_name or zip_info.filename.endswith(
+                        f"/{binary_name}"
+                    ):
+                        zip_info.filename = binary_name
                         zip_ref.extract(zip_info, os.getcwd())
                         extracted = True
                         break
 
             if extracted:
+                if os.name != "nt":
+                    os.chmod(os.path.join(os.getcwd(), binary_name), 0o755)
                 self.xdvdfs_found = True
                 self._update_tools_status()
 

@@ -24,7 +24,11 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from utils.system_utils import SystemUtils
+from utils.system_utils import (
+    SystemUtils,
+    get_xdvdfs_binary_name,
+    get_iso2god_binary_name,
+)
 
 
 def _is_file_in_use(filepath):
@@ -592,7 +596,7 @@ class FileProcessingDialog(QDialog):
     def _setup_iso_process(self):
         """Set up the ISO extraction process"""
         self.processing_process = QProcess(self)
-        self.processing_process.setProgram("xdvdfs.exe")
+        self.processing_process.setProgram(get_xdvdfs_binary_name())
         self.processing_process.setArguments(
             ["unpack", self.input_path, self.output_path]
         )
@@ -607,7 +611,7 @@ class FileProcessingDialog(QDialog):
         """Set up the GOD creation process"""
         total_threads = str(os.cpu_count() or 2)
         self.processing_process = QProcess(self)
-        self.processing_process.setProgram("iso2god-x86_64-windows.exe")
+        self.processing_process.setProgram(get_iso2god_binary_name())
         self.processing_process.setArguments(
             ["--trim", "-j", total_threads, self.input_path, self.output_path]
         )
@@ -633,7 +637,7 @@ class FileProcessingDialog(QDialog):
 
             if not self.processing_process.waitForStarted(5000):
                 self._show_error(
-                    "Failed to start xdvdfs.exe. Make sure it's in the application directory."
+                    f"Failed to start {get_xdvdfs_binary_name()}. Make sure it's in the application directory."
                 )
                 return False
 
@@ -658,7 +662,7 @@ class FileProcessingDialog(QDialog):
 
             if not self.processing_process.waitForStarted(5000):
                 self._show_error(
-                    "Failed to start iso2god-x86_64-windows.exe. Make sure it's in the application directory."
+                    f"Failed to start {get_iso2god_binary_name()}. Make sure it's in the application directory."
                 )
                 return False
 

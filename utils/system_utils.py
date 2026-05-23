@@ -14,6 +14,20 @@ from xbe import Xbe
 logger = logging.getLogger(__name__)
 
 
+def get_xdvdfs_binary_name() -> str:
+    return "xdvdfs.exe" if os.name == "nt" else "xdvdfs"
+
+
+def get_iso2god_binary_name() -> str:
+    arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
+    if os.name == "nt":
+        return "iso2god-x86_64-windows.exe"
+    elif sys.platform == "darwin":
+        return f"iso2god-{arch}-macos"
+    else:
+        return f"iso2god-{arch}-linux"
+
+
 class SystemUtils:
     """Cross-platform system utilities with enhanced security"""
 
@@ -174,8 +188,8 @@ class SystemUtils:
             logger.warning(f"XexTool not found at: {xextool_path}")
             return None
 
-        # Validate xextool is actually executable
-        if not os.access(xextool_path, os.X_OK):
+        # On Windows, verify the binary is executable; on Linux/macOS Wine will handle it
+        if os.name == "nt" and not os.access(xextool_path, os.X_OK):
             logger.warning(f"XexTool is not executable: {xextool_path}")
             return None
 
@@ -186,9 +200,16 @@ class SystemUtils:
             xextool_abs = str(xextool_path.resolve())
             xex_abs = str(Path(xex_path).resolve())
 
-            # Run xextool with XML output format including icon extraction
-            # Use explicit arguments list for security
-            cmd_args = [xextool_abs, "-x", "dtin", xex_abs]
+            if os.name == "nt":
+                cmd_args = [xextool_abs, "-x", "dtin", xex_abs]
+            else:
+                wine = shutil.which("wine")
+                if not wine:
+                    logger.warning(
+                        "wine not found; cannot run XexTool on this platform"
+                    )
+                    return None
+                cmd_args = [wine, xextool_abs, "-x", "dtin", xex_abs]
 
             result = subprocess.run(
                 cmd_args,
