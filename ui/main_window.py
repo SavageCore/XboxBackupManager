@@ -4909,7 +4909,7 @@ class XboxBackupManager(QMainWindow):
         """Check for required executables and set up watchers"""
         self.xdvdfs_path = os.path.join(os.getcwd(), get_xdvdfs_binary_name())
         self.iso2god_path = os.path.join(os.getcwd(), get_iso2god_binary_name())
-        self.xextool_path = os.path.join(os.getcwd(), "XexTool.exe")
+        self.xextool_path = os.path.join(os.getcwd(), "xextool.exe")
 
         self.xdvdfs_found = os.path.exists(self.xdvdfs_path)
         self.iso2god_found = os.path.exists(self.iso2god_path)
@@ -4967,13 +4967,10 @@ class XboxBackupManager(QMainWindow):
 
     def _on_tools_added(self):
         """Handle the event when all required tools are added"""
-        # Close the dialog if open after a short delay
-        self.tools_dialog.accept
+        self.tools_dialog.accept()
         delattr(self, "tools_dialog")
-        # Clear the scan cache to force rescan
         self._clear_cache_for_directory()
-        # Restart the application
-        SystemUtils.restart_app(self)
+        SystemUtils.restart_app()
 
     def _show_tools_download_dialog(self):
         """Show dialog with download links for missing tools"""

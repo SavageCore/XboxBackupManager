@@ -69,12 +69,15 @@ class GameManager(QObject):
 
         # Safely clean up the scanner thread
         if self.current_scanner:
-            # Disconnect signals to prevent any late emissions
-            self.current_scanner.disconnect()
-            # Wait for thread to finish properly
+            try:
+                self.current_scanner.progress.disconnect(self.scan_progress.emit)
+                self.current_scanner.game_found.disconnect(self._on_game_found)
+                self.current_scanner.finished.disconnect(self._on_scan_complete)
+                self.current_scanner.error.disconnect(self._on_scan_error)
+            except RuntimeError:
+                pass
             if self.current_scanner.isRunning():
                 self.current_scanner.wait(2000)  # Wait up to 2 seconds
-            # Clear reference
             self.current_scanner = None
 
         self.scan_complete.emit(self.games)
@@ -85,12 +88,15 @@ class GameManager(QObject):
 
         # Safely clean up the scanner thread
         if self.current_scanner:
-            # Disconnect signals to prevent any late emissions
-            self.current_scanner.disconnect()
-            # Wait for thread to finish properly
+            try:
+                self.current_scanner.progress.disconnect(self.scan_progress.emit)
+                self.current_scanner.game_found.disconnect(self._on_game_found)
+                self.current_scanner.finished.disconnect(self._on_scan_complete)
+                self.current_scanner.error.disconnect(self._on_scan_error)
+            except RuntimeError:
+                pass
             if self.current_scanner.isRunning():
                 self.current_scanner.wait(2000)  # Wait up to 2 seconds
-            # Clear reference
             self.current_scanner = None
 
         self.scan_error.emit(error_message)
@@ -186,8 +192,13 @@ class GameManager(QObject):
             # Set stop flag
             self.current_scanner.should_stop = True
 
-            # Disconnect signals to prevent issues during cleanup
-            self.current_scanner.disconnect()
+            try:
+                self.current_scanner.progress.disconnect(self.scan_progress.emit)
+                self.current_scanner.game_found.disconnect(self._on_game_found)
+                self.current_scanner.finished.disconnect(self._on_scan_complete)
+                self.current_scanner.error.disconnect(self._on_scan_error)
+            except RuntimeError:
+                pass
 
             # Terminate and wait for thread to finish
             self.current_scanner.terminate()
