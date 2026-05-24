@@ -7,7 +7,8 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QStorageInfo, QUrl
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from xbe import Xbe
 
 # Set up logging
@@ -357,6 +358,26 @@ class SystemUtils:
         except Exception as e:
             logger.error(f"Error extracting XBE info from {xbe_path}: {e}")
             return None
+
+    @staticmethod
+    def browse_for_directory(parent, title: str, start_dir: str = "") -> str:
+        """Open a directory picker with all mounted drives in the sidebar."""
+        dialog = QFileDialog(parent)
+        dialog.setWindowTitle(title)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        if start_dir:
+            dialog.setDirectory(start_dir)
+
+        sidebar_urls = [QUrl.fromLocalFile(os.path.expanduser("~"))]
+        for vol in QStorageInfo.mountedVolumes():
+            if vol.isValid() and vol.isReady() and not vol.isReadOnly():
+                sidebar_urls.append(QUrl.fromLocalFile(vol.rootPath()))
+        dialog.setSidebarUrls(sidebar_urls)
+
+        if dialog.exec() == QFileDialog.DialogCode.Accepted:
+            files = dialog.selectedFiles()
+            return files[0] if files else ""
+        return ""
 
     @staticmethod
     def restart_app():

@@ -1123,7 +1123,7 @@ class XboxBackupManager(QMainWindow):
         )
 
         platform_name = self.platform_names[self.current_platform]
-        directory = QFileDialog.getExistingDirectory(
+        directory = SystemUtils.browse_for_directory(
             self,
             f"Select Target Directory for {platform_name} Games",
             start_dir,
@@ -1182,7 +1182,7 @@ class XboxBackupManager(QMainWindow):
             )
         )
 
-        directory = QFileDialog.getExistingDirectory(
+        directory = SystemUtils.browse_for_directory(
             self,
             "Select Cache Directory",
             start_dir,
@@ -1230,7 +1230,7 @@ class XboxBackupManager(QMainWindow):
             )
         )
 
-        directory = QFileDialog.getExistingDirectory(
+        directory = SystemUtils.browse_for_directory(
             self,
             "Select Content Directory",
             start_dir,
@@ -1269,7 +1269,7 @@ class XboxBackupManager(QMainWindow):
             else (os.path.expanduser("~"))
         )
 
-        directory = QFileDialog.getExistingDirectory(
+        directory = SystemUtils.browse_for_directory(
             self,
             "Select DLC Directory",
             start_dir,
@@ -1969,7 +1969,7 @@ class XboxBackupManager(QMainWindow):
         platform_name = self.platform_names[platform]
         start_dir = os.path.expanduser("~")
 
-        directory = QFileDialog.getExistingDirectory(
+        directory = SystemUtils.browse_for_directory(
             self,
             f"Select USB Target Directory for {platform_name} Games",
             start_dir,

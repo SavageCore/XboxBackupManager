@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from PyQt6.QtCore import QFileSystemWatcher, QObject, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog
 
+from utils.system_utils import SystemUtils
 from utils.ui_utils import UIUtils
 
 
@@ -54,7 +54,7 @@ class DirectoryManager(QObject):
         """Open directory selection dialog"""
         start_dir = start_dir or self.current_directory or os.path.expanduser("~")
 
-        directory = QFileDialog.getExistingDirectory(
+        directory = SystemUtils.browse_for_directory(
             parent_widget,
             f"Select {platform_name} Games Directory",
             start_dir,
