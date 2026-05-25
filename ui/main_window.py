@@ -65,6 +65,7 @@ from ui.ftp_browser_dialog import FTPBrowserDialog
 from ui.ftp_settings_dialog import FTPSettingsDialog
 from ui.icon_manager import IconManager
 from ui.theme_manager import ThemeManager
+from ui.welcome_dialog import WelcomeDialog
 from ui.xboxunity_settings_dialog import XboxUnitySettingsDialog
 from ui.xboxunity_tu_dialog import XboxUnityTitleUpdatesDialog
 from utils.dlc_utils import DLCUtils
@@ -2168,7 +2169,38 @@ class XboxBackupManager(QMainWindow):
 
         # Ensure DLC directory is set
         if not self.current_dlc_directory:
-            self.browse_dlc_directory()
+            dlg = WelcomeDialog(self)
+            dlg.exec()
+            dirs = dlg.get_directories()
+
+            if dirs["dlc"]:
+                self.directory_manager.set_dlc_directory(dirs["dlc"])
+                self.current_dlc_directory = self.directory_manager.dlc_directory
+
+            for key, platform in [("xbox", "xbox"), ("xbox360", "xbox360"), ("xbla", "xbla")]:
+                if dirs[key]:
+                    norm = os.path.normpath(dirs[key])
+                    self.platform_directories[platform] = norm
+                    self.directory_manager.platform_directories[platform] = norm
+
+            if dirs["usb_cache"]:
+                self.usb_cache_directory = os.path.normpath(dirs["usb_cache"])
+                self.directory_manager.usb_cache_directory = self.usb_cache_directory
+
+            if dirs["usb_content"]:
+                self.usb_content_directory = os.path.normpath(dirs["usb_content"])
+                self.directory_manager.usb_content_directory = self.usb_content_directory
+
+            for key, platform in [
+                ("usb_xbox", "xbox"),
+                ("usb_xbox360", "xbox360"),
+                ("usb_xbla", "xbla"),
+            ]:
+                if dirs[key]:
+                    self.usb_target_directories[platform] = os.path.normpath(dirs[key])
+
+            self.directory_manager.usb_target_directories = self.usb_target_directories
+            self.directory_manager.save_directories_to_settings(self.settings_manager)
 
         # Set current source directory
         if self.platform_directories[self.current_platform]:
