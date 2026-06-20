@@ -43,7 +43,7 @@ qtawesome==1.4.0
     # via xboxbackupmanager (pyproject.toml)
 qtpy==2.4.3
     # via qtawesome
-requests==2.32.5
+requests==2.34.2
     # via xboxbackupmanager (pyproject.toml)
 ruff==0.14.6
     # via xboxbackupmanager (pyproject.toml)
